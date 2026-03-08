@@ -1,6 +1,10 @@
 package com.rtsbuilding.rtsbuilding.client;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
+import com.rtsbuilding.rtsbuilding.network.C2SRtsCraftRefillPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsLinkedPickupPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsImportMenuSlotPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsReturnCarriedPayload;
@@ -14,6 +18,7 @@ import net.minecraft.client.gui.screens.inventory.CraftingScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.inventory.CraftingMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.util.Mth;
 import net.neoforged.api.distmarker.Dist;
@@ -55,6 +60,9 @@ public final class RtsClientInputGate {
     private static boolean overlaySearchFocused;
     private static String overlaySearchDraft = "";
     private static Screen activeOverlayScreen;
+    private static Screen pendingCraftRefillScreen;
+    private static int pendingCraftRefillButton = -1;
+    private static List<String> pendingCraftRefillBlueprint = List.of();
     private static final ItemStack[] RETURN_QUEUE = new ItemStack[RETURN_SLOTS];
     private static final long[] RETURN_QUEUE_EXPIRY = new long[RETURN_SLOTS];
 
@@ -95,9 +103,6 @@ public final class RtsClientInputGate {
 
     @SubscribeEvent
     public static void onScreenRenderPost(ScreenEvent.Render.Post event) {
-        if (!ClientRtsController.get().isEnabled()) {
-            return;
-        }
         if (event.getScreen() instanceof BuilderScreen) {
             return;
         }
@@ -109,6 +114,9 @@ public final class RtsClientInputGate {
         }
 
         syncOverlayScreen(event.getScreen());
+        if (!ClientRtsController.get().canUseStorageOverlay()) {
+            return;
+        }
 
         Minecraft minecraft = Minecraft.getInstance();
         GuiGraphics g = event.getGuiGraphics();
@@ -200,7 +208,7 @@ public final class RtsClientInputGate {
 
     @SubscribeEvent
     public static void onScreenMousePressed(ScreenEvent.MouseButtonPressed.Pre event) {
-        if (!ClientRtsController.get().isEnabled()) {
+        if (!ClientRtsController.get().canUseStorageOverlay()) {
             return;
         }
         if (event.getScreen() instanceof BuilderScreen) {
@@ -228,6 +236,7 @@ public final class RtsClientInputGate {
 
         double mx = event.getMouseX();
         double my = event.getMouseY();
+        capturePendingCraftRefill((AbstractContainerScreen<?>) event.getScreen(), mx, my, event.getButton());
         if (event.getButton() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             if (Screen.hasShiftDown()) {
                 if (tryImportHoveredMenuSlot((AbstractContainerScreen<?>) event.getScreen(), mx, my, event.getButton())) {
@@ -338,7 +347,7 @@ public final class RtsClientInputGate {
 
     @SubscribeEvent
     public static void onScreenMouseReleased(ScreenEvent.MouseButtonReleased.Pre event) {
-        if (!ClientRtsController.get().isEnabled()
+        if (!ClientRtsController.get().canUseStorageOverlay()
                 || event.getScreen() instanceof BuilderScreen
                 || event.getScreen() instanceof RtsCraftTerminalScreen
                 || !(event.getScreen() instanceof AbstractContainerScreen<?>)) {
@@ -363,12 +372,14 @@ public final class RtsClientInputGate {
             return;
         }
 
+        trySendPendingCraftRefill(event.getScreen(), event.getButton());
+
         // Click-to-pick / click-to-return is handled on mouse press so the carried item does not snap back on release.
     }
 
     @SubscribeEvent
     public static void onScreenMouseScrolled(ScreenEvent.MouseScrolled.Pre event) {
-        if (!ClientRtsController.get().isEnabled()) {
+        if (!ClientRtsController.get().canUseStorageOverlay()) {
             return;
         }
         if (event.getScreen() instanceof BuilderScreen) {
@@ -400,7 +411,7 @@ public final class RtsClientInputGate {
 
     @SubscribeEvent
     public static void onScreenKeyPressed(ScreenEvent.KeyPressed.Pre event) {
-        if (!ClientRtsController.get().isEnabled()
+        if (!ClientRtsController.get().canUseStorageOverlay()
                 || event.getScreen() instanceof BuilderScreen
                 || event.getScreen() instanceof RtsCraftTerminalScreen
                 || !(event.getScreen() instanceof AbstractContainerScreen<?>)
@@ -452,7 +463,7 @@ public final class RtsClientInputGate {
 
     @SubscribeEvent
     public static void onScreenCharTyped(ScreenEvent.CharacterTyped.Pre event) {
-        if (!ClientRtsController.get().isEnabled()
+        if (!ClientRtsController.get().canUseStorageOverlay()
                 || event.getScreen() instanceof BuilderScreen
                 || event.getScreen() instanceof RtsCraftTerminalScreen
                 || !(event.getScreen() instanceof AbstractContainerScreen<?>)
@@ -475,7 +486,8 @@ public final class RtsClientInputGate {
         overlaySearchFocused = false;
         overlaySearchDraft = "";
         activeOverlayScreen = null;
-        if (!ClientRtsController.get().isEnabled()) {
+        clearPendingCraftRefill();
+        if (!ClientRtsController.get().canUseStorageOverlay()) {
             pendingOverlayCarriedItemId = "";
             return;
         }
@@ -581,9 +593,56 @@ public final class RtsClientInputGate {
         activeOverlayScreen = screen;
         overlaySearchFocused = false;
         overlaySearchDraft = "";
+        ClientRtsController.get().requestStoragePage(ClientRtsController.get().getStoragePage());
         if (!ClientRtsController.get().getStorageSearch().isEmpty()) {
             ClientRtsController.get().setStorageSearch("");
         }
+    }
+
+    private static void capturePendingCraftRefill(AbstractContainerScreen<?> screen, double mouseX, double mouseY, int button) {
+        clearPendingCraftRefill();
+        if (screen == null || Screen.hasShiftDown()) {
+            return;
+        }
+        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT && button != GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+            return;
+        }
+        if (!(screen.getMenu() instanceof CraftingMenu menu)) {
+            return;
+        }
+        int slotIndex = resolveHoveredMenuSlot(screen, mouseX, mouseY);
+        if (slotIndex != 0) {
+            return;
+        }
+
+        List<String> blueprint = new ArrayList<>(9);
+        for (int i = 0; i < 9; i++) {
+            Slot slot = menu.getSlot(1 + i);
+            ItemStack stack = slot == null ? ItemStack.EMPTY : slot.getItem();
+            var itemId = stack.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(stack.getItem());
+            blueprint.add(itemId == null ? "" : itemId.toString());
+        }
+
+        pendingCraftRefillScreen = screen;
+        pendingCraftRefillButton = button;
+        pendingCraftRefillBlueprint = blueprint;
+    }
+
+    private static void trySendPendingCraftRefill(Screen screen, int button) {
+        if (pendingCraftRefillScreen != screen
+                || pendingCraftRefillButton != button
+                || pendingCraftRefillBlueprint.size() != 9) {
+            clearPendingCraftRefill();
+            return;
+        }
+        PacketDistributor.sendToServer(new C2SRtsCraftRefillPayload(new ArrayList<>(pendingCraftRefillBlueprint)));
+        clearPendingCraftRefill();
+    }
+
+    private static void clearPendingCraftRefill() {
+        pendingCraftRefillScreen = null;
+        pendingCraftRefillButton = -1;
+        pendingCraftRefillBlueprint = List.of();
     }
 
     private static int resolveOverlaySlotIndex(double mouseX, double mouseY, int gridX, int gridY) {

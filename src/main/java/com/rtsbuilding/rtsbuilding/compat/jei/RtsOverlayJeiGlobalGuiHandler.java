@@ -79,7 +79,7 @@ final class RtsOverlayJeiGlobalGuiHandler implements IGlobalGuiHandler {
 
     private static OverlayContext resolveContext() {
         ClientRtsController controller = ClientRtsController.get();
-        if (!controller.isEnabled()) {
+        if (!controller.canUseStorageOverlay()) {
             return null;
         }
 
@@ -130,4 +130,3 @@ final class RtsOverlayJeiGlobalGuiHandler implements IGlobalGuiHandler {
     private record OverlayContext(int panelX, int panelY) {
     }
 }
-

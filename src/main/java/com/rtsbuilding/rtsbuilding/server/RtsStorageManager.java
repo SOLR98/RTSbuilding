@@ -60,6 +60,7 @@ import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.ShapedRecipe;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerLevelAccess;
+import net.minecraft.world.inventory.CraftingContainer;
 import net.minecraft.world.inventory.CraftingMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.level.Level;
@@ -307,7 +308,7 @@ public final class RtsStorageManager {
 
     public static void openCraftTerminal(ServerPlayer player) {
         Session session = SESSIONS.get(player.getUUID());
-        if (session == null || !RtsCameraManager.isActive(player)) {
+        if (session == null) {
             return;
         }
         sanitizeSessionDimension(player, session);
@@ -394,11 +395,6 @@ public final class RtsStorageManager {
         session.category = normalizeCategory(category);
         session.sort = sort;
         session.ascending = ascending;
-
-        if (!RtsCameraManager.isActive(player)) {
-            sendEmptyPage(player, session);
-            return;
-        }
 
         sanitizeSessionDimension(player, session);
 
@@ -1081,7 +1077,7 @@ public final class RtsStorageManager {
 
     public static void returnCarriedToLinked(ServerPlayer player, String itemId, int amount) {
         Session session = SESSIONS.get(player.getUUID());
-        if (session == null || !RtsCameraManager.isActive(player)) {
+        if (session == null) {
             return;
         }
         sanitizeSessionDimension(player, session);
@@ -1179,7 +1175,7 @@ public final class RtsStorageManager {
 
     public static void importMenuSlotToLinked(ServerPlayer player, int menuSlot) {
         Session session = SESSIONS.get(player.getUUID());
-        if (session == null || !RtsCameraManager.isActive(player)) {
+        if (session == null) {
             return;
         }
         sanitizeSessionDimension(player, session);
@@ -1267,12 +1263,58 @@ public final class RtsStorageManager {
         runQuestDetect(player, session, false);
     }
 
+    public static void refillCraftGridFromLinked(ServerPlayer player, CraftingMenu craftingMenu, ItemStack[] blueprint) {
+        Session session = SESSIONS.get(player.getUUID());
+        if (session == null || craftingMenu == null || blueprint == null || blueprint.length != 9) {
+            return;
+        }
+        sanitizeSessionDimension(player, session);
+        if (session.linkedPositions.isEmpty()) {
+            return;
+        }
+
+        List<LinkedHandler> activeLinked = resolveLinkedHandlers(player, session);
+        if (activeLinked.isEmpty()) {
+            return;
+        }
+        List<IItemHandler> handlers = new ArrayList<>(activeLinked.size());
+        for (LinkedHandler linked : activeLinked) {
+            handlers.add(linked.handler());
+        }
+
+        refillCraftGridFromBlueprint(craftingMenu, handlers, player, blueprint, false, false);
+        craftingMenu.broadcastChanges();
+        requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+    }
+
+    public static void refillCurrentCraftGridFromBlueprintIds(ServerPlayer player, List<String> blueprintIds) {
+        if (player == null || blueprintIds == null || blueprintIds.size() != 9) {
+            return;
+        }
+        if (!(player.containerMenu instanceof CraftingMenu craftingMenu)) {
+            return;
+        }
+
+        ItemStack[] blueprint = new ItemStack[9];
+        for (int i = 0; i < blueprint.length; i++) {
+            String itemId = blueprintIds.get(i);
+            if (itemId == null || itemId.isBlank()) {
+                blueprint[i] = ItemStack.EMPTY;
+                continue;
+            }
+            ResourceLocation key = ResourceLocation.tryParse(itemId);
+            if (key == null || !BuiltInRegistries.ITEM.containsKey(key)) {
+                blueprint[i] = ItemStack.EMPTY;
+                continue;
+            }
+            blueprint[i] = new ItemStack(BuiltInRegistries.ITEM.get(key));
+        }
+        refillCraftGridFromLinked(player, craftingMenu, blueprint);
+    }
+
     public static void applyJeiTransfer(ServerPlayer player, String recipeId, boolean maxTransfer, boolean clearGridFirst) {
         Session session = getOrCreateSession(player);
-        boolean rtsActive = RtsCameraManager.isActive(player);
-        if (rtsActive) {
-            sanitizeSessionDimension(player, session);
-        }
+        sanitizeSessionDimension(player, session);
         if (!(player.containerMenu instanceof CraftingMenu craftingMenu)) {
             return;
         }
@@ -1289,7 +1331,7 @@ public final class RtsStorageManager {
             return;
         }
 
-        List<LinkedHandler> activeLinked = rtsActive ? resolveLinkedHandlers(player, session) : List.of();
+        List<LinkedHandler> activeLinked = resolveLinkedHandlers(player, session);
         List<IItemHandler> handlers = new ArrayList<>(activeLinked.size());
         for (LinkedHandler linked : activeLinked) {
             handlers.add(linked.handler());
@@ -1374,12 +1416,11 @@ public final class RtsStorageManager {
             }
             storeToLinkedWithFallbackPreferExisting(handlers, player, stack);
         }
+        refreshCraftingResult(craftingMenu);
         craftingMenu.broadcastChanges();
-        if (rtsActive) {
-            requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
-            if (anyInserted) {
-                runQuestDetect(player, session, false);
-            }
+        requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+        if (anyInserted) {
+            runQuestDetect(player, session, false);
         }
     }
 
@@ -1507,7 +1548,7 @@ public final class RtsStorageManager {
 
     public static void pickupLinkedToCarried(ServerPlayer player, String itemId, int amount) {
         Session session = SESSIONS.get(player.getUUID());
-        if (session == null || !RtsCameraManager.isActive(player)) {
+        if (session == null) {
             return;
         }
         sanitizeSessionDimension(player, session);
@@ -2613,6 +2654,7 @@ public final class RtsStorageManager {
         }
 
         int maxPasses = fillAll ? 64 : 1;
+        boolean changed = false;
         for (int pass = 0; pass < maxPasses; pass++) {
             boolean inserted = false;
             for (int i = 0; i < 9; i++) {
@@ -2638,6 +2680,7 @@ public final class RtsStorageManager {
                     current.grow(1);
                     grid.setChanged();
                     inserted = true;
+                    changed = true;
                     continue;
                 }
 
@@ -2651,6 +2694,7 @@ public final class RtsStorageManager {
                 grid.set(extracted);
                 grid.setChanged();
                 inserted = true;
+                changed = true;
             }
             if (!inserted) {
                 break;
@@ -2659,6 +2703,41 @@ public final class RtsStorageManager {
                 break;
             }
         }
+        if (changed) {
+            refreshCraftingResult(menu);
+        }
+    }
+
+    private static void refreshCraftingResult(CraftingMenu menu) {
+        if (menu == null) {
+            return;
+        }
+        CraftingContainer craftSlots = resolveCraftingContainer(menu);
+        if (craftSlots != null) {
+            menu.slotsChanged(craftSlots);
+        }
+    }
+
+    private static CraftingContainer resolveCraftingContainer(CraftingMenu menu) {
+        Class<?> type = menu.getClass();
+        while (type != null && type != Object.class) {
+            for (Field field : type.getDeclaredFields()) {
+                if (!CraftingContainer.class.isAssignableFrom(field.getType())) {
+                    continue;
+                }
+                try {
+                    field.setAccessible(true);
+                    Object current = field.get(menu);
+                    if (current instanceof CraftingContainer craftSlots) {
+                        return craftSlots;
+                    }
+                } catch (ReflectiveOperationException ignored) {
+                    // Fall back to the menu's default sync path if reflective access is blocked.
+                }
+            }
+            type = type.getSuperclass();
+        }
+        return null;
     }
 
     private static ItemStack extractOneMatchingPrototypeCombined(List<IItemHandler> handlers, ServerPlayer player, ItemStack prototype) {

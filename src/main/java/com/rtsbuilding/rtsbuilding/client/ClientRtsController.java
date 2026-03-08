@@ -168,6 +168,14 @@ public final class ClientRtsController {
         return enabled;
     }
 
+    public boolean canUseStorageOverlay() {
+        return this.enabled
+                || this.storageLinked
+                || !this.linkedStoragePositions.isEmpty()
+                || !this.storageEntries.isEmpty()
+                || !this.fluidEntries.isEmpty();
+    }
+
     public double getAnchorX() {
         return anchorX;
     }
@@ -517,11 +525,6 @@ public final class ClientRtsController {
         this.emaRotateX = 0.0F;
         this.emaRotateY = 0.0F;
         this.inputSensitivityIndex = INPUT_SENS_DEFAULT_INDEX;
-        this.storageEntries.clear();
-        this.fluidEntries.clear();
-        this.linkedStoragePositions.clear();
-        this.storageCategories.clear();
-        this.storageCategories.add("all");
         this.selectedItemId = "";
         this.selectedItemLabel = "";
         this.selectedItemPreview = ItemStack.EMPTY;

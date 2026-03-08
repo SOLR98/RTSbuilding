@@ -112,6 +112,11 @@ public final class RtsPayloadRegistrar {
                 RtsNetworkHandlers::handleImportMenuSlot);
 
         registrar.playToServer(
+                C2SRtsCraftRefillPayload.TYPE,
+                C2SRtsCraftRefillPayload.STREAM_CODEC,
+                RtsNetworkHandlers::handleCraftRefill);
+
+        registrar.playToServer(
                 C2SRtsJeiTransferPayload.TYPE,
                 C2SRtsJeiTransferPayload.STREAM_CODEC,
                 RtsNetworkHandlers::handleJeiTransfer);

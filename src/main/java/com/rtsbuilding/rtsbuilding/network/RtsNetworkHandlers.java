@@ -246,6 +246,14 @@ public final class RtsNetworkHandlers {
         });
     }
 
+    public static void handleCraftRefill(C2SRtsCraftRefillPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                RtsStorageManager.refillCurrentCraftGridFromBlueprintIds(serverPlayer, payload.blueprintItemIds());
+            }
+        });
+    }
+
     public static void handleJeiTransfer(C2SRtsJeiTransferPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer serverPlayer) {
