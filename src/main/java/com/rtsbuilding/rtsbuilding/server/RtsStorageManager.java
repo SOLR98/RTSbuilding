@@ -23,11 +23,14 @@ import com.rtsbuilding.rtsbuilding.compat.ftb.RtsFtbCompat;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsInteractPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsStoreFluidPayload;
 import com.rtsbuilding.rtsbuilding.network.RtsStorageSort;
+import com.rtsbuilding.rtsbuilding.network.S2CRtsCraftablesPayload;
+import com.rtsbuilding.rtsbuilding.network.S2CRtsCraftFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.network.S2CRtsMineProgressPayload;
 import com.rtsbuilding.rtsbuilding.network.S2CRtsStoragePagePayload;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.NonNullList;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
@@ -55,8 +58,10 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.item.crafting.CraftingRecipe;
+import net.minecraft.world.item.crafting.CraftingInput;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.item.crafting.ShapedRecipe;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerLevelAccess;
@@ -638,6 +643,270 @@ public final class RtsStorageManager {
                 session.funnelEnabled,
                 List.of(),
                 List.of()));
+    }
+
+    public static void requestCraftables(ServerPlayer player, String search, boolean showUnavailable) {
+        Session session = getOrCreateSession(player);
+        session.craftSearch = search == null ? "" : search;
+        session.craftShowUnavailable = showUnavailable;
+
+        sanitizeSessionDimension(player, session);
+        if (session.linkedPositions.isEmpty()) {
+            sendCraftables(player, session, List.of());
+            return;
+        }
+
+        List<LinkedHandler> activeLinked = resolveLinkedHandlers(player, session);
+        if (activeLinked.isEmpty()) {
+            sendCraftables(player, session, List.of());
+            return;
+        }
+
+        Map<String, Long> availableCounts = summarizeAvailableCraftItems(player, session, activeLinked);
+        Map<String, CraftableCandidate> byResultItem = new LinkedHashMap<>();
+        for (RecipeHolder<CraftingRecipe> holder : player.serverLevel().getRecipeManager().getAllRecipesFor(RecipeType.CRAFTING)) {
+            CraftableCandidate candidate = buildCraftableCandidate(player, holder, availableCounts, session.craftSearch);
+            if (candidate == null) {
+                continue;
+            }
+            CraftableCandidate existing = byResultItem.get(candidate.resultItemId());
+            if (existing == null || candidate.isPreferredOver(existing)) {
+                byResultItem.put(candidate.resultItemId(), candidate);
+            }
+        }
+
+        List<CraftableCandidate> candidates = new ArrayList<>(byResultItem.values());
+        candidates.removeIf(candidate -> !session.craftShowUnavailable && !candidate.craftable());
+        candidates.sort(CraftableCandidate::compareForPanel);
+        sendCraftables(player, session, candidates);
+    }
+
+    public static void craftRecipeToLinked(ServerPlayer player, String recipeId) {
+        Session session = getOrCreateSession(player);
+        sanitizeSessionDimension(player, session);
+        if (session.linkedPositions.isEmpty()) {
+            requestCraftables(player, session.craftSearch, session.craftShowUnavailable);
+            return;
+        }
+        if (recipeId == null || recipeId.isBlank()) {
+            requestCraftables(player, session.craftSearch, session.craftShowUnavailable);
+            return;
+        }
+
+        ResourceLocation key = ResourceLocation.tryParse(recipeId);
+        if (key == null) {
+            requestCraftables(player, session.craftSearch, session.craftShowUnavailable);
+            return;
+        }
+
+        RecipeHolder<?> raw = player.serverLevel().getRecipeManager().byKey(key).orElse(null);
+        if (raw == null || !(raw.value() instanceof CraftingRecipe craftingRecipe)) {
+            requestCraftables(player, session.craftSearch, session.craftShowUnavailable);
+            return;
+        }
+
+        List<LinkedHandler> activeLinked = resolveLinkedHandlers(player, session);
+        if (activeLinked.isEmpty()) {
+            requestCraftables(player, session.craftSearch, session.craftShowUnavailable);
+            return;
+        }
+        List<IItemHandler> handlers = new ArrayList<>(activeLinked.size());
+        for (LinkedHandler linked : activeLinked) {
+            handlers.add(linked.handler());
+        }
+
+        boolean includePlayerFallback = !session.linkedPositions.isEmpty()
+                && !(player.containerMenu instanceof RtsCraftTerminalMenu);
+        CraftExecutionResult result = craftSingleRecipeToLinked(player, handlers, craftingRecipe, includePlayerFallback);
+        requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+        requestCraftables(player, session.craftSearch, session.craftShowUnavailable);
+        if (!result.success()) {
+            if (result.storageFull()) {
+                player.displayClientMessage(Component.literal("Craft: linked storage is full."), true);
+            }
+            return;
+        }
+
+        PacketDistributor.sendToPlayer(player, new S2CRtsCraftFeedbackPayload(result.resultItemId(), result.resultCount()));
+        runQuestDetect(player, session, false);
+    }
+
+    private static void sendCraftables(ServerPlayer player, Session session, List<CraftableCandidate> candidates) {
+        List<String> recipeIds = new ArrayList<>(candidates.size());
+        List<String> resultItemIds = new ArrayList<>(candidates.size());
+        List<Integer> resultCounts = new ArrayList<>(candidates.size());
+        List<Boolean> craftable = new ArrayList<>(candidates.size());
+        List<String> missingSummaries = new ArrayList<>(candidates.size());
+        for (CraftableCandidate candidate : candidates) {
+            recipeIds.add(candidate.recipeId());
+            resultItemIds.add(candidate.resultItemId());
+            resultCounts.add(candidate.resultCount());
+            craftable.add(candidate.craftable());
+            missingSummaries.add(candidate.missingSummary());
+        }
+
+        PacketDistributor.sendToPlayer(player, new S2CRtsCraftablesPayload(
+                session.craftSearch,
+                session.craftShowUnavailable,
+                recipeIds,
+                resultItemIds,
+                resultCounts,
+                craftable,
+                missingSummaries));
+    }
+
+    private static Map<String, Long> summarizeAvailableCraftItems(ServerPlayer player, Session session, List<LinkedHandler> activeLinked) {
+        Map<String, Long> counts = new HashMap<>();
+        for (LinkedHandler linked : activeLinked) {
+            IItemHandler handler = linked.handler();
+            for (int i = 0; i < handler.getSlots(); i++) {
+                ItemStack stack = handler.getStackInSlot(i);
+                if (stack.isEmpty()) {
+                    continue;
+                }
+                ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+                if (id == null) {
+                    continue;
+                }
+                counts.merge(id.toString(), (long) stack.getCount(), Long::sum);
+            }
+        }
+
+        boolean includePlayerMainInventory = !session.linkedPositions.isEmpty()
+                && !(player.containerMenu instanceof RtsCraftTerminalMenu);
+        if (includePlayerMainInventory) {
+            accumulatePlayerMainInventoryCounts(player, counts, new HashMap<>());
+        }
+        return counts;
+    }
+
+    private static CraftableCandidate buildCraftableCandidate(ServerPlayer player, RecipeHolder<CraftingRecipe> holder,
+            Map<String, Long> availableCounts, String search) {
+        if (player == null || holder == null || holder.value() == null) {
+            return null;
+        }
+
+        ItemStack result = holder.value().assemble(CraftingInput.EMPTY, player.registryAccess());
+        if (result.isEmpty()) {
+            result = holder.value().getResultItem(player.registryAccess());
+        }
+        if (result.isEmpty()) {
+            return null;
+        }
+
+        ResourceLocation resultId = BuiltInRegistries.ITEM.getKey(result.getItem());
+        if (resultId == null) {
+            return null;
+        }
+        String resultLabel = result.getHoverName().getString();
+        if (!matchesCraftablesSearch(resultId, resultLabel, search)) {
+            return null;
+        }
+
+        RecipeAvailability availability = evaluateRecipeAvailability(holder.value(), availableCounts);
+        return new CraftableCandidate(
+                holder.id().toString(),
+                resultId.toString(),
+                Math.max(1, result.getCount()),
+                resultLabel,
+                availability.craftable(),
+                availability.missingSummary(),
+                availability.missingTotal());
+    }
+
+    private static RecipeAvailability evaluateRecipeAvailability(CraftingRecipe recipe, Map<String, Long> availableCounts) {
+        Ingredient[] required = mapCraftingIngredients(recipe);
+        Map<String, Long> remaining = new HashMap<>(availableCounts);
+        Map<String, Integer> missing = new LinkedHashMap<>();
+        int missingTotal = 0;
+        for (Ingredient ingredient : required) {
+            if (ingredient == null || ingredient.isEmpty()) {
+                continue;
+            }
+            String matchedId = selectBestIngredientMatch(ingredient, remaining);
+            if (matchedId != null) {
+                remaining.computeIfPresent(matchedId, (id, count) -> count > 1L ? count - 1L : null);
+                continue;
+            }
+            missing.merge(resolveIngredientLabel(ingredient), 1, Integer::sum);
+            missingTotal++;
+        }
+
+        if (missingTotal <= 0) {
+            return new RecipeAvailability(true, "", 0);
+        }
+        return new RecipeAvailability(false, buildMissingSummary(missing), missingTotal);
+    }
+
+    private static boolean matchesCraftablesSearch(ResourceLocation resultId, String resultLabel, String search) {
+        String query = search == null ? "" : search.toLowerCase(Locale.ROOT).trim();
+        if (query.isEmpty()) {
+            return true;
+        }
+        if (query.startsWith("@")) {
+            String modQuery = query.substring(1).trim();
+            if (modQuery.isEmpty()) {
+                return true;
+            }
+            return resultId.getNamespace().toLowerCase(Locale.ROOT).contains(modQuery);
+        }
+
+        String rawId = resultId.toString().toLowerCase(Locale.ROOT);
+        String label = resultLabel == null ? "" : resultLabel.toLowerCase(Locale.ROOT);
+        return rawId.contains(query) || label.contains(query);
+    }
+
+    private static String selectBestIngredientMatch(Ingredient ingredient, Map<String, Long> remaining) {
+        String bestId = null;
+        long bestCount = 0L;
+        for (ItemStack option : ingredient.getItems()) {
+            if (option.isEmpty()) {
+                continue;
+            }
+            ResourceLocation id = BuiltInRegistries.ITEM.getKey(option.getItem());
+            if (id == null) {
+                continue;
+            }
+            long available = remaining.getOrDefault(id.toString(), 0L);
+            if (available <= 0L) {
+                continue;
+            }
+            if (bestId == null || available > bestCount) {
+                bestId = id.toString();
+                bestCount = available;
+            }
+        }
+        return bestId;
+    }
+
+    private static String resolveIngredientLabel(Ingredient ingredient) {
+        for (ItemStack option : ingredient.getItems()) {
+            if (!option.isEmpty()) {
+                return option.getHoverName().getString();
+            }
+        }
+        return "Unknown";
+    }
+
+    private static String buildMissingSummary(Map<String, Integer> missing) {
+        if (missing.isEmpty()) {
+            return "";
+        }
+        StringBuilder summary = new StringBuilder("Missing: ");
+        int index = 0;
+        int total = missing.size();
+        for (var entry : missing.entrySet()) {
+            if (index > 0) {
+                summary.append(", ");
+            }
+            summary.append(entry.getKey()).append(" x").append(entry.getValue());
+            index++;
+            if (index >= 3 && total > index) {
+                summary.append("...");
+                break;
+            }
+        }
+        return summary.toString();
     }
 
     private static String normalizeCategory(String category) {
@@ -1422,6 +1691,177 @@ public final class RtsStorageManager {
         if (anyInserted) {
             runQuestDetect(player, session, false);
         }
+    }
+
+    private static CraftExecutionResult craftSingleRecipeToLinked(ServerPlayer player, List<IItemHandler> handlers,
+            CraftingRecipe recipe, boolean includePlayerFallback) {
+        Ingredient[] required = mapCraftingIngredients(recipe);
+        if (required.length != 9) {
+            return CraftExecutionResult.failure(false);
+        }
+
+        ExtractedIngredient[] extracted = new ExtractedIngredient[9];
+        List<ItemStack> inputStacks = new ArrayList<>(9);
+        for (int i = 0; i < 9; i++) {
+            Ingredient ingredient = required[i];
+            if (ingredient == null || ingredient.isEmpty()) {
+                inputStacks.add(ItemStack.EMPTY);
+                continue;
+            }
+
+            ExtractedIngredient taken = takeIngredientForCraft(handlers, player, ingredient, includePlayerFallback);
+            if (taken == null || taken.stack().isEmpty()) {
+                rollbackCraftIngredients(handlers, player, extracted);
+                return CraftExecutionResult.failure(false);
+            }
+            extracted[i] = taken;
+            inputStacks.add(taken.stack().copyWithCount(1));
+        }
+
+        CraftingInput input = CraftingInput.of(3, 3, inputStacks);
+        if (!recipe.matches(input, player.serverLevel())) {
+            rollbackCraftIngredients(handlers, player, extracted);
+            return CraftExecutionResult.failure(false);
+        }
+
+        ItemStack result = recipe.assemble(input, player.registryAccess());
+        if (result.isEmpty()) {
+            rollbackCraftIngredients(handlers, player, extracted);
+            return CraftExecutionResult.failure(false);
+        }
+
+        List<ItemStack> outputs = new ArrayList<>();
+        outputs.add(result.copy());
+        NonNullList<ItemStack> remaining = recipe.getRemainingItems(input);
+        for (ItemStack remain : remaining) {
+            if (!remain.isEmpty()) {
+                outputs.add(remain.copy());
+            }
+        }
+
+        if (!canStoreStacksToLinkedOnly(handlers, outputs)) {
+            rollbackCraftIngredients(handlers, player, extracted);
+            return CraftExecutionResult.failure(true);
+        }
+
+        for (ItemStack stack : outputs) {
+            if (stack.isEmpty()) {
+                continue;
+            }
+            ItemStack remain = storeToLinkedOnlyPreferExisting(handlers, stack);
+            if (!remain.isEmpty()) {
+                moveToPlayerInventoryOnly(player, remain);
+            }
+        }
+
+        ResourceLocation resultId = BuiltInRegistries.ITEM.getKey(result.getItem());
+        return new CraftExecutionResult(
+                true,
+                false,
+                resultId == null ? "" : resultId.toString(),
+                Math.max(1, result.getCount()));
+    }
+
+    private static ExtractedIngredient takeIngredientForCraft(List<IItemHandler> handlers, ServerPlayer player,
+            Ingredient ingredient, boolean includePlayerFallback) {
+        ItemStack fromLinked = extractOneMatchingIngredient(handlers, ingredient, ItemStack.EMPTY);
+        if (!fromLinked.isEmpty()) {
+            return new ExtractedIngredient(fromLinked, false);
+        }
+        if (!includePlayerFallback) {
+            return null;
+        }
+        ItemStack fromPlayer = extractOneMatchingIngredientFromPlayer(player, ingredient, ItemStack.EMPTY);
+        if (!fromPlayer.isEmpty()) {
+            return new ExtractedIngredient(fromPlayer, true);
+        }
+        return null;
+    }
+
+    private static void rollbackCraftIngredients(List<IItemHandler> handlers, ServerPlayer player, ExtractedIngredient[] extracted) {
+        for (int i = extracted.length - 1; i >= 0; i--) {
+            ExtractedIngredient ingredient = extracted[i];
+            if (ingredient == null || ingredient.stack().isEmpty()) {
+                continue;
+            }
+            if (ingredient.fromPlayer()) {
+                moveToPlayerInventoryOnly(player, ingredient.stack());
+                continue;
+            }
+            ItemStack remain = storeToLinkedOnlyPreferExisting(handlers, ingredient.stack());
+            if (!remain.isEmpty()) {
+                moveToPlayerInventoryOnly(player, remain);
+            }
+        }
+    }
+
+    private static boolean canStoreStacksToLinkedOnly(List<IItemHandler> handlers, List<ItemStack> stacks) {
+        List<List<ItemStack>> virtual = new ArrayList<>(handlers.size());
+        for (IItemHandler handler : handlers) {
+            List<ItemStack> slots = new ArrayList<>(handler.getSlots());
+            for (int slot = 0; slot < handler.getSlots(); slot++) {
+                slots.add(handler.getStackInSlot(slot).copy());
+            }
+            virtual.add(slots);
+        }
+
+        for (ItemStack original : stacks) {
+            if (original == null || original.isEmpty()) {
+                continue;
+            }
+            ItemStack remain = original.copy();
+
+            for (int h = 0; h < handlers.size() && !remain.isEmpty(); h++) {
+                IItemHandler handler = handlers.get(h);
+                List<ItemStack> slots = virtual.get(h);
+                for (int slot = 0; slot < slots.size() && !remain.isEmpty(); slot++) {
+                    ItemStack current = slots.get(slot);
+                    if (current.isEmpty() || !ItemStack.isSameItemSameComponents(current, remain)) {
+                        continue;
+                    }
+                    int slotLimit = Math.min(handler.getSlotLimit(slot), current.getMaxStackSize());
+                    int free = Math.max(0, slotLimit - current.getCount());
+                    if (free <= 0) {
+                        continue;
+                    }
+                    int move = Math.min(free, remain.getCount());
+                    current.grow(move);
+                    remain.shrink(move);
+                }
+            }
+
+            for (int h = 0; h < handlers.size() && !remain.isEmpty(); h++) {
+                IItemHandler handler = handlers.get(h);
+                List<ItemStack> slots = virtual.get(h);
+                for (int slot = 0; slot < slots.size() && !remain.isEmpty(); slot++) {
+                    ItemStack current = slots.get(slot);
+                    if (!current.isEmpty()) {
+                        continue;
+                    }
+                    int slotLimit = Math.min(handler.getSlotLimit(slot), remain.getMaxStackSize());
+                    if (slotLimit <= 0) {
+                        continue;
+                    }
+                    ItemStack probe = remain.copy();
+                    probe.setCount(slotLimit);
+                    ItemStack rejected = handler.insertItem(slot, probe, true);
+                    int accepted = slotLimit - rejected.getCount();
+                    if (accepted <= 0) {
+                        continue;
+                    }
+                    int move = Math.min(accepted, remain.getCount());
+                    ItemStack filled = remain.copy();
+                    filled.setCount(move);
+                    slots.set(slot, filled);
+                    remain.shrink(move);
+                }
+            }
+
+            if (!remain.isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public static void breakPlaced(ServerPlayer player, BlockPos pos, Direction face, boolean allowAdjacentFallback) {
@@ -3636,6 +4076,45 @@ public final class RtsStorageManager {
     private record FluidEntry(String fluidId, String namespace, String path, long amount, long capacity) {
     }
 
+    private record RecipeAvailability(boolean craftable, String missingSummary, int missingTotal) {
+    }
+
+    private record CraftableCandidate(
+            String recipeId,
+            String resultItemId,
+            int resultCount,
+            String resultLabel,
+            boolean craftable,
+            String missingSummary,
+            int missingTotal) {
+        private boolean isPreferredOver(CraftableCandidate other) {
+            if (other == null) {
+                return true;
+            }
+            if (this.craftable != other.craftable) {
+                return this.craftable;
+            }
+            if (this.missingTotal != other.missingTotal) {
+                return this.missingTotal < other.missingTotal;
+            }
+            if (this.resultCount != other.resultCount) {
+                return this.resultCount > other.resultCount;
+            }
+            return this.recipeId.compareToIgnoreCase(other.recipeId) < 0;
+        }
+
+        private static int compareForPanel(CraftableCandidate a, CraftableCandidate b) {
+            if (a.craftable != b.craftable) {
+                return a.craftable ? -1 : 1;
+            }
+            int byLabel = a.resultLabel.compareToIgnoreCase(b.resultLabel);
+            if (byLabel != 0) {
+                return byLabel;
+            }
+            return a.recipeId.compareToIgnoreCase(b.recipeId);
+        }
+    }
+
     private record CategorySelection(Type type, String namespace, String tabKey) {
         private static CategorySelection all() {
             return new CategorySelection(Type.ALL, "", "");
@@ -3701,6 +4180,15 @@ public final class RtsStorageManager {
     }
 
     private record GridInsert(int slotIndex, ItemStack stack) {
+    }
+
+    private record ExtractedIngredient(ItemStack stack, boolean fromPlayer) {
+    }
+
+    private record CraftExecutionResult(boolean success, boolean storageFull, String resultItemId, int resultCount) {
+        private static CraftExecutionResult failure(boolean storageFull) {
+            return new CraftExecutionResult(false, storageFull, "", 0);
+        }
     }
 
     private static final class AlwaysValidContainer implements Container {
@@ -3810,6 +4298,8 @@ public final class RtsStorageManager {
         private String category = "all";
         private RtsStorageSort sort = RtsStorageSort.QUANTITY;
         private boolean ascending = false;
+        private String craftSearch = "";
+        private boolean craftShowUnavailable;
         private boolean autoStoreMinedDrops = true;
         private final Map<String, Long> internalFluidMb = new HashMap<>();
         private boolean funnelEnabled;

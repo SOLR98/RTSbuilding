@@ -9,6 +9,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsBreakPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsFunnelTargetPayload;
+import com.rtsbuilding.rtsbuilding.network.C2SRtsCraftRecipePayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsInteractPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsLinkStoragePayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsMinePayload;
@@ -17,6 +18,7 @@ import com.rtsbuilding.rtsbuilding.network.C2SRtsPlacePayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsPlaceFluidPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsQuestDetectPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsQuickDropPayload;
+import com.rtsbuilding.rtsbuilding.network.C2SRtsRequestCraftablesPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsStoreFluidPayload;
 import com.rtsbuilding.rtsbuilding.entity.RtsCameraEntity;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsCameraMovePayload;
@@ -26,6 +28,8 @@ import com.rtsbuilding.rtsbuilding.network.C2SRtsSetFunnelPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsSetModePayload;
 import com.rtsbuilding.rtsbuilding.network.RtsStorageSort;
 import com.rtsbuilding.rtsbuilding.network.S2CRtsCameraStatePayload;
+import com.rtsbuilding.rtsbuilding.network.S2CRtsCraftablesPayload;
+import com.rtsbuilding.rtsbuilding.network.S2CRtsCraftFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.network.S2CRtsMineProgressPayload;
 import com.rtsbuilding.rtsbuilding.network.S2CRtsStoragePagePayload;
 
@@ -118,6 +122,7 @@ public final class ClientRtsController {
     private int storagePage;
     private int storageTotalPages = 1;
     private int storageTotalEntries;
+    private int storageRevision;
     private String storageSearch = "";
     private String storageCategory = "all";
     private RtsStorageSort storageSort = RtsStorageSort.QUANTITY;
@@ -125,6 +130,13 @@ public final class ClientRtsController {
     private final List<String> storageCategories = new ArrayList<>();
     private final List<StorageEntry> storageEntries = new ArrayList<>();
     private final List<FluidEntry> fluidEntries = new ArrayList<>();
+    private String craftablesSearch = "";
+    private boolean craftablesShowUnavailable;
+    private final List<CraftableEntry> craftableEntries = new ArrayList<>();
+    private int craftablesRevision;
+    private String craftFeedbackItemId = "";
+    private int craftFeedbackCount;
+    private long craftFeedbackExpiryMs;
     private String selectedItemId = "";
     private String selectedItemLabel = "";
     private ItemStack selectedItemPreview = ItemStack.EMPTY;
@@ -257,6 +269,10 @@ public final class ClientRtsController {
         return this.storageTotalEntries;
     }
 
+    public int getStorageRevision() {
+        return this.storageRevision;
+    }
+
     public String getStorageSearch() {
         return this.storageSearch;
     }
@@ -319,6 +335,34 @@ public final class ClientRtsController {
 
     public List<FluidEntry> getFluidEntries() {
         return Collections.unmodifiableList(this.fluidEntries);
+    }
+
+    public String getCraftablesSearch() {
+        return this.craftablesSearch;
+    }
+
+    public boolean isCraftablesShowUnavailable() {
+        return this.craftablesShowUnavailable;
+    }
+
+    public List<CraftableEntry> getCraftableEntries() {
+        return Collections.unmodifiableList(this.craftableEntries);
+    }
+
+    public int getCraftablesRevision() {
+        return this.craftablesRevision;
+    }
+
+    public String getCraftFeedbackItemId() {
+        return this.craftFeedbackItemId;
+    }
+
+    public int getCraftFeedbackCount() {
+        return this.craftFeedbackCount;
+    }
+
+    public long getCraftFeedbackExpiryMs() {
+        return this.craftFeedbackExpiryMs;
     }
 
     public List<FunnelBufferEntry> getFunnelBufferEntries() {
@@ -717,6 +761,12 @@ public final class ClientRtsController {
                 this.storageSortAscending));
     }
 
+    public void requestCraftables() {
+        PacketDistributor.sendToServer(new C2SRtsRequestCraftablesPayload(
+                this.craftablesSearch,
+                this.craftablesShowUnavailable));
+    }
+
     public void setAutoStoreMinedDrops(boolean enabled) {
         this.autoStoreMinedDrops = enabled;
         PacketDistributor.sendToServer(new C2SRtsSetAutoStorePayload(enabled));
@@ -757,6 +807,27 @@ public final class ClientRtsController {
 
     public void nextPage() {
         requestStoragePage(Math.min(this.storageTotalPages - 1, this.storagePage + 1));
+    }
+
+    public void setCraftablesSearch(String search) {
+        this.craftablesSearch = search == null ? "" : search;
+        requestCraftables();
+    }
+
+    public void setCraftablesShowUnavailable(boolean showUnavailable) {
+        this.craftablesShowUnavailable = showUnavailable;
+        requestCraftables();
+    }
+
+    public void toggleCraftablesShowUnavailable() {
+        setCraftablesShowUnavailable(!this.craftablesShowUnavailable);
+    }
+
+    public void craftRecipeToLinked(String recipeId) {
+        if (recipeId == null || recipeId.isBlank()) {
+            return;
+        }
+        PacketDistributor.sendToServer(new C2SRtsCraftRecipePayload(recipeId));
     }
 
     public void openCraftTerminal() {
@@ -870,6 +941,60 @@ public final class ClientRtsController {
             ItemStack stack = new ItemStack(BuiltInRegistries.ITEM.get(id));
             this.funnelBufferEntries.add(new FunnelBufferEntry(stack, itemId, count));
         }
+        this.storageRevision++;
+        if (!this.storageLinked && this.linkedStoragePositions.isEmpty()) {
+            this.craftableEntries.clear();
+            this.craftablesRevision++;
+        }
+    }
+
+    public void applyCraftables(S2CRtsCraftablesPayload payload) {
+        this.craftablesSearch = payload.search() == null ? "" : payload.search();
+        this.craftablesShowUnavailable = payload.showUnavailable();
+        this.craftableEntries.clear();
+
+        int size = Math.min(
+                payload.recipeIds().size(),
+                Math.min(
+                        payload.resultItemIds().size(),
+                        Math.min(
+                                payload.resultCounts().size(),
+                                Math.min(payload.craftable().size(), payload.missingSummaries().size()))));
+        for (int i = 0; i < size; i++) {
+            ResourceLocation id = ResourceLocation.tryParse(payload.resultItemIds().get(i));
+            if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
+                continue;
+            }
+            ItemStack stack = new ItemStack(BuiltInRegistries.ITEM.get(id));
+            int resultCount = Math.max(1, payload.resultCounts().get(i));
+            stack.setCount(Math.min(resultCount, stack.getMaxStackSize()));
+            this.craftableEntries.add(new CraftableEntry(
+                    stack,
+                    payload.recipeIds().get(i),
+                    payload.resultItemIds().get(i),
+                    resultCount,
+                    payload.craftable().get(i),
+                    payload.missingSummaries().get(i),
+                    id.getNamespace(),
+                    id.getPath()));
+        }
+        this.craftablesRevision++;
+    }
+
+    public void applyCraftFeedback(S2CRtsCraftFeedbackPayload payload) {
+        String itemId = payload.itemId() == null ? "" : payload.itemId();
+        int craftedCount = Math.max(0, payload.craftedCount());
+        if (itemId.isBlank() || craftedCount <= 0) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (itemId.equals(this.craftFeedbackItemId) && now <= this.craftFeedbackExpiryMs) {
+            this.craftFeedbackCount += craftedCount;
+        } else {
+            this.craftFeedbackItemId = itemId;
+            this.craftFeedbackCount = craftedCount;
+        }
+        this.craftFeedbackExpiryMs = now + 900L;
     }
 
     public void applyMineProgress(S2CRtsMineProgressPayload payload) {
@@ -1389,6 +1514,17 @@ public final class ClientRtsController {
     }
 
     public record FunnelBufferEntry(ItemStack stack, String itemId, long count) {
+    }
+
+    public record CraftableEntry(
+            ItemStack stack,
+            String recipeId,
+            String itemId,
+            int resultCount,
+            boolean craftable,
+            String missingSummary,
+            String mod,
+            String name) {
     }
 
     public enum BuildShape {

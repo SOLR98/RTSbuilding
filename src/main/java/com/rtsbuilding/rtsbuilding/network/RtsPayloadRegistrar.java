@@ -52,6 +52,11 @@ public final class RtsPayloadRegistrar {
                 RtsNetworkHandlers::handleRequestStoragePage);
 
         registrar.playToServer(
+                C2SRtsRequestCraftablesPayload.TYPE,
+                C2SRtsRequestCraftablesPayload.STREAM_CODEC,
+                RtsNetworkHandlers::handleRequestCraftables);
+
+        registrar.playToServer(
                 C2SRtsPlacePayload.TYPE,
                 C2SRtsPlacePayload.STREAM_CODEC,
                 RtsNetworkHandlers::handlePlace);
@@ -117,6 +122,11 @@ public final class RtsPayloadRegistrar {
                 RtsNetworkHandlers::handleCraftRefill);
 
         registrar.playToServer(
+                C2SRtsCraftRecipePayload.TYPE,
+                C2SRtsCraftRecipePayload.STREAM_CODEC,
+                RtsNetworkHandlers::handleCraftRecipe);
+
+        registrar.playToServer(
                 C2SRtsJeiTransferPayload.TYPE,
                 C2SRtsJeiTransferPayload.STREAM_CODEC,
                 RtsNetworkHandlers::handleJeiTransfer);
@@ -135,6 +145,16 @@ public final class RtsPayloadRegistrar {
                 S2CRtsStoragePagePayload.TYPE,
                 S2CRtsStoragePagePayload.STREAM_CODEC,
                 RtsNetworkHandlers::handleStoragePage);
+
+        registrar.playToClient(
+                S2CRtsCraftablesPayload.TYPE,
+                S2CRtsCraftablesPayload.STREAM_CODEC,
+                RtsNetworkHandlers::handleCraftables);
+
+        registrar.playToClient(
+                S2CRtsCraftFeedbackPayload.TYPE,
+                S2CRtsCraftFeedbackPayload.STREAM_CODEC,
+                RtsNetworkHandlers::handleCraftFeedback);
 
         registrar.playToClient(
                 S2CRtsMineProgressPayload.TYPE,

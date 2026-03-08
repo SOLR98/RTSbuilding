@@ -89,6 +89,14 @@ public final class RtsNetworkHandlers {
         });
     }
 
+    public static void handleRequestCraftables(C2SRtsRequestCraftablesPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                RtsStorageManager.requestCraftables(serverPlayer, payload.search(), payload.showUnavailable());
+            }
+        });
+    }
+
     public static void handlePlace(C2SRtsPlacePayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer serverPlayer) {
@@ -254,6 +262,14 @@ public final class RtsNetworkHandlers {
         });
     }
 
+    public static void handleCraftRecipe(C2SRtsCraftRecipePayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                RtsStorageManager.craftRecipeToLinked(serverPlayer, payload.recipeId());
+            }
+        });
+    }
+
     public static void handleJeiTransfer(C2SRtsJeiTransferPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer serverPlayer) {
@@ -276,6 +292,14 @@ public final class RtsNetworkHandlers {
 
     public static void handleStoragePage(S2CRtsStoragePagePayload payload, IPayloadContext context) {
         context.enqueueWork(() -> ClientRtsController.get().applyStoragePage(payload));
+    }
+
+    public static void handleCraftables(S2CRtsCraftablesPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> ClientRtsController.get().applyCraftables(payload));
+    }
+
+    public static void handleCraftFeedback(S2CRtsCraftFeedbackPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> ClientRtsController.get().applyCraftFeedback(payload));
     }
 
     public static void handleMineProgress(S2CRtsMineProgressPayload payload, IPayloadContext context) {

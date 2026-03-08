@@ -20,7 +20,10 @@ import net.minecraft.world.item.ItemStack;
 
 final class RtsOverlayJeiGlobalGuiHandler implements IGlobalGuiHandler {
     private static final int OVERLAY_MARGIN = 6;
-    private static final int PANEL_W = 212;
+    private static final int CRAFT_PANEL_W = 106;
+    private static final int PANEL_GAP = 6;
+    private static final int STORAGE_PANEL_W = 212;
+    private static final int OVERLAY_W = CRAFT_PANEL_W + PANEL_GAP + STORAGE_PANEL_W;
     private static final int SLOT_PITCH = 20;
     private static final int SLOT_SIZE = 18;
     private static final int COLS = 9;
@@ -43,7 +46,7 @@ final class RtsOverlayJeiGlobalGuiHandler implements IGlobalGuiHandler {
         if (context == null) {
             return List.of();
         }
-        return List.of(new Rect2i(context.panelX(), context.panelY(), PANEL_W, OVERLAY_H));
+        return List.of(new Rect2i(context.panelX(), context.panelY(), OVERLAY_W, OVERLAY_H));
     }
 
     @Override
@@ -53,7 +56,7 @@ final class RtsOverlayJeiGlobalGuiHandler implements IGlobalGuiHandler {
             return Optional.empty();
         }
 
-        int gridX = context.panelX() + 6;
+        int gridX = context.storagePanelX() + 6;
         int gridY = context.panelY() + GRID_Y_OFF;
         int index = resolveOverlaySlotIndex(mouseX, mouseY, gridX, gridY);
         if (index < 0) {
@@ -95,9 +98,9 @@ final class RtsOverlayJeiGlobalGuiHandler implements IGlobalGuiHandler {
 
         int sw = minecraft.getWindow().getGuiScaledWidth();
         int sh = minecraft.getWindow().getGuiScaledHeight();
-        int panelX = Math.max(OVERLAY_MARGIN, (sw - PANEL_W) / 2);
+        int panelX = Math.max(OVERLAY_MARGIN, (sw - OVERLAY_W) / 2);
         int panelY = resolvePanelY(screen, sh);
-        return new OverlayContext(panelX, panelY);
+        return new OverlayContext(panelX, panelY, panelX + CRAFT_PANEL_W + PANEL_GAP);
     }
 
     private static int resolvePanelY(Screen screen, int screenHeight) {
@@ -128,6 +131,6 @@ final class RtsOverlayJeiGlobalGuiHandler implements IGlobalGuiHandler {
         return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
     }
 
-    private record OverlayContext(int panelX, int panelY) {
+    private record OverlayContext(int panelX, int panelY, int storagePanelX) {
     }
 }
