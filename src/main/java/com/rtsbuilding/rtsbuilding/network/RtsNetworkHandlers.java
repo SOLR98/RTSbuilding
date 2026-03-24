@@ -351,6 +351,10 @@ public final class RtsNetworkHandlers {
         context.enqueueWork(() -> ClientRtsController.get().applyStoragePage(payload));
     }
 
+    public static void handleRemoteMenuHint(S2CRtsRemoteMenuHintPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> ClientRtsController.get().applyRemoteMenuHint(payload));
+    }
+
     public static void handleCraftables(S2CRtsCraftablesPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> ClientRtsController.get().applyCraftables(payload));
     }

@@ -22,8 +22,8 @@ public final class RtsCameraManager {
     private static final double MAX_HEIGHT = 80.0D;
     private static final double MIN_DIST = 8.0D;
     private static final double MAX_DIST = 72.0D;
-    private static final float MIN_PITCH = 25.0F;
-    private static final float MAX_PITCH = 85.0F;
+    private static final float MIN_PITCH = -90.0F;
+    private static final float MAX_PITCH = 90.0F;
 
     private static final float ROT_INPUT_CLAMP = 20.0F;
     private static final float ROTATE_GAIN_X = 0.24F;

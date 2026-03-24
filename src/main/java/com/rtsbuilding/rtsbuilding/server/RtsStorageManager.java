@@ -30,6 +30,7 @@ import com.rtsbuilding.rtsbuilding.network.RtsStorageSort;
 import com.rtsbuilding.rtsbuilding.network.S2CRtsCraftablesPayload;
 import com.rtsbuilding.rtsbuilding.network.S2CRtsCraftFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.network.S2CRtsMineProgressPayload;
+import com.rtsbuilding.rtsbuilding.network.S2CRtsRemoteMenuHintPayload;
 import com.rtsbuilding.rtsbuilding.network.S2CRtsStoragePagePayload;
 
 import net.minecraft.core.BlockPos;
@@ -158,6 +159,7 @@ public final class RtsStorageManager {
         Session session = getOrCreateSession(player);
         stopActiveMining(player, session);
         disableFunnelAndFlushBuffer(player, session);
+        clearRemoteMenuValidation(session);
         saveSessionToPlayerNbt(player, session);
     }
 
@@ -165,9 +167,42 @@ public final class RtsStorageManager {
         Session session = SESSIONS.get(player.getUUID());
         if (session != null) {
             disableFunnelAndFlushBuffer(player, session);
+            clearRemoteMenuValidation(session);
             saveSessionToPlayerNbt(player, session);
         }
         SESSIONS.remove(player.getUUID());
+    }
+
+    public static void onPlayerTickPre(ServerPlayer player) {
+        if (player == null) {
+            return;
+        }
+        Session session = SESSIONS.get(player.getUUID());
+        if (session == null || session.remoteMenuValidationPos == null) {
+            return;
+        }
+        if (player.containerMenu == null || player.containerMenu.containerId == 0 || session.remoteMenuValidationSpoofed) {
+            return;
+        }
+
+        session.remoteMenuRestorePos = player.position();
+        Vec3 validationPos = resolveMenuValidationPosition(session.remoteMenuValidationPos);
+        player.setPos(validationPos.x, validationPos.y, validationPos.z);
+        session.remoteMenuValidationSpoofed = true;
+    }
+
+    public static void onPlayerTickPost(ServerPlayer player) {
+        if (player == null) {
+            return;
+        }
+        Session session = SESSIONS.get(player.getUUID());
+        if (session == null) {
+            return;
+        }
+        restoreRemoteMenuValidationPosition(player, session);
+        if (player.containerMenu == null || player.containerMenu.containerId == 0) {
+            clearRemoteMenuValidation(session);
+        }
     }
 
     private static Session getOrCreateSession(ServerPlayer player) {
@@ -626,9 +661,11 @@ public final class RtsStorageManager {
 
         ServerLevel level = player.serverLevel();
         BlockPos pos = binding.pos();
-        Vec3 hitLocation = Vec3.atCenterOf(pos);
-        BlockHitResult hit = new BlockHitResult(hitLocation, Direction.UP, pos, false);
-        Vec3 interactionPos = resolveInteractionPosition(null, hit, hitLocation);
+        sendRemoteMenuOpenHint(player, pos);
+        SyntheticBlockInteraction interaction = createGuiBindingInteraction(player, pos);
+        BlockHitResult hit = interaction.hit();
+        Vec3 hitLocation = hit.getLocation();
+        Vec3 interactionPos = interaction.interactionPos();
 
         AbstractContainerMenu menuBeforeInteract = player.containerMenu;
         InteractionResult interactResult = withTemporaryUseItemContext(
@@ -640,17 +677,41 @@ public final class RtsStorageManager {
                 () -> withTemporaryMainHandItem(
                         player,
                         ItemStack.EMPTY,
-                        () -> player.gameMode.useItemOn(
+                        () -> withTemporaryShiftKey(player, false, () -> player.gameMode.useItemOn(
                                 player,
                                 level,
                                 ItemStack.EMPTY,
                                 InteractionHand.MAIN_HAND,
-                                hit)));
+                                hit))));
         AbstractContainerMenu menuAfterInteract = player.containerMenu;
         if (menuAfterInteract != menuBeforeInteract) {
-            relaxOpenedMenuValidation(menuAfterInteract);
+            markRemoteMenuOpen(player, session, menuAfterInteract, pos);
             requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
             return;
+        }
+
+        if (!interactResult.consumesAction()) {
+            interactResult = withTemporaryUseItemContext(
+                    player,
+                    interactionPos,
+                    hitLocation,
+                    null,
+                    REMOTE_POV_BLOCK_REACH,
+                    () -> withTemporaryMainHandItem(
+                            player,
+                            ItemStack.EMPTY,
+                            () -> withTemporaryShiftKey(player, true, () -> player.gameMode.useItemOn(
+                                    player,
+                                    level,
+                                    ItemStack.EMPTY,
+                                    InteractionHand.MAIN_HAND,
+                                    hit))));
+            AbstractContainerMenu menuAfterSecondaryInteract = player.containerMenu;
+            if (menuAfterSecondaryInteract != menuBeforeInteract) {
+                markRemoteMenuOpen(player, session, menuAfterSecondaryInteract, pos);
+                requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+                return;
+            }
         }
 
         if (!interactResult.consumesAction()) {
@@ -659,8 +720,8 @@ public final class RtsStorageManager {
                 return;
             }
             player.openMenu(provider);
-            if (player.containerMenu != null) {
-                relaxOpenedMenuValidation(player.containerMenu);
+            if (player.containerMenu != null && player.containerMenu != menuBeforeInteract) {
+                markRemoteMenuOpen(player, session, player.containerMenu, pos);
             }
         }
         requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
@@ -1683,9 +1744,9 @@ public final class RtsStorageManager {
                             hit)));
             AbstractContainerMenu menuAfterMainHandUse = player.containerMenu;
             if (menuAfterMainHandUse != menuBeforeMainHandUse) {
-                relaxOpenedMenuValidation(menuAfterMainHandUse);
-                return;
-            }
+            markRemoteMenuOpen(player, session, menuAfterMainHandUse, clickedPos);
+            return;
+        }
 
             if (mainHandUse.consumesAction()) {
                 BlockPos placedPos = detectPlacedPos(level, clickedPos, beforeClicked, adjacentPos, beforeAdjacent);
@@ -1719,7 +1780,7 @@ public final class RtsStorageManager {
                             InteractionHand.MAIN_HAND)));
             AbstractContainerMenu menuAfterUseFallback = player.containerMenu;
             if (menuAfterUseFallback != menuBeforeUseFallback) {
-                relaxOpenedMenuValidation(menuAfterUseFallback);
+                markRemoteMenuOpen(player, session, menuAfterUseFallback, clickedPos);
                 return;
             }
             if (mainHandUseFallback.consumesAction()) {
@@ -1780,7 +1841,7 @@ public final class RtsStorageManager {
                 () -> useItemOnWithMainHand(player, level, extracted, hit, forcePlace));
         AbstractContainerMenu menuAfterSelectedUse = player.containerMenu;
         if (menuAfterSelectedUse != menuBeforeSelectedUse) {
-            relaxOpenedMenuValidation(menuAfterSelectedUse);
+            markRemoteMenuOpen(player, session, menuAfterSelectedUse, clickedPos);
         }
 
         UseOnOutcome finalOutcome = selectedOutcome;
@@ -1965,7 +2026,7 @@ public final class RtsStorageManager {
         }
         AbstractContainerMenu menuAfterInteract = player.containerMenu;
         if (menuAfterInteract != menuBeforeInteract) {
-            relaxOpenedMenuValidation(menuAfterInteract);
+            markRemoteMenuOpen(player, session, menuAfterInteract, effectiveBlockPos);
         }
 
         if (result.consumesAction() && blockHit != null && beforeClicked != null) {
@@ -4722,6 +4783,75 @@ public final class RtsStorageManager {
         }
     }
 
+    private static void markRemoteMenuOpen(ServerPlayer player, Session session, AbstractContainerMenu menu, BlockPos pos) {
+        if (player == null || session == null) {
+            return;
+        }
+        session.remoteMenuValidationPos = pos == null ? null : pos.immutable();
+        relaxOpenedMenuValidation(menu);
+        sendRemoteMenuOpenHint(player, pos);
+    }
+
+    private static void clearRemoteMenuValidation(Session session) {
+        if (session == null) {
+            return;
+        }
+        session.remoteMenuValidationPos = null;
+        session.remoteMenuRestorePos = null;
+        session.remoteMenuValidationSpoofed = false;
+    }
+
+    private static void restoreRemoteMenuValidationPosition(ServerPlayer player, Session session) {
+        if (player == null || session == null || !session.remoteMenuValidationSpoofed || session.remoteMenuRestorePos == null) {
+            if (session != null) {
+                session.remoteMenuRestorePos = null;
+                session.remoteMenuValidationSpoofed = false;
+            }
+            return;
+        }
+        Vec3 restorePos = session.remoteMenuRestorePos;
+        player.setPos(restorePos.x, restorePos.y, restorePos.z);
+        session.remoteMenuRestorePos = null;
+        session.remoteMenuValidationSpoofed = false;
+    }
+
+    private static Vec3 resolveMenuValidationPosition(BlockPos pos) {
+        return new Vec3(pos.getX() + 0.5D, pos.getY() + 0.1D, pos.getZ() + 0.5D);
+    }
+
+    private static void sendRemoteMenuOpenHint(ServerPlayer player, BlockPos pos) {
+        if (player == null || pos == null) {
+            return;
+        }
+        PacketDistributor.sendToPlayer(player, new S2CRtsRemoteMenuHintPayload(pos.immutable()));
+    }
+
+    private static SyntheticBlockInteraction createGuiBindingInteraction(ServerPlayer player, BlockPos pos) {
+        Direction face = resolveGuiBindingFace(player, pos);
+        Vec3 faceCenter = Vec3.atCenterOf(pos).add(
+                face.getStepX() * 0.498D,
+                0.0D,
+                face.getStepZ() * 0.498D);
+        Vec3 eyePos = faceCenter.add(
+                face.getStepX() * 2.2D,
+                0.0D,
+                face.getStepZ() * 2.2D);
+        double eyeHeight = player == null ? 1.62D : player.getEyeHeight(player.getPose());
+        Vec3 interactionPos = new Vec3(eyePos.x, eyePos.y - eyeHeight, eyePos.z);
+        return new SyntheticBlockInteraction(new BlockHitResult(faceCenter, face, pos, false), interactionPos);
+    }
+
+    private static Direction resolveGuiBindingFace(ServerPlayer player, BlockPos pos) {
+        Vec3 center = Vec3.atCenterOf(pos);
+        Vec3 playerPos = player == null ? center : player.position();
+        double dx = playerPos.x - center.x;
+        double dz = playerPos.z - center.z;
+        if (Math.abs(dx) >= Math.abs(dz)) {
+            return dx >= 0.0D ? Direction.EAST : Direction.WEST;
+        }
+        return dz >= 0.0D ? Direction.SOUTH : Direction.NORTH;
+    }
+
     private static BlockPos detectPlacedPos(ServerLevel level, BlockPos clickedPos, BlockState beforeClicked, BlockPos adjacentPos,
             BlockState beforeAdjacent) {
         if (!level.hasChunkAt(clickedPos)) {
@@ -5181,6 +5311,9 @@ public final class RtsStorageManager {
     private record RayContext(Vec3 origin, Vec3 dir) {
     }
 
+    private record SyntheticBlockInteraction(BlockHitResult hit, Vec3 interactionPos) {
+    }
+
     private record UseOnOutcome(InteractionResult result, ItemStack remainder) {
     }
 
@@ -5347,6 +5480,9 @@ public final class RtsStorageManager {
         private final Deque<RecentEntry> recentEntries = new ArrayDeque<>();
         private final String[] quickSlotItemIds = new String[QUICK_SLOT_COUNT];
         private final GuiBinding[] guiBindings = new GuiBinding[GUI_BINDING_SLOT_COUNT];
+        private BlockPos remoteMenuValidationPos;
+        private Vec3 remoteMenuRestorePos;
+        private boolean remoteMenuValidationSpoofed;
 
         private Session() {
             Arrays.fill(this.quickSlotItemIds, "");

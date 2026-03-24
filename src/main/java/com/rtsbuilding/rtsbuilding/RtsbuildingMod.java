@@ -37,6 +37,7 @@ import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.registries.DeferredBlock;
@@ -139,6 +140,20 @@ public class RtsbuildingMod {
         static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
             if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
                 RtsCameraManager.stopIfActive(serverPlayer);
+            }
+        }
+
+        @SubscribeEvent
+        static void onPlayerTickPre(PlayerTickEvent.Pre event) {
+            if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+                RtsStorageManager.onPlayerTickPre(serverPlayer);
+            }
+        }
+
+        @SubscribeEvent
+        static void onPlayerTickPost(PlayerTickEvent.Post event) {
+            if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+                RtsStorageManager.onPlayerTickPost(serverPlayer);
             }
         }
 

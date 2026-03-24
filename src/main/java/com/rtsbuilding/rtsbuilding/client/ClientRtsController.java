@@ -9,6 +9,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.lang.reflect.Field;
+import java.util.Optional;
+import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
@@ -41,6 +45,7 @@ import com.rtsbuilding.rtsbuilding.network.S2CRtsCameraStatePayload;
 import com.rtsbuilding.rtsbuilding.network.S2CRtsCraftablesPayload;
 import com.rtsbuilding.rtsbuilding.network.S2CRtsCraftFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.network.S2CRtsMineProgressPayload;
+import com.rtsbuilding.rtsbuilding.network.S2CRtsRemoteMenuHintPayload;
 import com.rtsbuilding.rtsbuilding.network.S2CRtsStoragePagePayload;
 
 import net.minecraft.client.CameraType;
@@ -52,8 +57,12 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
+import net.minecraft.world.Container;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ContainerLevelAccess;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.inventory.CraftingMenu;
 import net.minecraft.world.phys.BlockHitResult;
@@ -90,6 +99,8 @@ public final class ClientRtsController {
     private static final int REMOTE_MENU_OPEN_GRACE_TICKS = 20;
     private static final double MIN_CAMERA_HEIGHT_OFFSET = -5.0D;
     private static final double MAX_CAMERA_HEIGHT_OFFSET = 80.0D;
+    private static final float MIN_CAMERA_PITCH = -90.0F;
+    private static final float MAX_CAMERA_PITCH = 90.0F;
 
     private boolean enabled;
     private int serverCameraEntityId = -1;
@@ -172,6 +183,11 @@ public final class ClientRtsController {
     private boolean pendingCraftTerminalOpen;
     private int pendingCraftTerminalOpenTicks;
     private int pendingRemoteMenuOpenTicks;
+    private BlockPos pendingRemoteMenuValidationPos;
+    private BlockPos activeRemoteMenuValidationPos;
+    private Vec3 remoteMenuRestorePos;
+    private boolean remoteMenuValidationSpoofed;
+    private AbstractContainerMenu relaxedRemoteMenu;
     private boolean autoStoreMinedDrops = true;
     private final String[] quickSlotItemIds = new String[QUICK_SLOT_COUNT];
     private final String[] quickSlotLabels = new String[QUICK_SLOT_COUNT];
@@ -609,6 +625,7 @@ public final class ClientRtsController {
             this.pendingCraftTerminalOpen = false;
             this.pendingCraftTerminalOpenTicks = 0;
             this.pendingRemoteMenuOpenTicks = 0;
+            clearRemoteMenuValidationState();
             clearQuickSlotsLocal();
             clearGuiBindingsLocal();
 
@@ -628,6 +645,7 @@ public final class ClientRtsController {
         this.pendingCraftTerminalOpen = false;
         this.pendingCraftTerminalOpenTicks = 0;
         this.pendingRemoteMenuOpenTicks = 0;
+        clearRemoteMenuValidationState();
 
         if (this.rotateCaptured) {
             this.endRotateCapture(0.0D, 0.0D);
@@ -673,12 +691,46 @@ public final class ClientRtsController {
         this.localMirrorCamera = null;
     }
 
+    public void preTick() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null) {
+            clearRemoteMenuValidationState();
+            return;
+        }
+        if (!this.enabled) {
+            restoreRemoteMenuValidationPosition(minecraft);
+            clearRemoteMenuValidationState();
+            return;
+        }
+
+        boolean hasRemoteMenuOpen = minecraft.player.containerMenu != null
+                && minecraft.player.containerMenu.containerId != 0;
+        if (!hasRemoteMenuOpen && this.pendingRemoteMenuOpenTicks <= 0) {
+            restoreRemoteMenuValidationPosition(minecraft);
+            this.activeRemoteMenuValidationPos = null;
+            return;
+        }
+
+        if (this.activeRemoteMenuValidationPos == null && this.pendingRemoteMenuValidationPos != null) {
+            this.activeRemoteMenuValidationPos = this.pendingRemoteMenuValidationPos.immutable();
+        }
+        if (this.activeRemoteMenuValidationPos == null || this.remoteMenuValidationSpoofed) {
+            return;
+        }
+
+        this.remoteMenuRestorePos = minecraft.player.position();
+        Vec3 validationPos = resolveMenuValidationPosition(this.activeRemoteMenuValidationPos);
+        minecraft.player.setPos(validationPos.x, validationPos.y, validationPos.z);
+        this.remoteMenuValidationSpoofed = true;
+    }
+
     public void tick() {
+        Minecraft minecraft = Minecraft.getInstance();
+        restoreRemoteMenuValidationPosition(minecraft);
         if (!this.enabled) {
             return;
         }
 
-        Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player == null || minecraft.level == null) {
             return;
         }
@@ -718,6 +770,13 @@ public final class ClientRtsController {
 
         if (hasRemoteMenuOpen) {
             this.pendingRemoteMenuOpenTicks = 0;
+            if (this.relaxedRemoteMenu != minecraft.player.containerMenu) {
+                relaxClientMenuValidation(minecraft.player.containerMenu);
+                this.relaxedRemoteMenu = minecraft.player.containerMenu;
+            }
+            if (this.activeRemoteMenuValidationPos == null && this.pendingRemoteMenuValidationPos != null) {
+                this.activeRemoteMenuValidationPos = this.pendingRemoteMenuValidationPos.immutable();
+            }
             if (minecraft.screen instanceof BuilderScreen) {
                 // First-open GUI construction can leave a brief null-screen handoff. Once a real
                 // container menu exists, let it take over instead of keeping BuilderScreen active.
@@ -725,6 +784,13 @@ public final class ClientRtsController {
             }
         } else if (this.pendingRemoteMenuOpenTicks > 0) {
             this.pendingRemoteMenuOpenTicks--;
+            if (this.activeRemoteMenuValidationPos == null && this.pendingRemoteMenuValidationPos != null) {
+                this.activeRemoteMenuValidationPos = this.pendingRemoteMenuValidationPos.immutable();
+            }
+        } else {
+            this.activeRemoteMenuValidationPos = null;
+            this.pendingRemoteMenuValidationPos = null;
+            this.relaxedRemoteMenu = null;
         }
 
         if (minecraft.screen == null && !hasRemoteMenuOpen && this.pendingRemoteMenuOpenTicks <= 0) {
@@ -953,7 +1019,7 @@ public final class ClientRtsController {
         setStorageSearch("");
         this.pendingCraftTerminalOpen = true;
         this.pendingCraftTerminalOpenTicks = 120;
-        beginRemoteMenuOpenGrace();
+        beginRemoteMenuOpenGrace(null);
         PacketDistributor.sendToServer(new C2SRtsOpenCraftTerminalPayload());
     }
 
@@ -1107,6 +1173,16 @@ public final class ClientRtsController {
         if (!this.storageLinked && this.linkedStoragePositions.isEmpty()) {
             clearCraftablesState();
         }
+    }
+
+    public void applyRemoteMenuHint(S2CRtsRemoteMenuHintPayload payload) {
+        if (!this.enabled || payload == null || payload.pos() == null) {
+            return;
+        }
+        BlockPos pos = payload.pos().immutable();
+        this.pendingRemoteMenuOpenTicks = Math.max(this.pendingRemoteMenuOpenTicks, REMOTE_MENU_OPEN_GRACE_TICKS);
+        this.pendingRemoteMenuValidationPos = pos;
+        this.activeRemoteMenuValidationPos = pos;
     }
 
     public void applyCraftables(S2CRtsCraftablesPayload payload) {
@@ -1443,7 +1519,7 @@ public final class ClientRtsController {
         if (index < 0 || index >= GUI_BINDING_SLOT_COUNT || !hasGuiBinding(index)) {
             return;
         }
-        beginRemoteMenuOpenGrace();
+        beginRemoteMenuOpenGrace(null);
         PacketDistributor.sendToServer(new C2SRtsOpenGuiBindingPayload((byte) index));
     }
 
@@ -1452,7 +1528,7 @@ public final class ClientRtsController {
     }
 
     public void placeSelected(BlockHitResult hit, boolean forcePlace, Vec3 rayOrigin, Vec3 rayDir, boolean skipIfOccupied) {
-        beginRemoteMenuOpenGrace();
+        beginRemoteMenuOpenGrace(hit == null ? null : hit.getBlockPos());
         PacketDistributor.sendToServer(new C2SRtsPlacePayload(
                 hit.getBlockPos(),
                 (byte) hit.getDirection().get3DDataValue(),
@@ -1575,7 +1651,7 @@ public final class ClientRtsController {
     }
 
     public void interactEmpty(BlockHitResult hit, Vec3 rayOrigin, Vec3 rayDir) {
-        beginRemoteMenuOpenGrace();
+        beginRemoteMenuOpenGrace(hit == null ? null : hit.getBlockPos());
         PacketDistributor.sendToServer(new C2SRtsPlacePayload(
                 hit.getBlockPos(),
                 (byte) hit.getDirection().get3DDataValue(),
@@ -1598,7 +1674,7 @@ public final class ClientRtsController {
         if (hit == null) {
             return;
         }
-        beginRemoteMenuOpenGrace();
+        beginRemoteMenuOpenGrace(hit.getBlockPos());
         PacketDistributor.sendToServer(new C2SRtsInteractPayload(
                 C2SRtsInteractPayload.NO_ENTITY,
                 hit.getBlockPos(),
@@ -1621,7 +1697,7 @@ public final class ClientRtsController {
         if (hit == null || itemId == null || itemId.isBlank()) {
             return;
         }
-        beginRemoteMenuOpenGrace();
+        beginRemoteMenuOpenGrace(hit.getBlockPos());
         PacketDistributor.sendToServer(new C2SRtsInteractPayload(
                 C2SRtsInteractPayload.NO_ENTITY,
                 hit.getBlockPos(),
@@ -1644,7 +1720,7 @@ public final class ClientRtsController {
         if (entityId < 0 || hitLocation == null) {
             return;
         }
-        beginRemoteMenuOpenGrace();
+        beginRemoteMenuOpenGrace(BlockPos.containing(hitLocation));
         PacketDistributor.sendToServer(new C2SRtsInteractPayload(
                 entityId,
                 BlockPos.containing(hitLocation),
@@ -1667,7 +1743,7 @@ public final class ClientRtsController {
         if (entityId < 0 || hitLocation == null || itemId == null || itemId.isBlank()) {
             return;
         }
-        beginRemoteMenuOpenGrace();
+        beginRemoteMenuOpenGrace(BlockPos.containing(hitLocation));
         PacketDistributor.sendToServer(new C2SRtsInteractPayload(
                 entityId,
                 BlockPos.containing(hitLocation),
@@ -1728,8 +1804,71 @@ public final class ClientRtsController {
         this.activeMineFace = -1;
     }
 
-    private void beginRemoteMenuOpenGrace() {
+    private void beginRemoteMenuOpenGrace(BlockPos menuPos) {
         this.pendingRemoteMenuOpenTicks = Math.max(this.pendingRemoteMenuOpenTicks, REMOTE_MENU_OPEN_GRACE_TICKS);
+        this.pendingRemoteMenuValidationPos = menuPos == null ? null : menuPos.immutable();
+        if (menuPos == null) {
+            this.activeRemoteMenuValidationPos = null;
+        }
+    }
+
+    private void restoreRemoteMenuValidationPosition(Minecraft minecraft) {
+        if (!this.remoteMenuValidationSpoofed || minecraft == null || minecraft.player == null || this.remoteMenuRestorePos == null) {
+            this.remoteMenuValidationSpoofed = false;
+            this.remoteMenuRestorePos = null;
+            return;
+        }
+        minecraft.player.setPos(this.remoteMenuRestorePos.x, this.remoteMenuRestorePos.y, this.remoteMenuRestorePos.z);
+        this.remoteMenuValidationSpoofed = false;
+        this.remoteMenuRestorePos = null;
+    }
+
+    private void clearRemoteMenuValidationState() {
+        this.pendingRemoteMenuValidationPos = null;
+        this.activeRemoteMenuValidationPos = null;
+        this.remoteMenuRestorePos = null;
+        this.remoteMenuValidationSpoofed = false;
+        this.relaxedRemoteMenu = null;
+    }
+
+    private static Vec3 resolveMenuValidationPosition(BlockPos pos) {
+        return new Vec3(pos.getX() + 0.5D, pos.getY() + 0.1D, pos.getZ() + 0.5D);
+    }
+
+    private static void relaxClientMenuValidation(AbstractContainerMenu menu) {
+        if (menu == null) {
+            return;
+        }
+        Class<?> type = menu.getClass();
+        while (type != null && type != Object.class) {
+            for (Field field : type.getDeclaredFields()) {
+                try {
+                    field.setAccessible(true);
+                    Class<?> fieldType = field.getType();
+
+                    if (ContainerLevelAccess.class.isAssignableFrom(fieldType)) {
+                        Object current = field.get(menu);
+                        if (current instanceof ContainerLevelAccess access
+                                && !(access instanceof ClientRelaxedContainerLevelAccess)) {
+                            field.set(menu, new ClientRelaxedContainerLevelAccess(access));
+                        } else if (current == null) {
+                            field.set(menu, ContainerLevelAccess.NULL);
+                        }
+                        continue;
+                    }
+
+                    if (fieldType == Container.class) {
+                        Object current = field.get(menu);
+                        if (current instanceof Container delegate && !(delegate instanceof ClientAlwaysValidContainer)) {
+                            field.set(menu, new ClientAlwaysValidContainer(delegate));
+                        }
+                    }
+                } catch (ReflectiveOperationException ignored) {
+                    // Some runtime-specific/final fields cannot be patched reflectively.
+                }
+            }
+            type = type.getSuperclass();
+        }
     }
 
     private void clearSelectedItemOnly() {
@@ -1802,7 +1941,7 @@ public final class ClientRtsController {
         if (rotateSteps != 0) {
             this.localYawDeg = snapQuarter(this.localYawDeg + (90.0F * rotateSteps));
         }
-        this.localPitchDeg = Mth.clamp(this.localPitchDeg + (rotateY * ROTATE_GAIN_Y), 25.0F, 85.0F);
+        this.localPitchDeg = Mth.clamp(this.localPitchDeg + (rotateY * ROTATE_GAIN_Y), MIN_CAMERA_PITCH, MAX_CAMERA_PITCH);
 
         double speed = fast ? 0.80D : 0.45D;
         double yawRad = Math.toRadians(this.localYawDeg);
@@ -1990,6 +2129,103 @@ public final class ClientRtsController {
         }
         ItemStack preview = new ItemStack(BuiltInRegistries.ITEM.get(id));
         return new RecentEntry(false, idText, preview.getHoverName().getString(), Math.max(0L, amount), 0L, kind, preview);
+    }
+
+    private static final class ClientAlwaysValidContainer implements Container {
+        private final Container delegate;
+
+        private ClientAlwaysValidContainer(Container delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public int getContainerSize() {
+            return this.delegate.getContainerSize();
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return this.delegate.isEmpty();
+        }
+
+        @Override
+        public ItemStack getItem(int slot) {
+            return this.delegate.getItem(slot);
+        }
+
+        @Override
+        public ItemStack removeItem(int slot, int amount) {
+            return this.delegate.removeItem(slot, amount);
+        }
+
+        @Override
+        public ItemStack removeItemNoUpdate(int slot) {
+            return this.delegate.removeItemNoUpdate(slot);
+        }
+
+        @Override
+        public void setItem(int slot, ItemStack stack) {
+            this.delegate.setItem(slot, stack);
+        }
+
+        @Override
+        public int getMaxStackSize() {
+            return this.delegate.getMaxStackSize();
+        }
+
+        @Override
+        public void setChanged() {
+            this.delegate.setChanged();
+        }
+
+        @Override
+        public boolean stillValid(net.minecraft.world.entity.player.Player player) {
+            return true;
+        }
+
+        @Override
+        public void startOpen(net.minecraft.world.entity.player.Player player) {
+            this.delegate.startOpen(player);
+        }
+
+        @Override
+        public void stopOpen(net.minecraft.world.entity.player.Player player) {
+            this.delegate.stopOpen(player);
+        }
+
+        @Override
+        public boolean canPlaceItem(int slot, ItemStack stack) {
+            return this.delegate.canPlaceItem(slot, stack);
+        }
+
+        @Override
+        public void clearContent() {
+            this.delegate.clearContent();
+        }
+    }
+
+    private static final class ClientRelaxedContainerLevelAccess implements ContainerLevelAccess {
+        private final ContainerLevelAccess delegate;
+
+        private ClientRelaxedContainerLevelAccess(ContainerLevelAccess delegate) {
+            this.delegate = delegate == null ? ContainerLevelAccess.NULL : delegate;
+        }
+
+        @Override
+        public <T> Optional<T> evaluate(BiFunction<Level, BlockPos, T> evaluator) {
+            Optional<T> result = this.delegate.evaluate(evaluator);
+            if (result.isPresent() && result.get() instanceof Boolean) {
+                @SuppressWarnings("unchecked")
+                T forcedTrue = (T) Boolean.TRUE;
+                return Optional.of(forcedTrue);
+            }
+            return result;
+        }
+
+        @Override
+        public void execute(BiConsumer<Level, BlockPos> consumer) {
+            this.delegate.execute(consumer);
+        }
     }
 }
 

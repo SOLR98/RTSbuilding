@@ -19,11 +19,17 @@ public final class ClientInputHandler {
     }
 
     @SubscribeEvent
-    public static void onClientTick(ClientTickEvent.Post event) {
+    public static void onClientTickPre(ClientTickEvent.Pre event) {
+        ClientRtsController.get().preTick();
+    }
+
+    @SubscribeEvent
+    public static void onClientTickPost(ClientTickEvent.Post event) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player == null) {
             toggleKeyWasDown = false;
             toggleCooldownTicks = 0;
+            ClientRtsController.get().tick();
             return;
         }
 

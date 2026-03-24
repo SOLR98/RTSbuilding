@@ -177,6 +177,11 @@ public final class RtsPayloadRegistrar {
                 RtsNetworkHandlers::handleStoragePage);
 
         registrar.playToClient(
+                S2CRtsRemoteMenuHintPayload.TYPE,
+                S2CRtsRemoteMenuHintPayload.STREAM_CODEC,
+                RtsNetworkHandlers::handleRemoteMenuHint);
+
+        registrar.playToClient(
                 S2CRtsCraftablesPayload.TYPE,
                 S2CRtsCraftablesPayload.STREAM_CODEC,
                 RtsNetworkHandlers::handleCraftables);
