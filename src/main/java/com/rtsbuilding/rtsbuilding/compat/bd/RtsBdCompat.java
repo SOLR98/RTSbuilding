@@ -32,14 +32,14 @@ public final class RtsBdCompat {
     }
 
     public static boolean hasPrimaryNetwork(ServerPlayer player) {
-        if (player == null || player.getServer() == null) {
+        if (!isAvailable() || player == null || player.getServer() == null) {
             return false;
         }
         return DimensionsNet.getPrimaryNetFromPlayer(player) != null;
     }
 
     public static IItemHandler createNetworkItemHandler(ServerPlayer player) {
-        if (player == null || player.getServer() == null) {
+        if (!isAvailable() || player == null || player.getServer() == null) {
             return null;
         }
         DimensionsNet net = DimensionsNet.getPrimaryNetFromPlayer(player);
@@ -50,7 +50,7 @@ public final class RtsBdCompat {
     }
 
     public static IFluidHandler createNetworkFluidHandler(ServerPlayer player) {
-        if (player == null || player.getServer() == null) {
+        if (!isAvailable() || player == null || player.getServer() == null) {
             return null;
         }
         DimensionsNet net = DimensionsNet.getPrimaryNetFromPlayer(player);
@@ -61,7 +61,7 @@ public final class RtsBdCompat {
     }
 
     public static String getNetworkDisplayName(ServerPlayer player) {
-        if (player == null || player.getServer() == null) {
+        if (!isAvailable() || player == null || player.getServer() == null) {
             return "Beyond Dimensions Network";
         }
         DimensionsNet net = DimensionsNet.getPrimaryNetFromPlayer(player);

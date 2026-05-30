@@ -166,6 +166,7 @@ public final class ClientRtsController {
     private BuilderMode mode = BuilderMode.INTERACT;
     private boolean storageCollapsed;
     private boolean storageLinked;
+    private boolean bdNetworkEnabled = true;
     private String linkedStorageName = "No Storage";
     private final List<BlockPos> linkedStoragePositions = new ArrayList<>();
     private int storagePage;
@@ -640,6 +641,19 @@ public final class ClientRtsController {
 
     public boolean isAutoStoreMinedDrops() {
         return this.autoStoreMinedDrops;
+    }
+
+    public boolean isBdNetworkEnabled() {
+        return this.bdNetworkEnabled;
+    }
+
+    public void setBdNetworkEnabled(boolean enabled) {
+        this.bdNetworkEnabled = enabled;
+        RtsClientPacketGateway.sendSetBdNetwork(enabled);
+    }
+
+    public void toggleBdNetworkEnabled() {
+        setBdNetworkEnabled(!this.bdNetworkEnabled);
     }
 
     public BuildShape getBuildShape() {
@@ -1503,6 +1517,7 @@ public final class ClientRtsController {
         this.storageLinked = payload.linked();
         this.linkedStorageName = payload.linkedName();
         this.autoStoreMinedDrops = payload.autoStoreMinedDrops();
+        this.bdNetworkEnabled = payload.useBdNetwork();
         this.linkedStoragePositions.clear();
         for (Long packed : payload.linkedPositions()) {
             if (packed == null) {

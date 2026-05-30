@@ -84,6 +84,8 @@
   "screen.rtsbuilding.settings.pan_drag_y_invert.hint": "切换上下拖动时镜头平移方向。",
   "screen.rtsbuilding.settings.smooth_camera": "平滑 RTS 镜头",
   "screen.rtsbuilding.settings.smooth_camera.hint": "用渲染帧预测移动和拖拽输入。",
+  "screen.rtsbuilding.settings.bd_network": "超越维度网络",
+  "screen.rtsbuilding.settings.bd_network.hint": "将你的超越维度主网络纳入 RTS 储存。",
   "screen.rtsbuilding.top_hint.guide": "不会操作？点 i",
   "screen.rtsbuilding.debug.copied": "RTS debug 状态已复制",
   "chat.rtsbuilding.intro.rts_key": "按 %s 可以打开 RTS 建造/存储模式。",

@@ -27,6 +27,7 @@ import com.rtsbuilding.rtsbuilding.network.C2SRtsRequestStoragePagePayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsRotateBlockPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsSetHomePayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsSetAutoStorePayload;
+import com.rtsbuilding.rtsbuilding.network.C2SRtsSetBdNetworkPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsSetFunnelPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsSetGuiBindingPayload;
 import com.rtsbuilding.rtsbuilding.network.C2SRtsSetModePayload;
@@ -132,6 +133,10 @@ final class RtsClientPacketGateway {
 
     static void sendSetAutoStoreMinedDrops(boolean enabled) {
         PacketDistributor.sendToServer(new C2SRtsSetAutoStorePayload(enabled));
+    }
+
+    static void sendSetBdNetwork(boolean enabled) {
+        PacketDistributor.sendToServer(new C2SRtsSetBdNetworkPayload(enabled));
     }
 
     static void sendCraftRecipe(String recipeId, int craftCount) {

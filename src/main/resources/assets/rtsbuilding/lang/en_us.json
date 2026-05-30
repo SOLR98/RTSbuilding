@@ -84,6 +84,8 @@
   "screen.rtsbuilding.settings.pan_drag_y_invert.hint": "Flip up/down movement while dragging the pan key.",
   "screen.rtsbuilding.settings.smooth_camera": "Smooth RTS camera",
   "screen.rtsbuilding.settings.smooth_camera.hint": "Render-frame visual prediction for movement and drag input.",
+  "screen.rtsbuilding.settings.bd_network": "Beyond Dimensions network",
+  "screen.rtsbuilding.settings.bd_network.hint": "Include your primary Beyond Dimensions network in RTS storage.",
   "screen.rtsbuilding.top_hint.guide": "Need help? Click i",
   "screen.rtsbuilding.debug.copied": "RTS debug snapshot copied",
   "chat.rtsbuilding.intro.rts_key": "Press %s to open RTS Build/Storage mode.",

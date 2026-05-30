@@ -128,7 +128,7 @@ public final class BuilderScreen extends Screen {
     private static final int FUNNEL_BUFFER_TOGGLE_H = 16;
     private static final int GEAR_MENU_H = 284;
     private static final int GEAR_MENU_MIN_H = 168;
-    private static final int GEAR_MENU_CONTENT_H = 400;
+    private static final int GEAR_MENU_CONTENT_H = 436;
     private static final double MIDDLE_CLICK_DRAG_THRESHOLD = 1.5D;
     private static final double DEFAULT_RTS_GUI_SCALE = 2.0D;
     private static final double MIN_RTS_GUI_SCALE = 1.0D;
@@ -2434,6 +2434,12 @@ public final class BuilderScreen extends Screen {
                 "screen.rtsbuilding.settings.smooth_camera",
                 "screen.rtsbuilding.settings.smooth_camera.hint",
                 this.controller.isSmoothCamera());
+
+        int bdNetworkToggleY = controlsY + 384;
+        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, bdNetworkToggleY,
+                "screen.rtsbuilding.settings.bd_network",
+                "screen.rtsbuilding.settings.bd_network.hint",
+                this.controller.isBdNetworkEnabled());
     }
 
     private void drawSettingsToggleWithHint(GuiGraphics g, int mouseX, int mouseY, int x, int w, int rowY,
@@ -2599,6 +2605,10 @@ public final class BuilderScreen extends Screen {
         if (inside(mouseX, contentMouseY, x + 12, controlsY + 344, w - 24, 34)) {
             this.controller.toggleSmoothCamera();
             persistUiState();
+            return true;
+        }
+        if (inside(mouseX, contentMouseY, x + 12, controlsY + 380, w - 24, 34)) {
+            this.controller.toggleBdNetworkEnabled();
             return true;
         }
         return true;

@@ -1354,8 +1354,8 @@ public final class RtsStorageManager {
         }
 
         PacketDistributor.sendToPlayer(player, new S2CRtsStoragePagePayload(
-                !session.linkedStorages.isEmpty(),
-                buildLinkedSummary(session),
+                hasAnyStorage(player, session),
+                buildAnyStorageSummary(player, session),
                 linkedPackedPositions,
                 safePage,
                 totalPages,
@@ -1391,8 +1391,8 @@ public final class RtsStorageManager {
 
     private static void sendEmptyPage(ServerPlayer player, Session session) {
         PacketDistributor.sendToPlayer(player, new S2CRtsStoragePagePayload(
-                !session.linkedStorages.isEmpty(),
-                buildLinkedSummary(session),
+                hasAnyStorage(player, session),
+                buildAnyStorageSummary(player, session),
                 toPackedPositions(player, session.linkedStorages),
                 0,
                 1,
@@ -1402,6 +1402,7 @@ public final class RtsStorageManager {
                 (byte) session.sort.ordinal(),
                 session.ascending,
                 session.autoStoreMinedDrops,
+                session.useBdNetwork,
                 List.of(CATEGORY_ALL),
                 List.of(),
                 List.of(),
@@ -6628,6 +6629,19 @@ public final class RtsStorageManager {
             return true;
         }
         return session.useBdNetwork && RtsBdCompat.hasPrimaryNetwork(player);
+    }
+
+    private static String buildAnyStorageSummary(ServerPlayer player, Session session) {
+        if (session == null) {
+            return "No Storage";
+        }
+        if (!session.linkedStorages.isEmpty()) {
+            return buildLinkedSummary(session);
+        }
+        if (session.useBdNetwork && RtsBdCompat.hasPrimaryNetwork(player)) {
+            return RtsBdCompat.getNetworkDisplayName(player);
+        }
+        return "No Storage";
     }
 
     private static void sanitizeSessionDimension(ServerPlayer player, Session session) {
