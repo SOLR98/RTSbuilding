@@ -612,7 +612,7 @@ public final class ClientRtsController {
     }
 
     public boolean isStorageScanPopupVisible() {
-        return this.storageScanRunning || System.currentTimeMillis() < this.storageScanVisibleUntilMs;
+        return false;
     }
 
     public boolean isStorageScanRunning() {
@@ -1707,9 +1707,17 @@ public final class ClientRtsController {
                 return;
             }
         }
-        if (hasStoragePageSnapshot() && getStorageTotalCount(this.selectedItemId) <= 0L) {
+        if (shouldAutoClearSelectedItemWhenUnavailable()
+                && hasStoragePageSnapshot()
+                && getStorageTotalCount(this.selectedItemId) <= 0L) {
             selectEmptyHandPreserveMode();
         }
+    }
+
+    private boolean shouldAutoClearSelectedItemWhenUnavailable() {
+        return this.selectedItemPreview != null
+                && !this.selectedItemPreview.isEmpty()
+                && this.selectedItemPreview.getItem() instanceof BlockItem;
     }
 
     public void applyRemoteMenuHint(S2CRtsRemoteMenuHintPayload payload) {
@@ -2218,11 +2226,12 @@ public final class ClientRtsController {
         beginRemoteMenuOpenGrace();
         String itemId = this.selectedItemId == null ? "" : this.selectedItemId;
         long selectedCount = getSelectedItemCountForPlacement(itemId);
-        if (!itemId.isBlank() && selectedCount <= 0L) {
+        boolean autoClearUnavailable = shouldAutoClearSelectedItemWhenUnavailable();
+        if (!itemId.isBlank() && autoClearUnavailable && selectedCount <= 0L) {
             selectEmptyHandPreserveMode();
             itemId = "";
         }
-        boolean clearAfterPlace = !itemId.isBlank() && selectedCount <= 1L;
+        boolean clearAfterPlace = !itemId.isBlank() && autoClearUnavailable && selectedCount <= 1L;
         RtsClientPacketGateway.sendPlace(
                 hit,
                 forcePlace,
@@ -2243,12 +2252,15 @@ public final class ClientRtsController {
         beginRemoteMenuOpenGrace();
         String itemId = this.selectedItemId == null ? "" : this.selectedItemId;
         long selectedCount = getSelectedItemCountForPlacement(itemId);
-        if (!itemId.isBlank() && selectedCount <= 0L) {
+        boolean autoClearUnavailable = shouldAutoClearSelectedItemWhenUnavailable();
+        if (!itemId.isBlank() && autoClearUnavailable && selectedCount <= 0L) {
             selectEmptyHandPreserveMode();
             itemId = "";
         }
         int attemptedPlacements = hits == null ? 0 : hits.size();
-        boolean clearAfterPlace = !itemId.isBlank() && selectedCount <= Math.max(1, attemptedPlacements);
+        boolean clearAfterPlace = !itemId.isBlank()
+                && autoClearUnavailable
+                && selectedCount <= Math.max(1, attemptedPlacements);
         RtsClientPacketGateway.sendPlaceBatch(
                 hits,
                 forcePlace,
