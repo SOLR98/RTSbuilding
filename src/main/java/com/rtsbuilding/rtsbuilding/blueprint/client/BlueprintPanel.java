@@ -661,8 +661,7 @@ public final class BlueprintPanel {
             return buildPinnedPreview();
         }
         if (inside(mouseX, mouseY, cancelX, barY + 5, cancelW, DETAIL_BUTTON_H)) {
-            pinnedAnchor = null;
-            setStatus(S2CBlueprintStatusPayload.INFO, "screen.rtsbuilding.blueprints.status.preview_cleared", "");
+            clearSelectedBlueprint();
             return true;
         }
         return inside(mouseX, mouseY, barX, barY, barW, barH);
@@ -1521,8 +1520,7 @@ public final class BlueprintPanel {
             return true;
         }
         if (inside(mouseX, mouseY, detailsX, controlsY, w - (detailsX - x) - 6, DETAIL_BUTTON_H)) {
-            pinnedAnchor = null;
-            setStatus(S2CBlueprintStatusPayload.INFO, "screen.rtsbuilding.blueprints.status.preview_cleared", "");
+            clearSelectedBlueprint();
             return true;
         }
 
@@ -2404,6 +2402,17 @@ public final class BlueprintPanel {
                 entry.error().isBlank() ? entry.name() : entry.error());
     }
 
+    private static void clearSelectedBlueprint() {
+        selectedIndex = -1;
+        pinnedAnchor = null;
+        pinnedNudgeForward = Direction.SOUTH;
+        yRotationSteps = 0;
+        xRotationSteps = 0;
+        zRotationSteps = 0;
+        materialDialogOpen = false;
+        materialDialogScroll = 0;
+        setStatus(S2CBlueprintStatusPayload.INFO, "screen.rtsbuilding.blueprints.status.preview_cleared", "");
+    }
     private static int listColumns(int w) {
         return w >= 320 ? 2 : 1;
     }
