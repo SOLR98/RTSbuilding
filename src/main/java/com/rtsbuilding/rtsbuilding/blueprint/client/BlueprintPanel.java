@@ -110,6 +110,9 @@ public final class BlueprintPanel {
                 inside(mouseX, mouseY, top.folderX(), buttonY, top.folderW(), BUTTON_H));
         drawButton(g, font, top.importX(), buttonY, top.importW(), BUTTON_H, text("screen.rtsbuilding.blueprints.import_file_short"),
                 inside(mouseX, mouseY, top.importX(), buttonY, top.importW(), BUTTON_H));
+        drawButton(g, font, top.syncCreateX(), buttonY, top.syncCreateW(), BUTTON_H,
+                text("screen.rtsbuilding.blueprints.sync_create_short"),
+                inside(mouseX, mouseY, top.syncCreateX(), buttonY, top.syncCreateW(), BUTTON_H));
         drawButton(g, font, top.captureX(), buttonY, top.captureW(), BUTTON_H,
                 text(captureMode ? "screen.rtsbuilding.blueprints.capture_active_short" : "screen.rtsbuilding.blueprints.capture_short"),
                 inside(mouseX, mouseY, top.captureX(), buttonY, top.captureW(), BUTTON_H));
@@ -150,6 +153,10 @@ public final class BlueprintPanel {
         }
         if (inside(mouseX, mouseY, top.importX(), y, top.importW(), BUTTON_H)) {
             importBlueprintFile();
+            return true;
+        }
+        if (inside(mouseX, mouseY, top.syncCreateX(), y, top.syncCreateW(), BUTTON_H)) {
+            syncCreateSchematics();
             return true;
         }
         if (inside(mouseX, mouseY, top.captureX(), y, top.captureW(), BUTTON_H)) {
@@ -1881,6 +1888,64 @@ public final class BlueprintPanel {
         }
     }
 
+    private static void syncCreateSchematics() {
+        Path sourceFolder = createSchematicsFolder();
+        if (!Files.isDirectory(sourceFolder)) {
+            setStatus(S2CBlueprintStatusPayload.INFO, "screen.rtsbuilding.blueprints.status.create_sync_missing", "");
+            return;
+        }
+        int copied = 0;
+        int skipped = 0;
+        int failed = 0;
+        String lastCopied = "";
+        try {
+            Files.createDirectories(blueprintFolder());
+            try (var stream = Files.list(sourceFolder)) {
+                List<Path> files = stream
+                        .filter(Files::isRegularFile)
+                        .filter(BlueprintPanel::isBlueprintFile)
+                        .sorted(Comparator.comparing(path -> path.getFileName().toString(), String.CASE_INSENSITIVE_ORDER))
+                        .limit(512)
+                        .toList();
+                for (Path source : files) {
+                    Path fileName = source.getFileName();
+                    if (fileName == null) {
+                        continue;
+                    }
+                    Path dest = blueprintFolder().resolve(fileName.toString());
+                    if (Files.exists(dest)) {
+                        skipped++;
+                        continue;
+                    }
+                    try {
+                        Files.copy(source, dest);
+                        copied++;
+                        lastCopied = fileName.toString();
+                    } catch (IOException ex) {
+                        failed++;
+                    }
+                }
+            }
+            if (copied > 0) {
+                reload();
+                if (!lastCopied.isBlank()) {
+                    selectByFileName(lastCopied);
+                }
+            }
+            if (copied == 0 && skipped == 0 && failed == 0) {
+                setStatus(S2CBlueprintStatusPayload.INFO, "screen.rtsbuilding.blueprints.status.create_sync_empty", "");
+            } else if (failed > 0) {
+                setStatus(S2CBlueprintStatusPayload.ERROR, "screen.rtsbuilding.blueprints.status.create_sync_partial",
+                        copied + "/" + skipped + "/" + failed);
+            } else {
+                setStatus(S2CBlueprintStatusPayload.SUCCESS, "screen.rtsbuilding.blueprints.status.create_sync_done",
+                        copied + "/" + skipped);
+            }
+        } catch (Exception ex) {
+            setStatus(S2CBlueprintStatusPayload.ERROR, "screen.rtsbuilding.blueprints.status.create_sync_failed", ex.getMessage());
+        }
+    }
+
     private static void saveEntryAs(BlueprintEntry entry) {
         if (entry == null || !entry.error().isBlank()) {
             setStatus(S2CBlueprintStatusPayload.ERROR, "screen.rtsbuilding.blueprints.status.no_selection", "");
@@ -2161,6 +2226,10 @@ public final class BlueprintPanel {
         return FMLPaths.GAMEDIR.get().resolve("rtsbuilding-blueprints");
     }
 
+    private static Path createSchematicsFolder() {
+        return FMLPaths.GAMEDIR.get().resolve("schematics");
+    }
+
     private static Path defaultsPath() {
         return blueprintFolder().resolve(".rtsbuilding-rotation-defaults.properties");
     }
@@ -2413,6 +2482,7 @@ public final class BlueprintPanel {
         materialDialogScroll = 0;
         setStatus(S2CBlueprintStatusPayload.INFO, "screen.rtsbuilding.blueprints.status.preview_cleared", "");
     }
+
     private static int listColumns(int w) {
         return w >= 320 ? 2 : 1;
     }
@@ -2465,25 +2535,29 @@ public final class BlueprintPanel {
         int gap = 4;
         int folderW = buttonWidth(font, "screen.rtsbuilding.blueprints.open_folder_short", 64, 96);
         int importW = buttonWidth(font, "screen.rtsbuilding.blueprints.import_file_short", 44, 72);
+        int syncCreateW = buttonWidth(font, "screen.rtsbuilding.blueprints.sync_create_short", 58, 94);
         int captureW = buttonWidth(font,
                 captureMode ? "screen.rtsbuilding.blueprints.capture_active_short" : "screen.rtsbuilding.blueprints.capture_short",
                 74,
                 112);
-        int actionW = folderW + importW + captureW + gap * 2;
+        int actionW = folderW + importW + syncCreateW + captureW + gap * 3;
         int searchX = x + actionW + 8;
         int searchW = Math.max(60, x + w - searchX);
         if (searchW < 80) {
             folderW = 56;
             importW = 44;
+            syncCreateW = 58;
             captureW = 70;
-            actionW = folderW + importW + captureW + gap * 2;
+            actionW = folderW + importW + syncCreateW + captureW + gap * 3;
             searchX = x + actionW + 6;
             searchW = Math.max(50, x + w - searchX);
         }
         int folderX = x;
         int importX = folderX + folderW + gap;
-        int captureX = importX + importW + gap;
-        return new TopBarLayout(folderX, folderW, importX, importW, captureX, captureW, searchX, searchW);
+        int syncCreateX = importX + importW + gap;
+        int captureX = syncCreateX + syncCreateW + gap;
+        return new TopBarLayout(folderX, folderW, importX, importW, syncCreateX, syncCreateW, captureX, captureW,
+                searchX, searchW);
     }
 
     private static int rowSaveAsWidth(Font font) {
@@ -2754,8 +2828,8 @@ public final class BlueprintPanel {
     private record RowActionLayout(int saveX, int saveW, int renameX, int renameW, int deleteX, int deleteW, int buttonY) {
     }
 
-    private record TopBarLayout(int folderX, int folderW, int importX, int importW, int captureX, int captureW,
-            int searchX, int searchW) {
+    private record TopBarLayout(int folderX, int folderW, int importX, int importW, int syncCreateX, int syncCreateW,
+            int captureX, int captureW, int searchX, int searchW) {
     }
 
     private record BlueprintEntry(
