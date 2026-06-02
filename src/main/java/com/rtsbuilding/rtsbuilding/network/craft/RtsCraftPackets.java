@@ -1,7 +1,6 @@
 package com.rtsbuilding.rtsbuilding.network.craft;
 
 import com.rtsbuilding.rtsbuilding.network.RtsClientPayloadBridge;
-import com.rtsbuilding.rtsbuilding.network.RtsNetworkHandlers;
 
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
@@ -13,27 +12,27 @@ public final class RtsCraftPackets {
         registrar.playToServer(
                 C2SRtsRequestCraftablesPayload.TYPE,
                 C2SRtsRequestCraftablesPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleRequestCraftables);
+                RtsCraftNetworkHandlers::handleRequestCraftables);
 
         registrar.playToServer(
                 C2SRtsOpenCraftTerminalPayload.TYPE,
                 C2SRtsOpenCraftTerminalPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleOpenCraftTerminal);
+                RtsCraftNetworkHandlers::handleOpenCraftTerminal);
 
         registrar.playToServer(
                 C2SRtsCraftRefillPayload.TYPE,
                 C2SRtsCraftRefillPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleCraftRefill);
+                RtsCraftNetworkHandlers::handleCraftRefill);
 
         registrar.playToServer(
                 C2SRtsCraftRecipePayload.TYPE,
                 C2SRtsCraftRecipePayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleCraftRecipe);
+                RtsCraftNetworkHandlers::handleCraftRecipe);
 
         registrar.playToServer(
                 C2SRtsJeiTransferPayload.TYPE,
                 C2SRtsJeiTransferPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleJeiTransfer);
+                RtsCraftNetworkHandlers::handleJeiTransfer);
 
         registrar.playToClient(
                 S2CRtsCraftablesPayload.TYPE,

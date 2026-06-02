@@ -1,7 +1,6 @@
 package com.rtsbuilding.rtsbuilding.network.builder;
 
 import com.rtsbuilding.rtsbuilding.network.RtsClientPayloadBridge;
-import com.rtsbuilding.rtsbuilding.network.RtsNetworkHandlers;
 
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
@@ -13,57 +12,57 @@ public final class RtsBuilderPackets {
         registrar.playToServer(
                 C2SRtsSetModePayload.TYPE,
                 C2SRtsSetModePayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleSetMode);
+                RtsBuilderNetworkHandlers::handleSetMode);
 
         registrar.playToServer(
                 C2SRtsRotateBlockPayload.TYPE,
                 C2SRtsRotateBlockPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleRotateBlock);
+                RtsBuilderNetworkHandlers::handleRotateBlock);
 
         registrar.playToServer(
                 C2SRtsPlacePayload.TYPE,
                 C2SRtsPlacePayload.STREAM_CODEC,
-                RtsNetworkHandlers::handlePlace);
+                RtsBuilderNetworkHandlers::handlePlace);
 
         registrar.playToServer(
                 C2SRtsPlaceBatchPayload.TYPE,
                 C2SRtsPlaceBatchPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handlePlaceBatch);
+                RtsBuilderNetworkHandlers::handlePlaceBatch);
 
         registrar.playToServer(
                 C2SRtsPlaceFluidPayload.TYPE,
                 C2SRtsPlaceFluidPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handlePlaceFluid);
+                RtsBuilderNetworkHandlers::handlePlaceFluid);
 
         registrar.playToServer(
                 C2SRtsStoreFluidPayload.TYPE,
                 C2SRtsStoreFluidPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleStoreFluid);
+                RtsBuilderNetworkHandlers::handleStoreFluid);
 
         registrar.playToServer(
                 C2SRtsInteractPayload.TYPE,
                 C2SRtsInteractPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleInteract);
+                RtsBuilderNetworkHandlers::handleInteract);
 
         registrar.playToServer(
                 C2SRtsQuickDropPayload.TYPE,
                 C2SRtsQuickDropPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleQuickDrop);
+                RtsBuilderNetworkHandlers::handleQuickDrop);
 
         registrar.playToServer(
                 C2SRtsBreakPayload.TYPE,
                 C2SRtsBreakPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleBreak);
+                RtsBuilderNetworkHandlers::handleBreak);
 
         registrar.playToServer(
                 C2SRtsMinePayload.TYPE,
                 C2SRtsMinePayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleMine);
+                RtsBuilderNetworkHandlers::handleMine);
 
         registrar.playToServer(
                 C2SRtsUltiminePayload.TYPE,
                 C2SRtsUltiminePayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleUltimine);
+                RtsBuilderNetworkHandlers::handleUltimine);
 
         registrar.playToClient(
                 S2CRtsMineProgressPayload.TYPE,

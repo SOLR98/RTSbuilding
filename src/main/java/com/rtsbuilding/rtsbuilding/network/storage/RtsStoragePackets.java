@@ -1,7 +1,6 @@
 package com.rtsbuilding.rtsbuilding.network.storage;
 
 import com.rtsbuilding.rtsbuilding.network.RtsClientPayloadBridge;
-import com.rtsbuilding.rtsbuilding.network.RtsNetworkHandlers;
 
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
@@ -13,77 +12,77 @@ public final class RtsStoragePackets {
         registrar.playToServer(
                 C2SRtsSetFunnelPayload.TYPE,
                 C2SRtsSetFunnelPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleSetFunnel);
+                RtsStorageNetworkHandlers::handleSetFunnel);
 
         registrar.playToServer(
                 C2SRtsSetAutoStorePayload.TYPE,
                 C2SRtsSetAutoStorePayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleSetAutoStore);
+                RtsStorageNetworkHandlers::handleSetAutoStore);
 
         registrar.playToServer(
                 C2SRtsSetBdNetworkPayload.TYPE,
                 C2SRtsSetBdNetworkPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleSetBdNetwork);
+                RtsStorageNetworkHandlers::handleSetBdNetwork);
 
         registrar.playToServer(
                 C2SRtsLinkStoragePayload.TYPE,
                 C2SRtsLinkStoragePayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleLinkStorage);
+                RtsStorageNetworkHandlers::handleLinkStorage);
 
         registrar.playToServer(
                 C2SRtsStoreHotbarSlotPayload.TYPE,
                 C2SRtsStoreHotbarSlotPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleStoreHotbarSlot);
+                RtsStorageNetworkHandlers::handleStoreHotbarSlot);
 
         registrar.playToServer(
                 C2SRtsSetQuickSlotPayload.TYPE,
                 C2SRtsSetQuickSlotPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleSetQuickSlot);
+                RtsStorageNetworkHandlers::handleSetQuickSlot);
 
         registrar.playToServer(
                 C2SRtsSetGuiBindingPayload.TYPE,
                 C2SRtsSetGuiBindingPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleSetGuiBinding);
+                RtsStorageNetworkHandlers::handleSetGuiBinding);
 
         registrar.playToServer(
                 C2SRtsOpenGuiBindingPayload.TYPE,
                 C2SRtsOpenGuiBindingPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleOpenGuiBinding);
+                RtsStorageNetworkHandlers::handleOpenGuiBinding);
 
         registrar.playToServer(
                 C2SRtsRequestStoragePagePayload.TYPE,
                 C2SRtsRequestStoragePagePayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleRequestStoragePage);
+                RtsStorageNetworkHandlers::handleRequestStoragePage);
 
         registrar.playToServer(
                 C2SRtsFunnelTargetPayload.TYPE,
                 C2SRtsFunnelTargetPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleFunnelTarget);
+                RtsStorageNetworkHandlers::handleFunnelTarget);
 
         registrar.playToServer(
                 C2SRtsFillInventoryPayload.TYPE,
                 C2SRtsFillInventoryPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleFillInventory);
+                RtsStorageNetworkHandlers::handleFillInventory);
 
         registrar.playToServer(
                 C2SRtsLinkedPickupPayload.TYPE,
                 C2SRtsLinkedPickupPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleLinkedPickup);
+                RtsStorageNetworkHandlers::handleLinkedPickup);
 
         registrar.playToServer(
                 C2SRtsLinkedQuickMovePayload.TYPE,
                 C2SRtsLinkedQuickMovePayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleLinkedQuickMove);
+                RtsStorageNetworkHandlers::handleLinkedQuickMove);
 
         registrar.playToServer(
                 C2SRtsReturnCarriedPayload.TYPE,
                 C2SRtsReturnCarriedPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleReturnCarried);
+                RtsStorageNetworkHandlers::handleReturnCarried);
 
         registrar.playToServer(
                 C2SRtsImportMenuSlotPayload.TYPE,
                 C2SRtsImportMenuSlotPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleImportMenuSlot);
+                RtsStorageNetworkHandlers::handleImportMenuSlot);
 
         registrar.playToClient(
                 S2CRtsStoragePagePayload.TYPE,

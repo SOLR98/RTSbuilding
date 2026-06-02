@@ -1,7 +1,6 @@
 package com.rtsbuilding.rtsbuilding.network.progression;
 
 import com.rtsbuilding.rtsbuilding.network.RtsClientPayloadBridge;
-import com.rtsbuilding.rtsbuilding.network.RtsNetworkHandlers;
 
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
@@ -13,37 +12,37 @@ public final class RtsProgressionPackets {
         registrar.playToServer(
                 C2SRtsQuestDetectPayload.TYPE,
                 C2SRtsQuestDetectPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleQuestDetect);
+                RtsProgressionNetworkHandlers::handleQuestDetect);
 
         registrar.playToServer(
                 C2SRtsUnlockProgressionNodePayload.TYPE,
                 C2SRtsUnlockProgressionNodePayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleUnlockProgressionNode);
+                RtsProgressionNetworkHandlers::handleUnlockProgressionNode);
 
         registrar.playToServer(
                 C2SRtsSetSurvivalProgressionPayload.TYPE,
                 C2SRtsSetSurvivalProgressionPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleSetSurvivalProgression);
+                RtsProgressionNetworkHandlers::handleSetSurvivalProgression);
 
         registrar.playToServer(
                 C2SRtsSetProgressionCostPayload.TYPE,
                 C2SRtsSetProgressionCostPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleSetProgressionCost);
+                RtsProgressionNetworkHandlers::handleSetProgressionCost);
 
         registrar.playToServer(
                 C2SRtsSetHomePayload.TYPE,
                 C2SRtsSetHomePayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleSetHome);
+                RtsProgressionNetworkHandlers::handleSetHome);
 
         registrar.playToServer(
                 C2SRtsBeginHomeSelectionPayload.TYPE,
                 C2SRtsBeginHomeSelectionPayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleBeginHomeSelection);
+                RtsProgressionNetworkHandlers::handleBeginHomeSelection);
 
         registrar.playToServer(
                 C2SRtsRequestProgressionStatePayload.TYPE,
                 C2SRtsRequestProgressionStatePayload.STREAM_CODEC,
-                RtsNetworkHandlers::handleRequestProgressionState);
+                RtsProgressionNetworkHandlers::handleRequestProgressionState);
 
         registrar.playToClient(
                 S2CRtsQuestDetectStatusPayload.TYPE,
