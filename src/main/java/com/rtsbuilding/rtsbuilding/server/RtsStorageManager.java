@@ -6288,150 +6288,34 @@ public final class RtsStorageManager {
         }
     }
 
+    // Thin wrappers keep existing manager call sites stable while linked
+    // resolution moves behind a reviewable dependency boundary.
     private static IItemHandler findHandler(ServerPlayer player, BlockPos pos) {
-        if (!player.serverLevel().hasChunkAt(pos)) {
-            return null;
-        }
-        IItemHandler direct = player.serverLevel().getCapability(Capabilities.ItemHandler.BLOCK, pos, null);
-        if (direct != null) {
-            return direct;
-        }
-        for (Direction direction : Direction.values()) {
-            IItemHandler sided = player.serverLevel().getCapability(Capabilities.ItemHandler.BLOCK, pos, direction);
-            if (sided != null) {
-                return sided;
-            }
-        }
-        return null;
+        return RtsLinkedStorageResolver.findHandler(player, pos);
     }
 
     private static IItemHandler findLinkedItemHandler(ServerPlayer player, BlockPos pos) {
-        IItemHandler ae2Network = RtsAe2Compat.createNetworkItemHandler(player, pos);
-        if (ae2Network != null) {
-            return ae2Network;
-        }
-        return findHandler(player, pos);
+        return RtsLinkedStorageResolver.findLinkedItemHandler(player, pos);
     }
 
     private static IFluidHandler findFluidHandler(ServerPlayer player, BlockPos pos) {
-        if (!player.serverLevel().hasChunkAt(pos)) {
-            return null;
-        }
-        IFluidHandler direct = player.serverLevel().getCapability(Capabilities.FluidHandler.BLOCK, pos, null);
-        if (direct != null) {
-            return direct;
-        }
-        for (Direction direction : Direction.values()) {
-            IFluidHandler sided = player.serverLevel().getCapability(Capabilities.FluidHandler.BLOCK, pos, direction);
-            if (sided != null) {
-                return sided;
-            }
-        }
-        return null;
+        return RtsLinkedStorageResolver.findFluidHandler(player, pos);
     }
 
     private static String resolveDisplayName(ServerLevel level, BlockPos pos) {
-        return level.getBlockState(pos).getBlock().getName().getString();
+        return RtsLinkedStorageResolver.resolveDisplayName(level, pos);
     }
 
     private static List<LinkedHandler> resolveLinkedHandlers(ServerPlayer player, Session session) {
-        sanitizeSessionDimension(player, session);
-        List<LinkedHandler> out = new ArrayList<>();
-
-        if (!session.linkedStorages.isEmpty()) {
-            ResourceKey<Level> currentDimension = player.serverLevel().dimension();
-            for (LinkedStorageRef ref : session.linkedStorages) {
-                if (ref == null || ref.pos() == null || !currentDimension.equals(ref.dimension())) {
-                    continue;
-                }
-                BlockPos pos = ref.pos();
-                if (!RtsProgressionManager.canAccessHomeRadius(player, pos)) {
-                    continue;
-                }
-                if (!player.serverLevel().hasChunkAt(pos)) {
-                    continue;
-                }
-                IItemHandler handler = findLinkedItemHandler(player, pos);
-                if (handler == null) {
-                    continue;
-                }
-                String name = session.linkedNames.computeIfAbsent(ref, ignored -> resolveDisplayName(player.serverLevel(), pos));
-                boolean allowStore = !isExtractOnlyLink(session, ref);
-                out.add(new LinkedHandler(ref, name, new LinkedItemHandlerView(handler, allowStore), allowStore));
-            }
-        }
-
-        if (session.cachedBdHandler == null && session.useBdNetwork && RtsBdCompat.hasPrimaryNetwork(player)) {
-            session.cachedBdHandler = RtsBdCompat.createNetworkItemHandler(player);
-            session.cachedBdName = RtsBdCompat.getNetworkDisplayName(player);
-        }
-        if (session.cachedBdHandler != null) {
-            LinkedStorageRef bdRef = new LinkedStorageRef(
-                    player.serverLevel().dimension(),
-                    BlockPos.ZERO);
-            out.add(new LinkedHandler(bdRef, session.cachedBdName, session.cachedBdHandler, true));
-        }
-
-        return out;
+        return RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
     }
 
     private static List<LinkedFluidHandler> resolveLinkedFluidHandlers(ServerPlayer player, Session session) {
-        sanitizeSessionDimension(player, session);
-        List<LinkedFluidHandler> out = new ArrayList<>();
-
-        if (!session.linkedStorages.isEmpty()) {
-            ResourceKey<Level> currentDimension = player.serverLevel().dimension();
-            for (LinkedStorageRef ref : session.linkedStorages) {
-                if (ref == null || ref.pos() == null || !currentDimension.equals(ref.dimension())) {
-                    continue;
-                }
-                BlockPos pos = ref.pos();
-                if (!RtsProgressionManager.canAccessHomeRadius(player, pos)) {
-                    continue;
-                }
-                if (!player.serverLevel().hasChunkAt(pos)) {
-                    continue;
-                }
-                IFluidHandler handler = findFluidHandler(player, pos);
-                if (handler == null) {
-                    continue;
-                }
-                String name = session.linkedNames.computeIfAbsent(ref, ignored -> resolveDisplayName(player.serverLevel(), pos));
-                boolean allowStore = !isExtractOnlyLink(session, ref);
-                out.add(new LinkedFluidHandler(ref, name, new LinkedFluidHandlerView(handler, allowStore), allowStore));
-            }
-        }
-
-        if (session.cachedBdFluidHandler == null && session.useBdNetwork && RtsBdCompat.hasPrimaryNetwork(player)) {
-            session.cachedBdFluidHandler = RtsBdCompat.createNetworkFluidHandler(player);
-        }
-        if (session.cachedBdFluidHandler != null) {
-            String bdName = session.cachedBdName != null ? session.cachedBdName : RtsBdCompat.getNetworkDisplayName(player);
-            LinkedStorageRef bdRef = new LinkedStorageRef(
-                    player.serverLevel().dimension(),
-                    BlockPos.ZERO);
-            out.add(new LinkedFluidHandler(bdRef, bdName, session.cachedBdFluidHandler, true));
-        }
-
-        return out;
+        return RtsLinkedStorageResolver.resolveLinkedFluidHandlers(player, session);
     }
 
     private static boolean canAccessWorldTarget(ServerPlayer player, BlockPos pos) {
-        if (!RtsCameraManager.isActive(player) || pos == null) {
-            return false;
-        }
-
-        ServerLevel level = player.serverLevel();
-        if (!level.hasChunkAt(pos)) {
-            return false;
-        }
-        if (!level.mayInteract(player, pos)) {
-            return false;
-        }
-        if (!RtsCameraManager.isWithinActionRange(player, pos)) {
-            return false;
-        }
-        return RtsProgressionManager.canAccessHomeRadius(player, pos);
+        return RtsLinkedStorageResolver.canAccessWorldTarget(player, pos);
     }
 
     private static boolean canAccessFluidPlacementTarget(ServerPlayer player, BlockPos pos) {
@@ -6463,67 +6347,27 @@ public final class RtsStorageManager {
     }
 
     private static boolean hasAnyStorage(ServerPlayer player, Session session) {
-        if (session == null) {
-            return false;
-        }
-        if (!session.linkedStorages.isEmpty()) {
-            return true;
-        }
-        return session.useBdNetwork && RtsBdCompat.hasPrimaryNetwork(player);
+        return RtsLinkedStorageResolver.hasAnyStorage(player, session);
     }
 
     private static String buildAnyStorageSummary(ServerPlayer player, Session session) {
-        if (session == null) {
-            return "No Storage";
-        }
-        if (!session.linkedStorages.isEmpty()) {
-            return buildLinkedSummary(session);
-        }
-        if (session.useBdNetwork && RtsBdCompat.hasPrimaryNetwork(player)) {
-            return RtsBdCompat.getNetworkDisplayName(player);
-        }
-        return "No Storage";
+        return RtsLinkedStorageResolver.buildAnyStorageSummary(player, session);
     }
 
     private static void sanitizeSessionDimension(ServerPlayer player, Session session) {
-        if (session == null || session.linkedStorages.isEmpty()) {
-            return;
-        }
-        session.linkedStorages.removeIf(ref -> ref == null || ref.dimension() == null || ref.pos() == null);
-        session.linkedNames.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
-        session.linkedModes.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
+        RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
     }
 
     private static String buildLinkedSummary(Session session) {
-        int count = session.linkedStorages.size();
-        if (count <= 0) {
-            return "No Storage";
-        }
-        if (count == 1) {
-            LinkedStorageRef ref = session.linkedStorages.get(0);
-            String name = session.linkedNames.getOrDefault(ref, "Linked Storage");
-            return isExtractOnlyLink(session, ref) ? name + " [Extract]" : name;
-        }
-        int extractOnly = 0;
-        for (LinkedStorageRef ref : session.linkedStorages) {
-            if (isExtractOnlyLink(session, ref)) {
-                extractOnly++;
-            }
-        }
-        if (extractOnly <= 0) {
-            return count + " linked storages";
-        }
-        return count + " linked storages (" + extractOnly + " extract-only)";
+        return RtsLinkedStorageResolver.buildLinkedSummary(session);
     }
 
     static byte sanitizeLinkMode(byte linkMode) {
-        return linkMode == LINK_MODE_EXTRACT_ONLY ? LINK_MODE_EXTRACT_ONLY : LINK_MODE_BIDIRECTIONAL;
+        return RtsLinkedStorageResolver.sanitizeLinkMode(linkMode);
     }
 
     private static boolean isExtractOnlyLink(Session session, LinkedStorageRef ref) {
-        return session != null
-                && ref != null
-                && sanitizeLinkMode(session.linkedModes.getOrDefault(ref, LINK_MODE_BIDIRECTIONAL)) == LINK_MODE_EXTRACT_ONLY;
+        return RtsLinkedStorageResolver.isExtractOnlyLink(session, ref);
     }
 
     private static List<String> buildQuickSlotPayload(Session session) {
@@ -6738,127 +6582,6 @@ public final class RtsStorageManager {
             ALL,
             MOD,
             TAB
-        }
-    }
-
-    private record LinkedHandler(LinkedStorageRef ref, String name, IItemHandler handler, boolean allowStore) {
-        private BlockPos pos() {
-            return this.ref.pos();
-        }
-    }
-
-    private record LinkedFluidHandler(LinkedStorageRef ref, String name, IFluidHandler handler, boolean allowStore) {
-        private BlockPos pos() {
-            return this.ref.pos();
-        }
-    }
-
-    private static final class LinkedItemHandlerView implements IItemHandler, RtsAe2Compat.ReportedCountItemHandler {
-        private final IItemHandler delegate;
-        private final boolean allowStore;
-
-        private LinkedItemHandlerView(IItemHandler delegate, boolean allowStore) {
-            this.delegate = delegate;
-            this.allowStore = allowStore;
-        }
-
-        @Override
-        public int getSlots() {
-            return this.delegate.getSlots();
-        }
-
-        @Override
-        public ItemStack getStackInSlot(int slot) {
-            return this.delegate.getStackInSlot(slot);
-        }
-
-        @Override
-        public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
-            return this.allowStore ? this.delegate.insertItem(slot, stack, simulate) : stack;
-        }
-
-        private boolean supportsAnySlotInsert() {
-            return this.allowStore && this.delegate instanceof RtsAe2Compat.AnySlotInsertItemHandler;
-        }
-
-        private ItemStack insertItemAnywhere(ItemStack stack, boolean simulate) {
-            if (!this.allowStore) {
-                return stack == null ? ItemStack.EMPTY : stack.copy();
-            }
-            if (this.delegate instanceof RtsAe2Compat.AnySlotInsertItemHandler anySlot) {
-                return anySlot.insertItemAnywhere(stack, simulate);
-            }
-            ItemStack remain = stack == null ? ItemStack.EMPTY : stack.copy();
-            for (int slot = 0; slot < this.delegate.getSlots() && !remain.isEmpty(); slot++) {
-                remain = this.delegate.insertItem(slot, remain, simulate);
-            }
-            return remain;
-        }
-
-        @Override
-        public ItemStack extractItem(int slot, int amount, boolean simulate) {
-            return this.delegate.extractItem(slot, amount, simulate);
-        }
-
-        @Override
-        public int getSlotLimit(int slot) {
-            return this.delegate.getSlotLimit(slot);
-        }
-
-        @Override
-        public boolean isItemValid(int slot, ItemStack stack) {
-            return this.delegate.isItemValid(slot, stack);
-        }
-
-        @Override
-        public long getReportedCount(int slot) {
-            ItemStack stack = this.delegate.getStackInSlot(slot);
-            return RtsAe2Compat.getReportedCount(this.delegate, slot, stack);
-        }
-    }
-
-    private static final class LinkedFluidHandlerView implements IFluidHandler {
-        private final IFluidHandler delegate;
-        private final boolean allowStore;
-
-        private LinkedFluidHandlerView(IFluidHandler delegate, boolean allowStore) {
-            this.delegate = delegate;
-            this.allowStore = allowStore;
-        }
-
-        @Override
-        public int getTanks() {
-            return this.delegate.getTanks();
-        }
-
-        @Override
-        public FluidStack getFluidInTank(int tank) {
-            return this.delegate.getFluidInTank(tank);
-        }
-
-        @Override
-        public int getTankCapacity(int tank) {
-            return this.delegate.getTankCapacity(tank);
-        }
-
-        @Override
-        public boolean isFluidValid(int tank, FluidStack stack) {
-            return this.delegate.isFluidValid(tank, stack);
-        }
-
-        @Override
-        public int fill(FluidStack resource, FluidAction action) {
-            return this.allowStore ? this.delegate.fill(resource, action) : 0;
-        }
-
-        @Override
-        public FluidStack drain(FluidStack resource, FluidAction action) {
-            return this.delegate.drain(resource, action);
-        }
-
-        @Override
-        public FluidStack drain(int maxDrain, FluidAction action) {
-            return this.delegate.drain(maxDrain, action);
         }
     }
 
