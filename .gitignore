@@ -39,13 +39,13 @@ PORT_MATRIX.md
 
 # local-only porting/comparison workspaces; ports are published from their own
 # branch roots, not as nested projects in main.
-sister-projects/*
-!sister-projects/rtsbuilding-forge-1.20.1/
-sister-projects/rtsbuilding-forge-1.20.1/*
-!sister-projects/rtsbuilding-forge-1.20.1/LICENSE
+sister-projects/
 
-# local-only helper scripts
-tools/
+# local-only helper scripts, except the two public sync helpers below.
+tools/*
+!tools/
+!tools/pull.ps1
+!tools/push.ps1
 
 # JVM crash logs / replays
 hs_err_pid*
