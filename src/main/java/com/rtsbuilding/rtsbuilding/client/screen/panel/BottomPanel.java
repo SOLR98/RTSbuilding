@@ -304,16 +304,10 @@ public final class BottomPanel {
     }
 
     private void drawEmptyHandButton(GuiGraphics g, int x, int y) {
-        int skin = 0xFFFFC3A3;
-        int highlight = 0xFFFFD9C3;
-        int shadow = 0xFF9A5F4B;
-        int rim = 0xFF6F3F35;
-        g.fill(x + 5, y + 5, x + 14, y + 14, rim);
-        g.fill(x + 6, y + 4, x + 13, y + 13, skin);
-        g.fill(x + 8, y + 3, x + 12, y + 6, highlight);
-        g.fill(x + 6, y + 6, x + 9, y + 9, highlight);
-        g.fill(x + 11, y + 10, x + 14, y + 14, shadow);
-        g.fill(x + 7, y + 13, x + 13, y + 15, shadow);
+        int size = 10;
+        int left = x + (HOTBAR_SLOT - size) / 2;
+        int top = y + (HOTBAR_SLOT - size) / 2;
+        g.fill(left, top, left + size, top + size, 0xFFFFC3A3);
     }
 
     // ── 排序 / 分页 / 搜索 ──
