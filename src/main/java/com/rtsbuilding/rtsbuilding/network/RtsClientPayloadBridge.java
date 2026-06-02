@@ -14,6 +14,14 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
+/**
+ * Common-side S2C bridge that keeps dedicated servers from loading client-only
+ * handler classes.
+ *
+ * Payload registration happens from common mod code, including on Linux
+ * dedicated servers. Keep the direct client handler calls behind this dist
+ * check unless the whole registration path becomes client-only.
+ */
 public final class RtsClientPayloadBridge {
     private RtsClientPayloadBridge() {
     }

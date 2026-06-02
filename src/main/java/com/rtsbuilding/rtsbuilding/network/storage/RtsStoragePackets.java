@@ -4,6 +4,12 @@ import com.rtsbuilding.rtsbuilding.network.RtsClientPayloadBridge;
 
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
+/**
+ * Registers linked-storage browser, GUI binding, and overlay transfer packets.
+ *
+ * This class groups packet registration only; payload ids, codecs, and packet
+ * directions stay in the payload records.
+ */
 public final class RtsStoragePackets {
     private RtsStoragePackets() {
     }

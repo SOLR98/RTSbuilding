@@ -4,6 +4,13 @@ import com.rtsbuilding.rtsbuilding.server.RtsStorageManager;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
+/**
+ * Server-side C2S adapter for RTS crafting actions.
+ *
+ * Keep recipe scanning, grid refill, JEI transfer, and output insertion in
+ * RtsStorageManager; this layer should only unwrap payloads and enqueue work on
+ * the server thread.
+ */
 public final class RtsCraftNetworkHandlers {
     private RtsCraftNetworkHandlers() {
     }

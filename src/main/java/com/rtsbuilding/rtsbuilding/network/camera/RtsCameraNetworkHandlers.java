@@ -4,6 +4,12 @@ import com.rtsbuilding.rtsbuilding.server.RtsCameraManager;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
+/**
+ * Server-side C2S adapter for RTS camera input.
+ *
+ * Keep camera authority and session rules in RtsCameraManager; this layer should
+ * only unwrap payloads and enqueue work on the server thread.
+ */
 public final class RtsCameraNetworkHandlers {
     private RtsCameraNetworkHandlers() {
     }

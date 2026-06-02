@@ -6,6 +6,13 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
+/**
+ * Server-side C2S adapter for placement, mining, and world interaction actions.
+ *
+ * Keep gameplay validation, item extraction, tool leasing, and undo/recent
+ * updates in RtsStorageManager; this layer should only unwrap payloads and
+ * enqueue work on the server thread.
+ */
 public final class RtsBuilderNetworkHandlers {
     private RtsBuilderNetworkHandlers() {
     }

@@ -4,6 +4,13 @@ import com.rtsbuilding.rtsbuilding.server.RtsStorageManager;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
+/**
+ * Server-side C2S adapter for linked storage and container-overlay actions.
+ *
+ * Keep inventory mutation, storage lookup, and compatibility behavior in
+ * RtsStorageManager; this layer should only unwrap payloads and enqueue work on
+ * the server thread.
+ */
 public final class RtsStorageNetworkHandlers {
     private RtsStorageNetworkHandlers() {
     }

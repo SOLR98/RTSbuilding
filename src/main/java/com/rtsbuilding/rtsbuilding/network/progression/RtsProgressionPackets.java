@@ -4,6 +4,12 @@ import com.rtsbuilding.rtsbuilding.network.RtsClientPayloadBridge;
 
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
+/**
+ * Registers survival-progression, quest-detect, and RTS-home packets.
+ *
+ * This class groups packet registration only; payload ids, codecs, and packet
+ * directions stay in the payload records.
+ */
 public final class RtsProgressionPackets {
     private RtsProgressionPackets() {
     }

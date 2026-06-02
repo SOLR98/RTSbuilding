@@ -8,6 +8,14 @@ import com.rtsbuilding.rtsbuilding.server.RtsStorageManager;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
+/**
+ * Server-side C2S adapter for progression config, unlock, quest, and home
+ * selection actions.
+ *
+ * Keep unlock persistence and shared progression behavior in
+ * RtsProgressionManager; this layer should only unwrap payloads, enforce the
+ * small permission gates, and enqueue work on the server thread.
+ */
 public final class RtsProgressionNetworkHandlers {
     private RtsProgressionNetworkHandlers() {
     }

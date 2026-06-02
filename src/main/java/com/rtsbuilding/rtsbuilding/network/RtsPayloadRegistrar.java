@@ -14,6 +14,14 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
+/**
+ * Main registration entry point for non-blueprint RTS packets.
+ *
+ * The protocol version, payload ids, codecs, and packet directions are still
+ * owned by the individual payload records. The domain registrars below are only
+ * a readability layer, so moving a payload between them must not change the
+ * wire protocol.
+ */
 @EventBusSubscriber(modid = RtsbuildingMod.MODID, bus = EventBusSubscriber.Bus.MOD)
 public final class RtsPayloadRegistrar {
     private RtsPayloadRegistrar() {
