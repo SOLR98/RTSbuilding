@@ -6,6 +6,7 @@
     "RtsPlayerInputMixin"
   ],
   "mixins": [
+    "ChestMenuMixin",
     "compat.generatorgalore.GeneratorMenuMixin",
     "compat.ironfurnaces.IronFurnaceContainerMixin",
     "compat.ironfurnaces.WirelessEnergyHeaterContainerMixin",
