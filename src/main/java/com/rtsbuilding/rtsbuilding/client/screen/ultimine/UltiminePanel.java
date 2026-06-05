@@ -106,37 +106,35 @@ public final class UltiminePanel extends RtsWindowPanel {
     }
 
     @Override
-    protected boolean handleContentClick(double mouseX, double mouseY, int button) {
+    protected void handleContentClick(double mouseX, double mouseY, int button) {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            return true;
+            return;
         }
         int x = this.windowX;
         int rowY = contentY() + 12;
         if (inside(mouseX, mouseY, x + 8, rowY + 12, 24, 18)) {
             adjustUltimineLimit(screen.hasShiftDown() ? -16 : -1);
-            return true;
+            return;
         }
         if (inside(mouseX, mouseY, x + 102, rowY + 12, 24, 18)) {
             adjustUltimineLimit(screen.hasShiftDown() ? 16 : 1);
-            return true;
+            return;
         }
         if (inside(mouseX, mouseY, x + 38, rowY + 12, 58, 18)) {
             beginUltimineLimitEdit();
-            return true;
+            return;
         }
         if (inside(mouseX, mouseY, x + 132, rowY + 12, 42, 18)) {
             this.ultimineLimit = ULTIMINE_MIN_LIMIT;
             cancelUltimineLimitEdit();
             screen.persistUiState();
-            return true;
+            return;
         }
         if (inside(mouseX, mouseY, x + 180, rowY + 12, 48, 18)) {
             this.ultimineLimit = ULTIMINE_MAX_LIMIT;
             cancelUltimineLimitEdit();
             screen.persistUiState();
-            return true;
         }
-        return true;
     }
 
     public boolean isInsideLimitInput(double mouseX, double mouseY) {

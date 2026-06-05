@@ -82,7 +82,7 @@ public abstract class RtsWindowPanel implements RtsPanel {
      * Handles a click inside the content area. Returning true consumes the
      * click; returning false still keeps the event inside the window boundary.
      */
-    protected abstract boolean handleContentClick(double mouseX, double mouseY, int button);
+    protected abstract void handleContentClick(double mouseX, double mouseY, int button);
 
     /** Returns the localized title shown in the window title bar. */
     protected abstract Component getTitle();
@@ -176,6 +176,21 @@ public abstract class RtsWindowPanel implements RtsPanel {
         ensureSizeInitialized();
         this.windowX = x;
         this.windowY = y;
+        this.positionInitialized = true;
+        clampWindowToScreen();
+    }
+
+    /**
+     * Sets the window position and size in one call, then clamps to screen bounds once.
+     * This avoids intermediate clamp side effects from calling {@link #setSize} and
+     * {@link #setPosition} separately.
+     */
+    public void setBounds(int x, int y, int width, int height) {
+        this.windowX = x;
+        this.windowY = y;
+        this.windowWidth = Math.max(getMinWindowWidth(), width);
+        this.windowHeight = Math.max(getMinWindowHeight(), height);
+        clampWindowSize();
         this.positionInitialized = true;
         clampWindowToScreen();
     }

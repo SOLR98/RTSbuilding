@@ -1,22 +1,15 @@
 package com.rtsbuilding.rtsbuilding.client.screen;
 
 
+import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanel;
 import com.rtsbuilding.rtsbuilding.client.bootstrap.ClientKeyMappings;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
-import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
-import com.rtsbuilding.rtsbuilding.client.state.RtsScreenUiStateManager;
-import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
-import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanel;
-import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants;
-import com.rtsbuilding.rtsbuilding.client.screen.RtsUiScaleFrame;
-import com.rtsbuilding.rtsbuilding.client.screen.ScreenCursorPicker;
-import com.rtsbuilding.rtsbuilding.client.screen.ScreenShapeController;
 import com.rtsbuilding.rtsbuilding.client.screen.blueprint.BlueprintGhostPreview;
 import com.rtsbuilding.rtsbuilding.client.screen.funnel.FunnelBufferPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.gear.GearMenuPanel;
-import com.rtsbuilding.rtsbuilding.client.screen.guide.GuideTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.guide.GuidePanel;
+import com.rtsbuilding.rtsbuilding.client.screen.guide.GuideTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.input.CameraInputHandler;
 import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionWheelPanel;
@@ -25,10 +18,15 @@ import com.rtsbuilding.rtsbuilding.client.screen.layout.PanelLayouts;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.BottomPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsFloatingWindowLayer;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildPanel;
-import com.rtsbuilding.rtsbuilding.client.screen.shape.*;
-import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarTypes;
+import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeBuildTypes;
+import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeDataRecords;
+import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeGeometryUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarPanel;
+import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.ultimine.UltiminePanel;
+import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
+import com.rtsbuilding.rtsbuilding.client.state.RtsScreenUiStateManager;
+import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
 import com.rtsbuilding.rtsbuilding.common.RtsUltimineCollector;
 import com.rtsbuilding.rtsbuilding.compat.ae2.RtsAe2Compat;
@@ -264,7 +262,15 @@ public final class BuilderScreen extends Screen {
     /** Initialises the screen: creates search boxes, applies persisted UI state, and requests craftables. */
     protected void init() {
         super.init();
-        this.uiStateManager.applyStoredUiState();
+        // 进入 RTS 缩放帧，使 applyStoredUiState 中的 clamp 使用虚拟坐标空间（而非 GUI 缩放后的宽度）
+        RtsUiScaleFrame frame = enterFixedRtsGuiScale();
+        try {
+            this.uiStateManager.applyStoredUiState();
+        } finally {
+            if (frame != null) {
+                frame.close();
+            }
+        }
         this.searchBox = new EditBox(this.font, 8, this.height - 52, 150, 14, Component.literal("Search"));
         this.searchBox.setMaxLength(128);
         this.searchBox.setBordered(true);

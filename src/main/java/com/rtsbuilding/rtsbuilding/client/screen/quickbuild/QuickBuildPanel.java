@@ -11,7 +11,6 @@ import com.rtsbuilding.rtsbuilding.progression.RtsProgressionNodes;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.util.Mth;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
@@ -21,6 +20,9 @@ import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.*
 public final class QuickBuildPanel extends RtsWindowPanel {
     private static final int QUICK_BUILD_SHEET_SIZE = 450;
     private static final int QUICK_BUILD_SHEET_HEIGHT = QUICK_BUILD_SHEET_SIZE * 2;
+    private static final int QUICK_BUILD_PANEL_W = 188;
+    private static final int QUICK_BUILD_PANEL_H = 216;
+    private static final int QUICK_BUILD_PANEL_MIN_H = 156;
 
     private static final ClientRtsController.BuildShape[] SHAPES = {
             ClientRtsController.BuildShape.BLOCK,
@@ -91,9 +93,9 @@ public final class QuickBuildPanel extends RtsWindowPanel {
     }
 
     @Override
-    protected boolean handleContentClick(double mouseX, double mouseY, int button) {
+    protected void handleContentClick(double mouseX, double mouseY, int button) {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            return true;
+            return;
         }
         int x = this.windowX;
         int bodyY = contentY();
@@ -107,7 +109,7 @@ public final class QuickBuildPanel extends RtsWindowPanel {
                 screen.ensureFillModeForShape(SHAPES[i]);
                 screen.clearShapeBuildSession();
                 screen.persistUiState();
-                return true;
+                return;
             }
         }
 
@@ -118,20 +120,18 @@ public final class QuickBuildPanel extends RtsWindowPanel {
             if (inside(mouseX, mouseY, rightX, rowY, 84, 16)) {
                 screen.setShapeFillMode(modes.get(i));
                 screen.persistUiState();
-                return true;
+                return;
             }
         }
 
         int rotY = bodyY + 100;
         if (inside(mouseX, mouseY, rightX, rotY + 10, 20, 18)) {
             screen.rotateShapeByStep(-1);
-            return true;
+            return;
         }
         if (inside(mouseX, mouseY, rightX + 84, rotY + 10, 20, 18)) {
             screen.rotateShapeByStep(1);
-            return true;
         }
-        return true;
     }
 
     @Override
@@ -166,13 +166,12 @@ public final class QuickBuildPanel extends RtsWindowPanel {
 
     @Override
     protected void computeDefaultPosition() {
-        int y = TOP_H + 10;
+        int y = TOP_H + 40;
         int availableH = screen.getFloatingPanelAvailableHeight(y);
         if (availableH >= QUICK_BUILD_PANEL_MIN_H) {
             this.windowHeight = Math.min(QUICK_BUILD_PANEL_H, availableH);
         }
-        int maxX = Math.max(4, screen.width - QUICK_BUILD_PANEL_W - 4);
-        this.windowX = Mth.clamp(screen.width - QUICK_BUILD_PANEL_W - 10, 4, maxX);
+        this.windowX = screen.width - QUICK_BUILD_PANEL_W - 4;
         this.windowY = y;
     }
 
