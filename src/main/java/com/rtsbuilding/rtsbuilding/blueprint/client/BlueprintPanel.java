@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -49,9 +50,9 @@ import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintMaterialInsp
 import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintMaterialInspector.materialSummary;
 import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelFiles.blueprintExtension;
 import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelFiles.blueprintFolder;
-import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelFiles.createSchematicsFolder;
 import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelFiles.ensureExtension;
 import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelFiles.isBlueprintFile;
+import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelFiles.otherModBlueprintFolders;
 import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelFiles.sanitizeFileBase;
 import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelFiles.stripBlueprintExtension;
 import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelFiles.uniqueBlueprintPath;
@@ -159,7 +160,7 @@ public final class BlueprintPanel {
             return true;
         }
         if (inside(mouseX, mouseY, top.syncCreateX(), y, top.syncCreateW(), BUTTON_H)) {
-            syncCreateSchematics();
+            syncOtherModBlueprints();
             return true;
         }
         if (inside(mouseX, mouseY, top.captureX(), y, top.captureW(), BUTTON_H)) {
@@ -1306,11 +1307,12 @@ public final class BlueprintPanel {
     private static void importBlueprintFile() {
         String selected;
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            PointerBuffer filters = stack.mallocPointer(4);
+            PointerBuffer filters = stack.mallocPointer(5);
             filters.put(stack.UTF8("*.nbt"));
             filters.put(stack.UTF8("*.schem"));
             filters.put(stack.UTF8("*.schematic"));
             filters.put(stack.UTF8("*.litematic"));
+            filters.put(stack.UTF8("*.json"));
             filters.flip();
             selected = TinyFileDialogs.tinyfd_openFileDialog(
                     text("screen.rtsbuilding.blueprints.import_file"),
@@ -1340,9 +1342,13 @@ public final class BlueprintPanel {
         }
     }
 
-    private static void syncCreateSchematics() {
-        Path sourceFolder = createSchematicsFolder();
-        if (!Files.isDirectory(sourceFolder)) {
+    private static void syncOtherModBlueprints() {
+        List<Path> sourceFolders = otherModBlueprintFolders().stream()
+                .map(path -> path.toAbsolutePath().normalize())
+                .filter(Files::isDirectory)
+                .distinct()
+                .toList();
+        if (sourceFolders.isEmpty()) {
             setStatus(S2CBlueprintStatusPayload.INFO, "screen.rtsbuilding.blueprints.status.create_sync_missing", "");
             return;
         }
@@ -1352,30 +1358,30 @@ public final class BlueprintPanel {
         String lastCopied = "";
         try {
             Files.createDirectories(blueprintFolder());
-            try (var stream = Files.list(sourceFolder)) {
-                List<Path> files = stream
-                        .filter(Files::isRegularFile)
-                        .filter(BlueprintPanelFiles::isBlueprintFile)
-                        .sorted(Comparator.comparing(path -> path.getFileName().toString(), String.CASE_INSENSITIVE_ORDER))
-                        .limit(512)
-                        .toList();
-                for (Path source : files) {
-                    Path fileName = source.getFileName();
-                    if (fileName == null) {
-                        continue;
-                    }
-                    Path dest = blueprintFolder().resolve(fileName.toString());
-                    if (Files.exists(dest)) {
-                        skipped++;
-                        continue;
-                    }
-                    try {
-                        Files.copy(source, dest);
-                        copied++;
-                        lastCopied = fileName.toString();
-                    } catch (IOException ex) {
-                        failed++;
-                    }
+            Map<String, Path> filesByName = new LinkedHashMap<>();
+            for (Path sourceFolder : sourceFolders) {
+                try (var stream = Files.walk(sourceFolder, 3)) {
+                    stream.filter(Files::isRegularFile)
+                            .filter(BlueprintPanelFiles::isSyncBlueprintFile)
+                            .sorted(Comparator.comparing(path -> path.getFileName().toString(), String.CASE_INSENSITIVE_ORDER))
+                            .limit(512)
+                            .forEach(path -> filesByName.putIfAbsent(path.getFileName().toString(), path));
+                } catch (IOException ex) {
+                    failed++;
+                }
+            }
+            for (Map.Entry<String, Path> entry : filesByName.entrySet()) {
+                Path dest = blueprintFolder().resolve(entry.getKey());
+                if (Files.exists(dest)) {
+                    skipped++;
+                    continue;
+                }
+                try {
+                    Files.copy(entry.getValue(), dest);
+                    copied++;
+                    lastCopied = entry.getKey();
+                } catch (IOException ex) {
+                    failed++;
                 }
             }
             if (copied > 0) {
