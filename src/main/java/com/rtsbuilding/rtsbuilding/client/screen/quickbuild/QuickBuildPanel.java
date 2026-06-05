@@ -203,14 +203,15 @@ public final class QuickBuildPanel extends RtsWindowPanel {
 
     private void drawShapeTexture(GuiGraphics g, ClientRtsController.BuildShape shape, String state, int x, int y) {
         ResourceLocation texture = switch (shape) {
-            case BLOCK -> "active".equals(state) ? SHAPE_BLOCK_ACTIVE : ("hover".equals(state) ? SHAPE_BLOCK_HOVER : SHAPE_BLOCK_INACTIVE);
-            case LINE -> "active".equals(state) ? SHAPE_LINE_ACTIVE : ("hover".equals(state) ? SHAPE_LINE_HOVER : SHAPE_LINE_INACTIVE);
-            case SQUARE -> "active".equals(state) ? SHAPE_SQUARE_ACTIVE : ("hover".equals(state) ? SHAPE_SQUARE_HOVER : SHAPE_SQUARE_INACTIVE);
-            case WALL -> "active".equals(state) ? SHAPE_WALL_ACTIVE : ("hover".equals(state) ? SHAPE_WALL_HOVER : SHAPE_WALL_INACTIVE);
-            case CIRCLE -> "active".equals(state) ? SHAPE_CIRCLE_ACTIVE : ("hover".equals(state) ? SHAPE_CIRCLE_HOVER : SHAPE_CIRCLE_INACTIVE);
-            case BOX -> "active".equals(state) ? SHAPE_BOX_ACTIVE : ("hover".equals(state) ? SHAPE_BOX_HOVER : SHAPE_BOX_INACTIVE);
+            case BLOCK -> QUICK_BUILD_SINGLE_BLOCK;
+            case LINE -> QUICK_BUILD_LINE_BLOCK;
+            case SQUARE -> QUICK_BUILD_SQUARE_BLOCK;
+            case WALL -> QUICK_BUILD_WALL_BLOCK;
+            case CIRCLE -> QUICK_BUILD_CIRCLE_BLOCK;
+            case BOX -> QUICK_BUILD_BOX_BLOCK;
         };
-        g.blit(texture, x + 2, y + 2, 0, 0, 28, 28, 32, 32);
+        int sourceV = "inactive".equals(state) ? 0 : 450;
+        g.blit(texture, x + 2, y + 2, 0, sourceV, 28, 28, 450, 450, 450, 900);
     }
 
     private static boolean inside(double mouseX, double mouseY, int x, int y, int w, int h) {

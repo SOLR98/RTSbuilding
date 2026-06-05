@@ -16,6 +16,7 @@ import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionWheelPan
 import com.rtsbuilding.rtsbuilding.client.screen.layout.BottomPanelLayoutTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.layout.PanelLayouts;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.BottomPanel;
+import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsFloatingWindowLayer;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.shape.*;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarTypes;
@@ -47,7 +48,6 @@ import net.neoforged.fml.ModList;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
-import java.util.Locale;
 
 import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.*;
 /**
@@ -109,8 +109,10 @@ public final class BuilderScreen extends Screen {
     private final GearMenuPanel gearMenuPanel = new GearMenuPanel();
     /** Radial interaction wheel for advanced block/entity interactions. */
     private final InteractionWheelPanel interactionWheelPanel = new InteractionWheelPanel();
-    /** Whether the debug button is visible in the top bar (for dev/diagnostic use). */
-    private boolean debugButtonVisible = false;
+    /** Client-only persisted UI preferences for this screen. */
+    private final RtsScreenUiStateManager uiStateManager;
+    /** Front-to-back input routing for movable RTS windows. */
+    private final RtsFloatingWindowLayer floatingWindowLayer;
     /** Whether the user is currently dragging the input sensitivity slider. */
     private boolean draggingInputSensitivity = false;
     /** Timestamp (System.currentTimeMillis) when the last damage flash was triggered, or -1 if none. */
@@ -127,8 +129,6 @@ public final class BuilderScreen extends Screen {
     private boolean fixedRtsScaleInputPass = false;
     /** The actual render scale factor active during the current fixed-scale render pass. */
     private double activeRtsGuiRenderScale = 1.0D;
-    /** The user-configured fixed RTS GUI scale (independent of Minecraft's native GUI scale). */
-    private double fixedRtsGuiScale = DEFAULT_RTS_GUI_SCALE;
     /** Stable hover anchor above the left "RTS" label; keeps item tooltips from chasing the cursor. */
     private static final int LEFT_TOOLTIP_X_OFFSET = 8;
     private static final int LEFT_TOOLTIP_Y_OFFSET = 24;
@@ -150,6 +150,8 @@ public final class BuilderScreen extends Screen {
     public BuilderScreen(ClientRtsController controller) {
         super(Component.literal("RTS Builder"));
         this.controller = controller;
+        this.uiStateManager = new RtsScreenUiStateManager(this.controller, this.shapeController, this.quickBuildPanel, this.ultiminePanel);
+        this.floatingWindowLayer = new RtsFloatingWindowLayer(this.ultiminePanel, this.quickBuildPanel);
         this.guidePanel.init(this, this.controller);
         this.gearMenuPanel.init(this, this.controller);
         this.interactionWheelPanel.init(this, this.controller);
@@ -176,11 +178,11 @@ public final class BuilderScreen extends Screen {
     }
     /** Toggles the visibility of the debug button in the top bar. */
     public void toggleDebugButton() {
-        this.debugButtonVisible = !this.debugButtonVisible;
+        this.uiStateManager.toggleDebugButton();
     }
     /** Returns whether the debug button is currently visible in the top bar. */
     public boolean isDebugButtonVisible() {
-        return this.debugButtonVisible;
+        return this.uiStateManager.isDebugButtonVisible();
     }
     /** Returns whether the user is currently dragging the input sensitivity slider. */
     public boolean isDraggingInputSensitivity() {
@@ -257,7 +259,7 @@ public final class BuilderScreen extends Screen {
     /** Initialises the screen: creates search boxes, applies persisted UI state, and requests craftables. */
     protected void init() {
         super.init();
-        applyStoredUiState();
+        this.uiStateManager.applyStoredUiState();
         this.searchBox = new EditBox(this.font, 8, this.height - 52, 150, 14, Component.literal("Search"));
         this.searchBox.setMaxLength(128);
         this.searchBox.setBordered(true);
@@ -1380,7 +1382,7 @@ public final class BuilderScreen extends Screen {
         if (currentScale <= 0.0D || !Double.isFinite(currentScale)) {
             return null;
         }
-        double renderScale = sanitizeRtsGuiScale(this.fixedRtsGuiScale) / currentScale;
+        double renderScale = this.uiStateManager.fixedRtsGuiScale() / currentScale;
         if (renderScale <= 0.0D || !Double.isFinite(renderScale)) {
             return null;
         }
@@ -1560,105 +1562,19 @@ public final class BuilderScreen extends Screen {
     }
 
     /**
-     * Applies persisted UI state from {@link RtsClientUiStateStore} to all panels,
-     * the shape controller, camera settings, and debug toggle.
-     */
-    private void applyStoredUiState() {
-        RtsClientUiStateStore.UiState state = RtsClientUiStateStore.load();
-        this.quickBuildPanel.setQuickBuildOpen(state.quickBuildOpen);
-        if (state.quickBuildX >= 0 && state.quickBuildY >= 0) {
-            this.quickBuildPanel.setPosition(state.quickBuildX, state.quickBuildY);
-        }
-        this.ultiminePanel.applyOpenState(state.ultimineOpen);
-        if (state.ultimineX >= 0 && state.ultimineY >= 0) {
-            this.ultiminePanel.setPosition(state.ultimineX, state.ultimineY);
-        }
-        this.ultiminePanel.setLimit(state.ultimineLimit);
-        this.fixedRtsGuiScale = sanitizeRtsGuiScale(state.rtsGuiScale);
-        this.controller.setStartCameraAtPlayerHead(state.startCameraAtPlayerHead);
-        this.controller.setAllowPlacedBlockRecovery(state.allowPlacedBlockRecovery);
-        this.controller.setInvertPanDragX(state.invertPanDragX);
-        this.controller.setInvertPanDragY(state.invertPanDragY);
-        this.controller.setSmoothCamera(state.smoothCamera);
-        this.controller.setDamageSoundEnabled(state.damageSoundEnabled);
-        this.controller.setDamageAutoReturnEnabled(state.damageAutoReturnEnabled);
-        this.debugButtonVisible = state.debugButtonVisible;
-        int sensitivityPresetCount = Math.max(1, this.controller.getInputSensitivityPresetCount());
-        double sensitivityFraction = sensitivityPresetCount <= 1
-                ? 0.0D
-                : Mth.clamp(state.inputSensitivityIndex, 0, sensitivityPresetCount - 1) / (double) (sensitivityPresetCount - 1);
-        this.controller.setInputSensitivityByFraction(sensitivityFraction);
-        this.controller.setChunkCurtainVisible(state.chunkCurtainVisible);
-        try {
-            this.controller.setBuildShape(ClientRtsController.BuildShape.valueOf(state.buildShape));
-        } catch (IllegalArgumentException ignored) {
-            this.controller.setBuildShape(ClientRtsController.BuildShape.BLOCK);
-        }
-        try {
-            this.shapeController.setShapeFillMode(ShapeBuildTypes.ShapeFillMode.valueOf(state.fillMode));
-        } catch (IllegalArgumentException ignored) {
-            this.shapeController.setShapeFillMode(ShapeBuildTypes.ShapeFillMode.FILL);
-        }
-        this.shapeController.rotateToDegrees(Math.floorMod(state.rotationDegrees, 360));
-        this.shapeController.ensureFillModeForShape(this.controller.getBuildShape());
-    }
-    /**
      * Persists the current UI state (shape, fill mode, rotation, panel toggles,
      * camera preferences, debug visibility) to {@link RtsClientUiStateStore}.
      */
     public void persistUiState() {
-        RtsClientUiStateStore.UiState state = RtsClientUiStateStore.load();
-        state.buildShape = this.controller.getBuildShape().name();
-        state.fillMode = this.shapeController.getShapeFillMode().name();
-        state.rotationDegrees = this.shapeController.getShapeRotateDegrees();
-        state.quickBuildOpen = this.quickBuildPanel.isQuickBuildOpen();
-        if (this.quickBuildPanel.hasInitializedBounds()) {
-            state.quickBuildX = this.quickBuildPanel.getWindowX();
-            state.quickBuildY = this.quickBuildPanel.getWindowY();
-        }
-        state.ultimineOpen = this.ultiminePanel.isOpen();
-        if (this.ultiminePanel.hasInitializedBounds()) {
-            state.ultimineX = this.ultiminePanel.getWindowX();
-            state.ultimineY = this.ultiminePanel.getWindowY();
-        }
-        state.ultimineLimit = this.ultiminePanel.getLimit();
-        state.chunkCurtainVisible = this.controller.isChunkCurtainVisible();
-        state.rtsGuiScale = sanitizeRtsGuiScale(this.fixedRtsGuiScale);
-        state.inputSensitivityIndex = this.controller.getInputSensitivityIndex();
-        state.startCameraAtPlayerHead = this.controller.isStartCameraAtPlayerHead();
-        state.allowPlacedBlockRecovery = this.controller.isAllowPlacedBlockRecovery();
-        state.invertPanDragX = this.controller.isInvertPanDragX();
-        state.invertPanDragY = this.controller.isInvertPanDragY();
-        state.smoothCamera = this.controller.isSmoothCamera();
-        state.damageSoundEnabled = this.controller.isDamageSoundEnabled();
-        state.damageAutoReturnEnabled = this.controller.isDamageAutoReturnEnabled();
-        state.debugButtonVisible = this.debugButtonVisible;
-        RtsClientUiStateStore.save(state);
+        this.uiStateManager.persistUiState();
     }
     /** Adjusts the fixed RTS GUI scale by a delta and persists the change. */
     public void adjustRtsGuiScale(double delta) {
-        this.fixedRtsGuiScale = sanitizeRtsGuiScale(this.fixedRtsGuiScale + delta);
-        persistUiState();
+        this.uiStateManager.adjustRtsGuiScale(delta);
     }
     /** Returns the current RTS GUI scale as a human-readable label (e.g. "1.0x", "1.5x"). */
     public String rtsGuiScaleLabel() {
-        double scale = sanitizeRtsGuiScale(this.fixedRtsGuiScale);
-        if (Math.abs(scale - Math.rint(scale)) < 0.001D) {
-            return String.format(Locale.ROOT, "%.0fx", scale);
-        }
-        return String.format(Locale.ROOT, "%.1fx", scale);
-    }
-    /**
-     * Clamps and snaps the given GUI scale to the allowed range and step intervals.
-     *
-     * @return the sanitized scale value, or {@link BuilderScreenConstants#DEFAULT_RTS_GUI_SCALE} if invalid
-     */
-    private static double sanitizeRtsGuiScale(double scale) {
-        if (!Double.isFinite(scale)) {
-            return DEFAULT_RTS_GUI_SCALE;
-        }
-        double snapped = Math.round(scale / RTS_GUI_SCALE_STEP) * RTS_GUI_SCALE_STEP;
-        return Math.max(MIN_RTS_GUI_SCALE, Math.min(MAX_RTS_GUI_SCALE, snapped));
+        return this.uiStateManager.rtsGuiScaleLabel();
     }
     /** Resolves the layout metadata for the quick-build panel (used for positioning and hit-testing). */
     public PanelLayouts.QuickBuildPanelLayout resolveQuickBuildPanelLayout() {
@@ -1716,30 +1632,19 @@ public final class BuilderScreen extends Screen {
     }
 
     private boolean handleFloatingWindowClick(double mouseX, double mouseY, int button) {
-        if (this.ultiminePanel.mouseClicked(mouseX, mouseY, button)) {
-            return true;
-        }
-        return this.quickBuildPanel.mouseClicked(mouseX, mouseY, button);
+        return this.floatingWindowLayer.mouseClicked(mouseX, mouseY, button);
     }
 
     private boolean handleFloatingWindowRelease(double mouseX, double mouseY, int button) {
-        boolean handled = this.ultiminePanel.mouseReleased(mouseX, mouseY, button);
-        handled = this.quickBuildPanel.mouseReleased(mouseX, mouseY, button) || handled;
-        return handled;
+        return this.floatingWindowLayer.mouseReleased(mouseX, mouseY, button);
     }
 
     private boolean handleFloatingWindowDrag(double mouseX, double mouseY, int button, double dragX, double dragY) {
-        if (this.ultiminePanel.mouseDragged(mouseX, mouseY, button, dragX, dragY)) {
-            return true;
-        }
-        return this.quickBuildPanel.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+        return this.floatingWindowLayer.mouseDragged(mouseX, mouseY, button, dragX, dragY);
     }
 
     private boolean handleFloatingWindowScroll(double mouseX, double mouseY, double scrollX, double scrollY) {
-        if (this.ultiminePanel.mouseScrolled(mouseX, mouseY, scrollX, scrollY)) {
-            return true;
-        }
-        return this.quickBuildPanel.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        return this.floatingWindowLayer.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
     /** Closes the gear (settings) menu. */
@@ -1862,7 +1767,7 @@ public final class BuilderScreen extends Screen {
                 .append(" topAction=").append(this.topBarPanel.topActionForMode())
                 .append(" quickBuild=").append(this.quickBuildPanel.isQuickBuildOpen())
                 .append(" ultimine=").append(this.ultiminePanel.isOpen())
-                .append(" debugButton=").append(this.debugButtonVisible)
+                .append(" debugButton=").append(this.uiStateManager.isDebugButtonVisible())
                 .append(" invertPanDragX=").append(this.controller.isInvertPanDragX())
                 .append(" invertPanDragY=").append(this.controller.isInvertPanDragY())
                 .append(" smoothCamera=").append(this.controller.isSmoothCamera())
@@ -2178,7 +2083,7 @@ public final class BuilderScreen extends Screen {
         if (currentScale <= 0.0D || !Double.isFinite(currentScale)) {
             return 1.0D;
         }
-        double renderScale = sanitizeRtsGuiScale(this.fixedRtsGuiScale) / currentScale;
+        double renderScale = this.uiStateManager.fixedRtsGuiScale() / currentScale;
         return renderScale > 0.0D && Double.isFinite(renderScale) ? renderScale : 1.0D;
     }
     /**

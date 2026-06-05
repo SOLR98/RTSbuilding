@@ -251,6 +251,19 @@ public final class BuilderScreenConstants {
     /** 形状纹理：立方体（活跃） */
     public static final ResourceLocation SHAPE_BOX_ACTIVE = quickBuildTexture("shape_box_active");
 
+    /** PR #71 QuickBuild shape sheet: single block. */
+    public static final ResourceLocation QUICK_BUILD_SINGLE_BLOCK = quickBuildTexture("single_block");
+    /** PR #71 QuickBuild shape sheet: line. */
+    public static final ResourceLocation QUICK_BUILD_LINE_BLOCK = quickBuildTexture("line_block");
+    /** PR #71 QuickBuild shape sheet: square placeholder until final art lands. */
+    public static final ResourceLocation QUICK_BUILD_SQUARE_BLOCK = quickBuildTexture("square_block");
+    /** PR #71 QuickBuild shape sheet: wall placeholder until final art lands. */
+    public static final ResourceLocation QUICK_BUILD_WALL_BLOCK = quickBuildTexture("wall_block");
+    /** PR #71 QuickBuild shape sheet: circle placeholder until final art lands. */
+    public static final ResourceLocation QUICK_BUILD_CIRCLE_BLOCK = quickBuildTexture("circle_block");
+    /** PR #71 QuickBuild shape sheet: box placeholder until final art lands. */
+    public static final ResourceLocation QUICK_BUILD_BOX_BLOCK = quickBuildTexture("box_block");
+
     // ======================== 顶部栏模式纹理 ========================
     /** 交互模式（非活跃） */
     public static final ResourceLocation TOPBAR_INTERACT_INACTIVE = topbarTexture("mode_interact_inactive");
