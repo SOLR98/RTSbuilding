@@ -82,11 +82,7 @@ public final class RtsClientUiStateStore {
         public String fillMode = "FILL";
         public int rotationDegrees = 0;
         public boolean quickBuildOpen = true;
-        public int quickBuildX = -1;
-        public int quickBuildY = -1;
         public boolean ultimineOpen = false;
-        public int ultimineX = -1;
-        public int ultimineY = -1;
         public int ultimineLimit = 64;
         public boolean chunkCurtainVisible = false;
         public double rtsGuiScale = 2.0D;
@@ -113,11 +109,7 @@ public final class RtsClientUiStateStore {
             clean.fillMode = sanitizeEnum(this.fillMode, "FILL");
             clean.rotationDegrees = Math.floorMod(this.rotationDegrees, 360);
             clean.quickBuildOpen = this.quickBuildOpen;
-            clean.quickBuildX = sanitizePanelCoordinate(this.quickBuildX);
-            clean.quickBuildY = sanitizePanelCoordinate(this.quickBuildY);
             clean.ultimineOpen = this.ultimineOpen;
-            clean.ultimineX = sanitizePanelCoordinate(this.ultimineX);
-            clean.ultimineY = sanitizePanelCoordinate(this.ultimineY);
             clean.ultimineLimit = Math.max(1, Math.min(256, this.ultimineLimit));
             clean.chunkCurtainVisible = this.chunkCurtainVisible;
             clean.rtsGuiScale = sanitizeScale(this.rtsGuiScale);
@@ -174,10 +166,6 @@ public final class RtsClientUiStateStore {
             }
             double snapped = Math.round(value / 0.5D) * 0.5D;
             return Math.max(1.0D, Math.min(4.0D, snapped));
-        }
-
-        private static int sanitizePanelCoordinate(int value) {
-            return value < 0 ? -1 : Math.min(10000, value);
         }
 
         private static List<String> sanitizeKeys(List<String> values) {

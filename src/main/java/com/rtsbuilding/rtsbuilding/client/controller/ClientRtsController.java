@@ -8,7 +8,6 @@ import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.screen.RtsCraftTerminalScreen;
 import com.rtsbuilding.rtsbuilding.client.screen.RtsHomeScreen;
 import com.rtsbuilding.rtsbuilding.client.screen.RtsProgressionScreen;
-import com.rtsbuilding.rtsbuilding.client.state.RtsClientLayoutStore;
 import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
@@ -241,7 +240,10 @@ public final class ClientRtsController {
         this.smoothCamera = uiState.smoothCamera;
         this.damageSoundEnabled = uiState.damageSoundEnabled;
         this.damageAutoReturnEnabled = uiState.damageAutoReturnEnabled;
-        applyStoredLayout(RtsClientLayoutStore.loadStoragePanelLayout());
+        this.storagePanelXNormalized = 0.5D;
+        this.storagePanelYNormalized = 1.0D;
+        this.storagePanelWidthNormalized = 0.92D;
+        this.storagePanelHeightNormalized = 0.24D;
         this.storageCategories.add("all");
         for (int i = 0; i < QUICK_SLOT_COUNT; i++) {
             this.quickSlotItemIds[i] = "";
@@ -397,11 +399,6 @@ public final class ClientRtsController {
         this.storagePanelYNormalized = clampLayoutNormalized(yNormalized);
         this.storagePanelWidthNormalized = clampLayoutNormalized(widthNormalized);
         this.storagePanelHeightNormalized = clampLayoutNormalized(heightNormalized);
-        RtsClientLayoutStore.saveStoragePanelLayout(new RtsClientLayoutStore.StoragePanelLayout(
-                this.storagePanelXNormalized,
-                this.storagePanelYNormalized,
-                this.storagePanelWidthNormalized,
-                this.storagePanelHeightNormalized));
     }
 
     public boolean isStorageLinked() {
@@ -1817,16 +1814,6 @@ public final class ClientRtsController {
 
     private static String normalizeCraftablesSearch(String search) {
         return search == null ? "" : search.trim();
-    }
-
-    private void applyStoredLayout(RtsClientLayoutStore.StoragePanelLayout layout) {
-        RtsClientLayoutStore.StoragePanelLayout safe = layout == null
-                ? RtsClientLayoutStore.loadStoragePanelLayout()
-                : layout;
-        this.storagePanelXNormalized = clampLayoutNormalized(safe.xNormalized());
-        this.storagePanelYNormalized = clampLayoutNormalized(safe.yNormalized());
-        this.storagePanelWidthNormalized = clampLayoutNormalized(safe.widthNormalized());
-        this.storagePanelHeightNormalized = clampLayoutNormalized(safe.heightNormalized());
     }
 
     private static double clampLayoutNormalized(double value) {

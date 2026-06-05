@@ -21,6 +21,9 @@ import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.*
 public final class QuickBuildPanel extends RtsWindowPanel {
     private static final int QUICK_BUILD_SHEET_SIZE = 450;
     private static final int QUICK_BUILD_SHEET_HEIGHT = QUICK_BUILD_SHEET_SIZE * 2;
+    private static final int QUICK_BUILD_PANEL_W = 188;
+    private static final int QUICK_BUILD_PANEL_H = 216;
+    private static final int QUICK_BUILD_PANEL_MIN_H = 156;
 
     private static final ClientRtsController.BuildShape[] SHAPES = {
             ClientRtsController.BuildShape.BLOCK,
@@ -166,13 +169,12 @@ public final class QuickBuildPanel extends RtsWindowPanel {
 
     @Override
     protected void computeDefaultPosition() {
-        int y = TOP_H + 10;
+        int y = TOP_H + 40;
         int availableH = screen.getFloatingPanelAvailableHeight(y);
         if (availableH >= QUICK_BUILD_PANEL_MIN_H) {
             this.windowHeight = Math.min(QUICK_BUILD_PANEL_H, availableH);
         }
-        int maxX = Math.max(4, screen.width - QUICK_BUILD_PANEL_W - 4);
-        this.windowX = Mth.clamp(screen.width - QUICK_BUILD_PANEL_W - 10, 4, maxX);
+        this.windowX = screen.width - QUICK_BUILD_PANEL_W - 4;
         this.windowY = y;
     }
 
