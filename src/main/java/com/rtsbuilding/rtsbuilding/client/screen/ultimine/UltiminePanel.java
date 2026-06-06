@@ -105,7 +105,7 @@ public final class UltiminePanel extends RtsWindowPanel {
             labelColor = 0xAFC0D3;
         }
 
-        g.drawString(screen.font(), progressLabel, x + 8, progressY - 12, labelColor);
+        g.drawString(screen.font(), progressLabel, x + 8, progressY - 12, labelColor, false);
         RtsClientUiUtil.drawPanelFrame(g, x + 8, progressY, ULTIMINE_PANEL_W - 16, 12, 0xAA101820, 0xFF647B92, 0xFF0D1117);
         if (progressFraction > 0.0D) {
             int fillW = Math.min(ULTIMINE_PANEL_W - 20, Math.max(1, (int) (progressFraction * (ULTIMINE_PANEL_W - 20))));
@@ -127,7 +127,7 @@ public final class UltiminePanel extends RtsWindowPanel {
         String cursorStr = showCursor ? "|" : "";
         int textX = inputX + (inputW - screen.font().width(displayText + cursorStr)) / 2;
         int textY = inputY + (inputH - screen.font().lineHeight) / 2;
-        g.drawString(screen.font(), displayText + cursorStr, textX, textY, 0xF2F7FF);
+        g.drawString(screen.font(), displayText + cursorStr, textX, textY, 0xF2F7FF, false);
 
         // ---- 滑块 + 标签 ----
         int trackX = x + 8;
@@ -147,8 +147,9 @@ public final class UltiminePanel extends RtsWindowPanel {
         g.fill(knobX - 3, trackY - 5, knobX + 4, trackY + 8, knobColor);
 
         // 最小/最大值标签
-        g.drawString(screen.font(), Integer.toString(ULTIMINE_MIN_LIMIT), trackX, trackY + 10, 0xB5C1CE);
-        g.drawString(screen.font(), Integer.toString(ULTIMINE_MAX_LIMIT), trackX + trackW - 20, trackY + 10, 0xB5C1CE);
+        g.drawString(screen.font(), Integer.toString(ULTIMINE_MIN_LIMIT), trackX, trackY + 10, 0xB5C1CE, false);
+        g.drawString(screen.font(), Integer.toString(ULTIMINE_MAX_LIMIT), trackX + trackW - 20, trackY + 10, 0xB5C1CE,
+                false);
 
         // ---- 模式切换 ----
         int modeBtnY = contentY() + 92;
@@ -167,14 +168,16 @@ public final class UltiminePanel extends RtsWindowPanel {
         g.fill(chainBtnX, modeBtnY, chainBtnX + modeBtnW, modeBtnY + 14, chainBorder);
         g.fill(chainBtnX + 1, modeBtnY + 1, chainBtnX + modeBtnW - 1, modeBtnY + 13, chainBg);
         int chainLabelX = chainBtnX + (modeBtnW - screen.font().width(screen.text("screen.rtsbuilding.ultimine.mode_chain"))) / 2;
-        g.drawString(screen.font(), screen.text("screen.rtsbuilding.ultimine.mode_chain"), chainLabelX, modeBtnY + 3, chainActive ? 0xFF0D1117 : 0xB5C1CE);
+        g.drawString(screen.font(), screen.text("screen.rtsbuilding.ultimine.mode_chain"), chainLabelX, modeBtnY + 3,
+                chainActive ? 0xFF0D1117 : 0xB5C1CE, false);
 
         int areaBg = !chainActive ? 0xFF5FE36C : (hoverArea ? 0xFF2A3A4A : 0xFF1A2330);
         int areaBorder = !chainActive ? 0xFF5FE36C : (hoverArea ? 0xFF647B92 : 0xFF313946);
         g.fill(areaBtnX, modeBtnY, areaBtnX + modeBtnW, modeBtnY + 14, areaBorder);
         g.fill(areaBtnX + 1, modeBtnY + 1, areaBtnX + modeBtnW - 1, modeBtnY + 13, areaBg);
         int areaLabelX = areaBtnX + (modeBtnW - screen.font().width(screen.text("screen.rtsbuilding.ultimine.mode_area"))) / 2;
-        g.drawString(screen.font(), screen.text("screen.rtsbuilding.ultimine.mode_area"), areaLabelX, modeBtnY + 3, chainActive ? 0xB5C1CE : 0xFF0D1117);
+        g.drawString(screen.font(), screen.text("screen.rtsbuilding.ultimine.mode_area"), areaLabelX, modeBtnY + 3,
+                chainActive ? 0xB5C1CE : 0xFF0D1117, false);
     }
 
     @Override
