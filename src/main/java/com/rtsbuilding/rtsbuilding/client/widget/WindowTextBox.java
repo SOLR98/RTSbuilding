@@ -25,6 +25,7 @@ public class WindowTextBox extends EditBox {
     private static final int BORDER_COLOR = 0xFF3A4555;
     private static final int BORDER_COLOR_FOCUSED = 0xFF6D7C90;
     private static final int PLACEHOLDER_COLOR = 0xFF68778A;
+    private static final int TEXT_PADDING_X = 4;
 
     private String placeholder = "";
     private boolean autoScrollToEnd = true;
@@ -95,9 +96,21 @@ public class WindowTextBox extends EditBox {
         if (getValue().isEmpty() && !isFocused() && !this.placeholder.isEmpty()) {
             Font font = Minecraft.getInstance().font;
             int textY = y + (this.height - font.lineHeight) / 2;
-            g.drawString(font, this.placeholder, x + 4, textY, PLACEHOLDER_COLOR, false);
+            g.drawString(font, this.placeholder, x + TEXT_PADDING_X, textY, PLACEHOLDER_COLOR, false);
         }
-        super.renderWidget(g, mouseX, mouseY, partialTick);
+        renderInnerEditBox(g, mouseX, mouseY, partialTick, x);
+    }
+
+    private void renderInnerEditBox(GuiGraphics g, int mouseX, int mouseY, float partialTick, int outerX) {
+        int oldWidth = this.width;
+        setX(outerX + TEXT_PADDING_X);
+        this.width = Math.max(1, oldWidth - TEXT_PADDING_X * 2);
+        try {
+            super.renderWidget(g, mouseX, mouseY, partialTick);
+        } finally {
+            this.width = oldWidth;
+            setX(outerX);
+        }
     }
 
     public WindowTextBox onTextChanged(Consumer<String> responder) {
