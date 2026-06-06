@@ -183,23 +183,11 @@ public class RtsStorageSession {
     public long deferredStorageRefreshTick = -1L;
 
     // ======================================================================
-    // §8  快速建造音效与放置队列
-    //      快速建造触发后的音效回放状态和尚未执行的方块放置批次。
+    // §8  放置队列
+    //      尚未执行的方块放置批次。
     //      PlaceBatchJob 类型定义在 RtsPlacementBatch 中。
     // ======================================================================
 
-    /** 本次快速建造已放置的方块计数（用于音效反馈和客户端同步） */
-    public int quickBuildSoundPlacedCount;
-    /** 快速建造完成音效的计划触发 tick；-1L = 未计划 */
-    public long quickBuildCompletionSoundTick = -1L;
-    /** 上次放置音效的 tick（防刷屏） */
-    public long lastQuickBuildPlaceSoundTick = Long.MIN_VALUE;
-    /** 音效播放位置 X */
-    public double quickBuildSoundX;
-    /** 音效播放位置 Y */
-    public double quickBuildSoundY;
-    /** 音效播放位置 Z */
-    public double quickBuildSoundZ;
     /** 待处理的放置批次作业队列 */
     public final Deque<RtsPlacementBatch.PlaceBatchJob> placeBatchJobs = new ArrayDeque<>();
 

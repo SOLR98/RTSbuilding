@@ -198,6 +198,15 @@ public final class RtsCameraManager {
         return SESSIONS.containsKey(player.getUUID());
     }
 
+    /**
+     * Returns the current RTS camera position for the given player, or
+     * {@code null} if the camera is not active.
+     */
+    public static Vec3 getCameraPosition(ServerPlayer player) {
+        Session session = SESSIONS.get(player.getUUID());
+        return session != null ? session.cameraPos() : null;
+    }
+
     public static boolean isWithinActionRadius(ServerPlayer player, BlockPos pos) {
         return isWithinActionRange(player, pos);
     }

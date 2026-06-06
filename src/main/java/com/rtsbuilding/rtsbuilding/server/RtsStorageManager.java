@@ -175,7 +175,6 @@ public final class RtsStorageManager {
                 && (player.containerMenu == null || player.containerMenu.containerId != session.remoteMenuContainerId)) {
             clearRemoteMenuValidation(player, session);
         }
-        RtsPlacementSound.tickQuickBuildCompletionSound(player, session);
         RtsPlacementBatch.tickPlaceBatchJobs(player, session);
     }
 
@@ -585,7 +584,7 @@ public final class RtsStorageManager {
         if (session == null) {
             return;
         }
-        RtsPlacementSound.playRemotePlacedBlockSound(player, player.serverLevel(), session, pos, true);
+        RtsPlacementSound.playRemotePlacedBlockSound(player, player.serverLevel(), pos);
         recordRecentItem(session, itemId, S2CRtsStoragePagePayload.RECENT_ITEM_PLACED, 1L);
     }
 
@@ -933,7 +932,7 @@ public final class RtsStorageManager {
                 PlacedBlockTrackerData.get(level).mark(placedPos);
                 if (!soundStack.isEmpty() && soundStack.getItem() instanceof BlockItem) {
                     RtsPlacementSound.playRemotePlacedBlockAnimation(player, placedPos);
-                    RtsPlacementSound.playRemotePlacedBlockSound(player, level, session, placedPos, false);
+                    RtsPlacementSound.playRemotePlacedBlockSound(player, level, placedPos);
                 } else {
                     playRemoteUseSound(player, level, targetEntity, placedPos, soundStack);
                 }
@@ -1037,6 +1036,7 @@ public final class RtsStorageManager {
             return;
         }
 
+        RtsPlacementSound.playRemoteBlockBreakSound(player, level, targetPos);
         tracker.clear(targetPos);
         List<ItemEntity> droppedEntities = collectNewNearbyDrops(level, targetPos, dropIdsBeforeBreak);
         enqueuePlacedRecoveryJob(session, targetPos, droppedEntities);

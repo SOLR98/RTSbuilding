@@ -22,7 +22,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
  * a readability layer, so moving a payload between them must not change the
  * wire protocol.
  */
-@EventBusSubscriber(modid = RtsbuildingMod.MODID, bus = EventBusSubscriber.Bus.MOD)
+@EventBusSubscriber(modid = RtsbuildingMod.MODID)
 public final class RtsPayloadRegistrar {
     private RtsPayloadRegistrar() {
     }

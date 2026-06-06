@@ -267,7 +267,7 @@ public final class RtsPlacementExecutor {
             PlacedBlockTrackerData.get(level).mark(placedPos);
             if (selectedPlacesBlock) {
                 RtsPlacementSound.playRemotePlacedBlockAnimation(player, placedPos);
-                RtsPlacementSound.playRemotePlacedBlockSound(player, level, session, placedPos, quickBuild);
+                RtsPlacementSound.playRemotePlacedBlockSound(player, level, placedPos);
             } else {
                 RtsStorageManager.playRemoteUseSound(player, level, null, placedPos, selectedSoundStack);
             }
@@ -289,7 +289,7 @@ public final class RtsPlacementExecutor {
             PlacedBlockTrackerData.get(level).mark(placedPos);
             if (sourcePlacesBlock) {
                 RtsPlacementSound.playRemotePlacedBlockAnimation(player, placedPos);
-                RtsPlacementSound.playRemotePlacedBlockSound(player, level, session, placedPos, quickBuild);
+                RtsPlacementSound.playRemotePlacedBlockSound(player, level, placedPos);
             } else {
                 RtsStorageManager.playRemoteUseSound(player, level, null, placedPos, sourceSnapshot);
             }

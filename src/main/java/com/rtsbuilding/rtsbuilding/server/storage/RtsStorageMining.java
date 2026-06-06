@@ -8,6 +8,7 @@ import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsUltimineProgressPayload
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.RtsStorageManager;
 import com.rtsbuilding.rtsbuilding.server.data.PlacedBlockTrackerData;
+import com.rtsbuilding.rtsbuilding.server.storage.placement.RtsPlacementSound;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.LinkedHashSet;
@@ -694,6 +695,7 @@ public final class RtsStorageMining {
         }
         if (broken) {
             sendBreakAnimation(player, pos);
+            RtsPlacementSound.playRemoteBlockBreakSound(player, player.serverLevel(), pos);
         }
         return broken;
     }

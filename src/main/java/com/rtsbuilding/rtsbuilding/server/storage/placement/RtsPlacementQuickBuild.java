@@ -194,7 +194,7 @@ public final class RtsPlacementQuickBuild {
         }
         PlacedBlockTrackerData.get(level).mark(targetPos);
         RtsPlacementSound.playRemotePlacedBlockAnimation(player, targetPos);
-        RtsPlacementSound.playRemotePlacedBlockSound(player, level, session, targetPos, true);
+        RtsPlacementSound.playRemotePlacedBlockSound(player, level, targetPos);
         RtsStorageManager.recordRecentItem(session, plan.itemId(), S2CRtsStoragePagePayload.RECENT_ITEM_PLACED, 1L);
         return true;
     }
