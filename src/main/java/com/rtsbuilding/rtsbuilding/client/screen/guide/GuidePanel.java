@@ -1,11 +1,13 @@
 package com.rtsbuilding.rtsbuilding.client.screen.guide;
 
-import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
-import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
+import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants;
-import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarTypes;
+import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarIconRenderer;
+import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarTypes;
+import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
+
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -18,15 +20,19 @@ import java.util.List;
 import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.*;
 
 /**
- * 指南面板。
- * <p>
- * 独立的指南面板组件，处理指南面板的渲染、输入和状态管理。
- * 由 {@link BuilderScreen} 统一调度生命周期。
+ * Contextual information window for top-bar, bottom-panel, and settings help.
+ *
+ * <p>This class keeps the old guide content model, but lets
+ * {@link RtsWindowPanel} own the window chrome and input shell so all
+ * information popups stack and cover each other consistently.
  */
-public final class GuidePanel {
+public final class GuidePanel extends RtsWindowPanel {
+    private static final int DEFAULT_WINDOW_W = 330;
+    private static final int DEFAULT_WINDOW_H = 198;
+    private static final int MIN_WINDOW_W = 250;
+    private static final int MIN_WINDOW_H = 158;
+    private static final int CONTENT_PAD = 8;
 
-    // ── 状态 ──
-    private boolean open = false;
     private GuideTypes.GuideContext context = GuideTypes.GuideContext.TOP;
     private int page = 0;
     private int topicScroll = 0;
@@ -34,57 +40,102 @@ public final class GuidePanel {
     private int anchorX = -1;
     private int anchorY = -1;
 
-    private BuilderScreen screen;
-    private ClientRtsController controller;
-
+    @Override
     public void init(BuilderScreen screen, ClientRtsController controller) {
-        this.screen = screen;
-        this.controller = controller;
+        super.init(screen, controller);
     }
 
-    // ── 输入方法 ──
+    @Override
+    protected void renderContent(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        GuideTypes.GuidePanelRect rect = contentRect();
+        GuideTypes.GuideTopic[] topics = topics();
+        this.page = Mth.clamp(this.page, 0, Math.max(0, topics.length - 1));
 
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (!this.open) {
-            return false;
+        int tabX = rect.x() + CONTENT_PAD;
+        int tabY = rect.y() + CONTENT_PAD;
+        int tabW = topicTabWidth();
+        int topicAreaH = topicAreaHeight(rect.h());
+        int visibleTopics = visibleTopicRows(rect.h());
+        this.topicScroll = Mth.clamp(this.topicScroll, 0, Math.max(0, topics.length - visibleTopics));
+        if (this.page < this.topicScroll) {
+            this.topicScroll = this.page;
+        } else if (this.page >= this.topicScroll + visibleTopics) {
+            this.topicScroll = Math.max(0, this.page - visibleTopics + 1);
         }
-        if (button == 0) {
-            int topic = resolveTopicClick(mouseX, mouseY);
-            if (topic >= 0) {
-                this.page = topic;
-                this.textScroll = 0;
-                return true;
+        int topicEnd = Math.min(topics.length, this.topicScroll + visibleTopics);
+        for (int i = this.topicScroll; i < topicEnd; i++) {
+            int ty = tabY + (i - this.topicScroll) * 22;
+            boolean active = i == this.page;
+            int bg = active ? 0xCC355A71 : 0x88303A45;
+            RtsClientUiUtil.drawPanelFrame(g, tabX, ty, tabW, 18, bg,
+                    active ? 0xFF8FB4D0 : 0xFF4A5665, 0xFF0D1218);
+            if (this.context == GuideTypes.GuideContext.BOTTOM) {
+                String label = RtsClientUiUtil.trimToWidth(screen.font(),
+                        Component.translatable(topics[i].titleKey()).getString(), tabW - 8);
+                g.drawString(screen.font(), label, tabX + 4, ty + 5,
+                        active ? 0xFFF4FBFF : 0xFFB9C7D5, false);
+            } else {
+                drawTopicIcon(g, topics[i].icon(), tabX + 10, ty + 9,
+                        active ? 0xFFF4FBFF : 0xFFB9C7D5);
             }
-            if (isInsidePrev(mouseX, mouseY)) {
-                this.page = Math.max(0, this.page - 1);
-                this.textScroll = 0;
-                return true;
-            }
-            if (isInsideNext(mouseX, mouseY)) {
-                this.page = Math.min(getPageCount() - 1, this.page + 1);
-                this.textScroll = 0;
-                return true;
-            }
-            if (!isInsidePanel(mouseX, mouseY) || isInsideClose(mouseX, mouseY)) {
-                this.open = false;
-            }
-            return true;
         }
-        return true;
+        drawVerticalScrollbar(g, tabX + tabW + 3, tabY, topicAreaH,
+                this.topicScroll, topics.length, visibleTopics);
+
+        int textX = rect.x() + tabW + 18;
+        int lineY = rect.y() + 10;
+        int maxTextW = textMaxWidth(rect.w(), tabW);
+        GuideTypes.GuideTopic topic = topics[this.page];
+        g.drawString(screen.font(),
+                RtsClientUiUtil.trimToWidth(screen.font(),
+                        Component.translatable(topic.titleKey()).getString(), maxTextW),
+                textX, lineY, 0xFFE7C46A, false);
+
+        int bodyTop = lineY + 16;
+        int bodyAreaH = textAreaHeight(rect.h());
+        int visibleTextLines = visibleTextLines(rect.h());
+        List<FormattedCharSequence> bodyLines = collectTextLines(topic, maxTextW);
+        this.textScroll = Mth.clamp(this.textScroll, 0, Math.max(0, bodyLines.size() - visibleTextLines));
+        int lineEnd = Math.min(bodyLines.size(), this.textScroll + visibleTextLines);
+        screen.enableRtsScissor(g, textX, bodyTop, textX + maxTextW, bodyTop + bodyAreaH);
+        try {
+            for (int i = this.textScroll; i < lineEnd; i++) {
+                g.drawString(screen.font(), bodyLines.get(i), textX,
+                        bodyTop + (i - this.textScroll) * 12, 0xE6EDF8, false);
+            }
+        } finally {
+            g.disableScissor();
+        }
+        drawVerticalScrollbar(g, rect.x() + rect.w() - 8, bodyTop, bodyAreaH,
+                this.textScroll, bodyLines.size(), visibleTextLines);
     }
 
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
-        if (!this.open || scrollY == 0.0D) {
-            return false;
+    @Override
+    protected void handleContentClick(double mouseX, double mouseY, int button) {
+        if (button != 0) {
+            return;
         }
-        GuideTypes.GuidePanelRect rect = panelRect();
-        if (!isInsidePanel(mouseX, mouseY)) {
+        int topic = resolveTopicClick(mouseX, mouseY);
+        if (topic >= 0) {
+            this.page = topic;
+            this.textScroll = 0;
+        }
+    }
+
+    @Override
+    protected boolean handleContentScroll(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (scrollY == 0.0D) {
             return true;
         }
+        GuideTypes.GuidePanelRect rect = contentRect();
+        if (!inside(mouseX, mouseY, rect.x(), rect.y(), rect.w(), rect.h())) {
+            return true;
+        }
+
         GuideTypes.GuideTopic[] topics = topics();
         int delta = scrollY > 0.0D ? -1 : 1;
-        int tabX = rect.x() + 8;
-        int tabY = rect.y() + 30;
+        int tabX = rect.x() + CONTENT_PAD;
+        int tabY = rect.y() + CONTENT_PAD;
         int tabW = topicTabWidth();
         if (inside(mouseX, mouseY, tabX, tabY, tabW + 8, topicAreaHeight(rect.h()))) {
             int visible = visibleTopicRows(rect.h());
@@ -101,93 +152,35 @@ public final class GuidePanel {
         return true;
     }
 
-    public boolean keyPressed(int keyCode) {
-        if (!this.open) {
-            return false;
-        }
-        if (keyCode == 256) { // GLFW_KEY_ESCAPE
-            this.open = false;
-        }
-        return true;
+    @Override
+    protected Component getTitle() {
+        return title();
     }
 
-    // ── 渲染 ──
-
-    public void render(GuiGraphics g) {
-        if (!this.open) {
-            return;
-        }
-        GuideTypes.GuidePanelRect rect = panelRect();
-        int panelW = rect.w();
-        int panelH = rect.h();
-        int x = rect.x();
-        int y = rect.y();
-        int closeX = x + panelW - 20;
-
-        g.fill(x, y, x + panelW, y + panelH, 0xEE151A21);
-        g.hLine(x, x + panelW, y, 0xFF6E7C90);
-        g.hLine(x, x + panelW, y + panelH, 0xFF0E1014);
-        g.vLine(x, y, y + panelH, 0xFF6E7C90);
-        g.vLine(x + panelW, y, y + panelH, 0xFF0E1014);
-
-        g.drawString(screen.font(), title(), x + 12, y + 10, 0xFFFFFF);
-        g.fill(closeX, y + 8, closeX + 12, y + 20, 0xAA2C3442);
-        g.drawCenteredString(screen.font(), "X", closeX + 6, y + 11, 0xFFFFFF);
-
-        GuideTypes.GuideTopic[] topics = topics();
-        this.page = Mth.clamp(this.page, 0, Math.max(0, topics.length - 1));
-        int tabX = x + 8;
-        int tabY = y + 30;
-        int tabW = topicTabWidth();
-        int topicAreaH = topicAreaHeight(panelH);
-        int visibleTopics = visibleTopicRows(panelH);
-        this.topicScroll = Mth.clamp(this.topicScroll, 0, Math.max(0, topics.length - visibleTopics));
-        if (this.page < this.topicScroll) {
-            this.topicScroll = this.page;
-        } else if (this.page >= this.topicScroll + visibleTopics) {
-            this.topicScroll = Math.max(0, this.page - visibleTopics + 1);
-        }
-        int topicEnd = Math.min(topics.length, this.topicScroll + visibleTopics);
-        for (int i = this.topicScroll; i < topicEnd; i++) {
-            int ty = tabY + (i - this.topicScroll) * 22;
-            boolean active = i == this.page;
-            int bg = active ? 0xCC355A71 : 0x88303A45;
-            RtsClientUiUtil.drawPanelFrame(g, tabX, ty, tabW, 18, bg, active ? 0xFF8FB4D0 : 0xFF4A5665, 0xFF0D1218);
-            if (this.context == GuideTypes.GuideContext.BOTTOM) {
-                String label = RtsClientUiUtil.trimToWidth(screen.font(), Component.translatable(topics[i].titleKey()).getString(), tabW - 8);
-                g.drawString(screen.font(), label, tabX + 4, ty + 5, active ? 0xFFF4FBFF : 0xFFB9C7D5, false);
-            } else {
-                drawTopicIcon(g, topics[i].icon(), tabX + 10, ty + 9, active ? 0xFFF4FBFF : 0xFFB9C7D5);
-            }
-        }
-        drawVerticalScrollbar(g, tabX + tabW + 3, tabY, topicAreaH, this.topicScroll, topics.length, visibleTopics);
-
-        int textX = x + tabW + 18;
-        int lineY = y + 32;
-        int maxTextW = textMaxWidth(panelW, tabW);
-        GuideTypes.GuideTopic topic = topics[this.page];
-        g.drawString(screen.font(), RtsClientUiUtil.trimToWidth(screen.font(), Component.translatable(topic.titleKey()).getString(), maxTextW), textX, lineY, 0xFFE7C46A);
-        int bodyTop = lineY + 16;
-        int bodyAreaH = textAreaHeight(panelH);
-        int visibleTextLines = visibleTextLines(panelH);
-        List<FormattedCharSequence> bodyLines = collectTextLines(topic, maxTextW);
-        this.textScroll = Mth.clamp(this.textScroll, 0, Math.max(0, bodyLines.size() - visibleTextLines));
-        int lineEnd = Math.min(bodyLines.size(), this.textScroll + visibleTextLines);
-        screen.enableRtsScissor(g, textX, bodyTop, textX + maxTextW, bodyTop + bodyAreaH);
-        try {
-            for (int i = this.textScroll; i < lineEnd; i++) {
-                g.drawString(screen.font(), bodyLines.get(i), textX, bodyTop + (i - this.textScroll) * 12, 0xE6EDF8);
-            }
-        } finally {
-            g.disableScissor();
-        }
-        drawVerticalScrollbar(g, x + panelW - 8, bodyTop, bodyAreaH, this.textScroll, bodyLines.size(), visibleTextLines);
+    @Override
+    protected int getDefaultWidth() {
+        return DEFAULT_WINDOW_W;
     }
 
-    // ── 公开查询方法 ──
+    @Override
+    protected int getDefaultHeight() {
+        return DEFAULT_WINDOW_H;
+    }
 
-    public boolean isOpen() {
-        return this.open;
+    @Override
+    protected int getMinWindowWidth() {
+        return MIN_WINDOW_W;
+    }
+
+    @Override
+    protected int getMinWindowHeight() {
+        return MIN_WINDOW_H;
+    }
+
+    @Override
+    protected void computeDefaultPosition() {
+        this.windowX = 8;
+        this.windowY = TOP_H + 6;
     }
 
     public GuideTypes.GuideContext getContext() {
@@ -199,20 +192,20 @@ public final class GuidePanel {
     }
 
     public void open(GuideTypes.GuideContext context, int anchorX, int anchorY) {
-        this.open = true;
         this.context = context;
         this.page = 0;
         this.topicScroll = 0;
         this.textScroll = 0;
         this.anchorX = anchorX;
         this.anchorY = anchorY;
-    }
 
-    public void close() {
-        this.open = false;
+        int panelW = Math.min(DEFAULT_WINDOW_W, Math.max(MIN_WINDOW_W, this.screen.width - 28));
+        int panelH = Math.min(DEFAULT_WINDOW_H, Math.max(MIN_WINDOW_H, this.screen.height - 90));
+        GuideTypes.GuidePanelRect rect = openingWindowRect(panelW, panelH);
+        setBounds(rect.x(), rect.y(), rect.w(), rect.h());
+        setOpen(true);
+        markBroughtToFront();
     }
-
-    // ── 顶部栏指南提示（由 BuilderScreen 调用） ──
 
     public void renderTopHint(GuiGraphics g, List<TopBarTypes.TopBarButtonLayout> topButtons) {
         if (this.open && this.context == GuideTypes.GuideContext.TOP) {
@@ -237,16 +230,15 @@ public final class GuidePanel {
         if (maxW < 42) {
             return;
         }
-        String hint = RtsClientUiUtil.trimToWidth(screen.font(), Component.translatable("screen.rtsbuilding.top_hint.guide").getString(), maxW - 8);
+        String hint = RtsClientUiUtil.trimToWidth(screen.font(),
+                Component.translatable("screen.rtsbuilding.top_hint.guide").getString(), maxW - 8);
         if (hint.isBlank()) {
             return;
         }
         int y = 12;
-        g.drawString(screen.font(), ">", hintX, y, 0xFFE7C46A);
-        g.drawString(screen.font(), hint, hintX + 8, y, 0xFFE7C46A);
+        g.drawString(screen.font(), ">", hintX, y, 0xFFE7C46A, false);
+        g.drawString(screen.font(), hint, hintX + 8, y, 0xFFE7C46A, false);
     }
-
-    // ── 私有方法与辅助 ──
 
     private Component title() {
         return switch (this.context) {
@@ -289,13 +281,11 @@ public final class GuidePanel {
         return new GuideTypes.GuideTopic(icon, titleKey, lineKeys);
     }
 
-    private int getPageCount() {
-        return topics().length;
+    private GuideTypes.GuidePanelRect contentRect() {
+        return new GuideTypes.GuidePanelRect(contentX(), contentY(), contentWidth(), contentHeight());
     }
 
-    private GuideTypes.GuidePanelRect panelRect() {
-        int panelW = Math.min(330, Math.max(250, screen.width - 28));
-        int panelH = Math.min(178, Math.max(138, screen.height - 90));
+    private GuideTypes.GuidePanelRect openingWindowRect(int panelW, int panelH) {
         int x;
         int y;
         if (this.context == GuideTypes.GuideContext.BOTTOM) {
@@ -315,11 +305,11 @@ public final class GuidePanel {
             int rightSpace = Math.max(0, screen.width - (settingsX + settingsW) - 8 - gap);
             if (leftSpace >= 230 || rightSpace >= 230) {
                 boolean useLeft = leftSpace >= rightSpace;
-                panelW = Math.min(330, useLeft ? leftSpace : rightSpace);
+                panelW = Math.min(DEFAULT_WINDOW_W, useLeft ? leftSpace : rightSpace);
                 x = useLeft ? settingsX - gap - panelW : settingsX + settingsW + gap;
                 y = Mth.clamp(settingsY, 8, Math.max(8, screen.height - panelH - 8));
             } else {
-                panelW = Math.min(330, Math.max(220, screen.width - 16));
+                panelW = Math.min(DEFAULT_WINDOW_W, Math.max(220, screen.width - 16));
                 x = Math.max(8, (screen.width - panelW) / 2);
                 int belowY = settingsY + GEAR_MENU_H + gap;
                 y = belowY + panelH <= screen.height - 8
@@ -356,10 +346,10 @@ public final class GuidePanel {
     }
 
     private int resolveTopicClick(double mouseX, double mouseY) {
-        GuideTypes.GuidePanelRect rect = panelRect();
+        GuideTypes.GuidePanelRect rect = contentRect();
         GuideTypes.GuideTopic[] topics = topics();
-        int tabX = rect.x() + 8;
-        int tabY = rect.y() + 30;
+        int tabX = rect.x() + CONTENT_PAD;
+        int tabY = rect.y() + CONTENT_PAD;
         int tabW = topicTabWidth();
         int visible = visibleTopicRows(rect.h());
         int end = Math.min(topics.length, this.topicScroll + visible);
@@ -375,27 +365,8 @@ public final class GuidePanel {
         return this.context == GuideTypes.GuideContext.BOTTOM ? 92 : 20;
     }
 
-    private boolean isInsidePanel(double mouseX, double mouseY) {
-        GuideTypes.GuidePanelRect rect = panelRect();
-        return inside(mouseX, mouseY, rect.x(), rect.y(), rect.w(), rect.h());
-    }
-
-    private boolean isInsideClose(double mouseX, double mouseY) {
-        GuideTypes.GuidePanelRect rect = panelRect();
-        int closeX = rect.x() + rect.w() - 20;
-        return inside(mouseX, mouseY, closeX, rect.y() + 8, 12, 12);
-    }
-
-    private boolean isInsidePrev(double mouseX, double mouseY) {
-        return false;
-    }
-
-    private boolean isInsideNext(double mouseX, double mouseY) {
-        return false;
-    }
-
     private int topicAreaHeight(int panelH) {
-        return Math.max(18, panelH - 42);
+        return Math.max(18, panelH - CONTENT_PAD * 2);
     }
 
     private int visibleTopicRows(int panelH) {
@@ -403,7 +374,7 @@ public final class GuidePanel {
     }
 
     private int textAreaHeight(int panelH) {
-        return Math.max(24, panelH - 62);
+        return Math.max(24, panelH - 36);
     }
 
     private int textMaxWidth(int panelW, int tabW) {

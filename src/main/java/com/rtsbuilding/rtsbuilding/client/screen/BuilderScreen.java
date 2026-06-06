@@ -159,7 +159,13 @@ public final class BuilderScreen extends Screen {
         this.controller = controller;
         this.uiStateManager = new RtsScreenUiStateManager(this.controller, this.shapeController, this.quickBuildPanel, this.ultiminePanel);
         this.overlayRenderer = new RtsScreenOverlayRenderer(this, this.controller, this.cursorPicker, this.bottomPanel);
-        this.floatingWindowLayer = new RtsFloatingWindowLayer(this.linkedStoragePanel, this.ultiminePanel, this.quickBuildPanel);
+        this.floatingWindowLayer = new RtsFloatingWindowLayer(
+                this.linkedStoragePanel,
+                this.gearMenuPanel,
+                this.guidePanel,
+                this.ultiminePanel,
+                this.quickBuildPanel);
+        this.uiStateManager.registerWindowPanel("settings", this.gearMenuPanel);
         this.guidePanel.init(this, this.controller);
         this.gearMenuPanel.init(this, this.controller);
         this.interactionWheelPanel.init(this, this.controller);
@@ -450,20 +456,17 @@ public final class BuilderScreen extends Screen {
         if (this.interactionWheelPanel.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
-        if (this.guidePanel.isOpen()) {
-            return this.guidePanel.mouseClicked(mouseX, mouseY, button);
+        if (handleFloatingWindowClick(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (this.guidePanel.isOpen() || this.gearMenuPanel.isOpen()) {
+            return true;
         }
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            if (this.gearMenuPanel.isOpen()) {
-                return this.gearMenuPanel.mouseClicked(mouseX, mouseY, button);
-            }
             boolean insideBottomPanel = isInsideBottomPanel(mouseX, mouseY);
             if (!insideBottomPanel
                     && this.bottomPanel.bottomPanelTab == BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS
                     && BlueprintPanel.mouseClickedPlacementHud(mouseX, mouseY, this.width, this.height, TOP_H + 8, this.bottomPanel.getBottomY(), this.controller)) {
-                return true;
-            }
-            if (handleFloatingWindowClick(mouseX, mouseY, button)) {
                 return true;
             }
             if (handleStorageLinkDetailActionClick(mouseX, mouseY)) {
@@ -575,10 +578,10 @@ public final class BuilderScreen extends Screen {
         if (this.interactionWheelPanel.isOpen()) {
             return true;
         }
-        if (this.guidePanel.isOpen()) {
+        if (handleFloatingWindowRelease(mouseX, mouseY, button)) {
             return true;
         }
-        if (handleFloatingWindowRelease(mouseX, mouseY, button)) {
+        if (this.guidePanel.isOpen() || this.gearMenuPanel.isOpen()) {
             return true;
         }
         if (this.cameraInput.isLeftMiningActive() && !this.cameraInput.isKeyboardMining() && button == this.cameraInput.getActiveMiningMouseButton()) {
@@ -627,11 +630,11 @@ public final class BuilderScreen extends Screen {
         if (this.interactionWheelPanel.isOpen()) {
             return true;
         }
-        if (this.guidePanel.isOpen()) {
-            return true;
-        }
 
         if (handleFloatingWindowDrag(mouseX, mouseY, button, dragX, dragY)) {
+            return true;
+        }
+        if (this.guidePanel.isOpen() || this.gearMenuPanel.isOpen()) {
             return true;
         }
 
@@ -882,16 +885,13 @@ public final class BuilderScreen extends Screen {
         if (BlueprintPanel.isMaterialDialogOpen()) {
             return BlueprintPanel.mouseScrolledMaterialDialog(scrollY, this.controller, this.width, this.height);
         }
-        if (this.gearMenuPanel.mouseScrolled(mouseX, mouseY, scrollY)) {
-            return true;
-        }
         if (this.interactionWheelPanel.mouseScrolled(scrollY)) {
             return true;
         }
-        if (this.guidePanel.isOpen()) {
-            return this.guidePanel.mouseScrolled(mouseX, mouseY, scrollY);
-        }
         if (handleFloatingWindowScroll(mouseX, mouseY, scrollX, scrollY)) {
+            return true;
+        }
+        if (this.guidePanel.isOpen() || this.gearMenuPanel.isOpen()) {
             return true;
         }
         if (isInsideBottomPanel(mouseX, mouseY)) {
@@ -948,13 +948,10 @@ public final class BuilderScreen extends Screen {
         if (this.interactionWheelPanel.keyPressed(keyCode)) {
             return true;
         }
-        if (this.guidePanel.isOpen()) {
-            return this.guidePanel.keyPressed(keyCode);
-        }
-        if (this.gearMenuPanel.isOpen()) {
-            return this.gearMenuPanel.keyPressed(keyCode);
-        }
         if (this.floatingWindowLayer.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+        if (this.guidePanel.isOpen() || this.gearMenuPanel.isOpen()) {
             return true;
         }
         if (this.pendingGuiBindSlot >= 0 && keyCode == GLFW.GLFW_KEY_ESCAPE) {
@@ -1187,8 +1184,8 @@ public final class BuilderScreen extends Screen {
         this.topBarPanel.render(guiGraphics, mouseX, mouseY);
         renderStorageLinkDetailAction(guiGraphics, mouseX, mouseY);
         this.bottomPanel.render(guiGraphics, mouseX, mouseY, partialTick);
-        this.floatingWindowLayer.renderFloatingWindows(guiGraphics, mouseX, mouseY);
         this.funnelBufferPanel.render(guiGraphics, mouseX, mouseY);
+        this.floatingWindowLayer.renderFloatingWindows(guiGraphics, mouseX, mouseY);
         this.floatingWindowLayer.renderFloatingWindowOverlays(guiGraphics, mouseX, mouseY);
         this.overlayRenderer.renderQuestDetectPopup(guiGraphics);
         this.overlayRenderer.renderStorageScanPopup(guiGraphics);
@@ -1294,12 +1291,6 @@ public final class BuilderScreen extends Screen {
         this.bottomPanel.renderCraftFeedback(guiGraphics);
         if (this.interactionWheelPanel.isOpen()) {
             renderAtGuiLayer(guiGraphics, RTS_MODAL_LAYER_Z, () -> renderInteractionWheel(guiGraphics, mouseX, mouseY));
-        }
-        if (this.gearMenuPanel.isOpen()) {
-            renderAtGuiLayer(guiGraphics, RTS_MODAL_LAYER_Z + 20.0F, () -> this.gearMenuPanel.render(guiGraphics, mouseX, mouseY));
-        }
-        if (this.guidePanel.isOpen()) {
-            renderAtGuiLayer(guiGraphics, RTS_MODAL_LAYER_Z + 40.0F, () -> this.guidePanel.render(guiGraphics));
         }
         if (BlueprintPanel.isMaterialDialogOpen()) {
             renderAtGuiLayer(guiGraphics, RTS_MODAL_LAYER_Z + 50.0F,
