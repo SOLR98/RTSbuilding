@@ -18,6 +18,8 @@ import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelUi.trim
  */
 final class BlueprintNameDialog {
     private static final int BUTTON_H = 14;
+    private static final int TITLE_H = 20;
+    private static final int CLOSE_SIZE = 14;
 
     private BlueprintNameDialog() {
     }
@@ -28,13 +30,16 @@ final class BlueprintNameDialog {
         BlueprintPanelLayout.NameDialogLayout layout = nameDialogLayout(screenW, screenH, capture);
         g.fill(0, 0, screenW, screenH, 0x66000000);
         drawFrame(g, layout.x(), layout.y(), layout.w(), layout.h(), 0xEE121922, 0xFF6E8799, 0xFF0B0E13);
-        g.fill(layout.x() + 1, layout.y() + 1, layout.x() + layout.w() - 1, layout.y() + 26, 0xD8293440);
+        g.fill(layout.x() + 1, layout.y() + 1, layout.x() + layout.w() - 1, layout.y() + TITLE_H, 0xCC233345);
         String title = capture
                 ? text("screen.rtsbuilding.blueprints.name_dialog_capture_title")
                 : text("screen.rtsbuilding.blueprints.name_dialog_rename_title");
-        g.drawString(font, trim(font, title, layout.w() - 24), layout.x() + 10, layout.y() + 9, 0xFFEAF2FF, false);
+        g.drawString(font, trim(font, title, layout.w() - 36), layout.x() + 8, layout.y() + 6, 0xFFEAF2FF, false);
+        int closeX = closeX(layout);
+        drawButton(g, font, closeX, layout.y() + 3, CLOSE_SIZE, CLOSE_SIZE, "x",
+                inside(mouseX, mouseY, closeX, layout.y() + 3, CLOSE_SIZE, CLOSE_SIZE));
 
-        int textY = layout.y() + 34;
+        int textY = layout.y() + 30;
         if (capture) {
             g.drawString(font, trim(font, text("screen.rtsbuilding.blueprints.capture_preview_title"), layout.w() - 20),
                     layout.x() + 10, textY, 0xFFCDEBFF, false);
@@ -64,6 +69,9 @@ final class BlueprintNameDialog {
 
     static ClickResult click(double mouseX, double mouseY, int screenW, int screenH, boolean capture) {
         BlueprintPanelLayout.NameDialogLayout layout = nameDialogLayout(screenW, screenH, capture);
+        if (inside(mouseX, mouseY, closeX(layout), layout.y() + 3, CLOSE_SIZE, CLOSE_SIZE)) {
+            return ClickResult.CANCEL;
+        }
         if (inside(mouseX, mouseY, layout.confirmX(), layout.buttonY(), layout.confirmW(), BUTTON_H)) {
             return ClickResult.CONFIRM;
         }
@@ -78,5 +86,9 @@ final class BlueprintNameDialog {
         NONE,
         CONFIRM,
         CANCEL
+    }
+
+    private static int closeX(BlueprintPanelLayout.NameDialogLayout layout) {
+        return layout.x() + layout.w() - CLOSE_SIZE - 4;
     }
 }
