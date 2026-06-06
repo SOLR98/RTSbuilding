@@ -18,7 +18,8 @@ public record C2SRtsAreaMinePayload(
         byte toolSlot,
         String toolItemId,
         ItemStack toolPrototype,
-        byte shapeType) implements CustomPacketPayload {
+        byte shapeType,
+        byte fillType) implements CustomPacketPayload {
     public static final Type<C2SRtsAreaMinePayload> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(RtsbuildingMod.MODID, "c2s_rts_area_mine"));
 
@@ -38,6 +39,7 @@ public record C2SRtsAreaMinePayload(
                     ItemStack.STREAM_CODEC.encode(buf, toolPrototype);
                 }
                 buf.writeByte(payload.shapeType());
+                buf.writeByte(payload.fillType());
             },
             (buf) -> new C2SRtsAreaMinePayload(
                     buf.readInt(),
@@ -49,6 +51,7 @@ public record C2SRtsAreaMinePayload(
                     buf.readByte(),
                     buf.readUtf(256),
                     buf.readBoolean() ? ItemStack.STREAM_CODEC.decode(buf) : ItemStack.EMPTY,
+                    buf.readByte(),
                     buf.readByte()));
 
     @Override

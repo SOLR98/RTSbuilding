@@ -226,6 +226,12 @@ public final class ScreenShapeController {
     // ===== Ghost preview =====
 
     public ShapeDataRecords.GhostPreview getShapeGhostPreview() {
+        if (this.screen.isQuickBuildRangeDestroyMode()) {
+            List<BlockPos> preview = this.screen.collectUltiminePreviewBlocks();
+            return preview.isEmpty()
+                    ? ShapeDataRecords.GhostPreview.EMPTY
+                    : new ShapeDataRecords.GhostPreview(preview, true);
+        }
         if (this.screen.isUltimineOpen()) {
             List<BlockPos> preview = this.screen.collectUltiminePreviewBlocks();
             if (!preview.isEmpty()) {

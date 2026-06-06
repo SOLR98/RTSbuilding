@@ -10,6 +10,7 @@ import com.rtsbuilding.rtsbuilding.client.screen.RtsHomeScreen;
 import com.rtsbuilding.rtsbuilding.client.screen.RtsProgressionScreen;
 import com.rtsbuilding.rtsbuilding.client.screen.ultimine.AreaMineShape;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
+import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.ShapeFillMode;
 import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
@@ -2666,7 +2667,7 @@ public final class ClientRtsController {
      * 确认并发起范围挖掘（第三次左键点击触发）。
      * 使用共享边界计算方法得到最终范围后发包，然后清空会话。
      */
-    public void confirmAreaMine(int toolSlot) {
+    public void confirmAreaMine(int toolSlot, ShapeFillMode fillMode) {
         if (this.areaMinePointA == null || this.areaMinePointB == null) {
             return;
         }
@@ -2688,7 +2689,8 @@ public final class ClientRtsController {
                 this.activeMineToolSlot,
                 selectedMiningToolItemId(),
                 selectedMiningToolPrototype(),
-                (byte) this.areaMineShape.ordinal());
+                (byte) this.areaMineShape.ordinal(),
+                (byte) (fillMode == null ? ShapeFillMode.FILL : fillMode).ordinal());
 
         clearAreaMineSession();
     }

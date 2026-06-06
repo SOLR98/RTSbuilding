@@ -476,13 +476,14 @@ public final class RtsClientPacketGateway {
     }
 
     public static void sendAreaMine(int minX, int maxX, int minY, int maxY, int minZ, int maxZ,
-            int toolSlot, String toolItemId, ItemStack toolPrototype, byte shapeType) {
+            int toolSlot, String toolItemId, ItemStack toolPrototype, byte shapeType, byte fillType) {
         PacketDistributor.sendToServer(new C2SRtsAreaMinePayload(
                 minX, maxX, minY, maxY, minZ, maxZ,
                 (byte) Mth.clamp(toolSlot, 0, 8),
                 toolItemId == null ? "" : toolItemId,
                 toolPrototype == null ? ItemStack.EMPTY : toolPrototype,
-                shapeType));
+                shapeType,
+                fillType));
     }
 
     public static void sendMineStart(BlockPos pos, int face, int toolSlot, String toolItemId, ItemStack toolPrototype,

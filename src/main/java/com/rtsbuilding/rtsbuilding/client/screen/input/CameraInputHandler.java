@@ -334,16 +334,16 @@ public final class CameraInputHandler {
                 || this.controller.getMode() == BuilderMode.FUNNEL) {
             return false;
         }
-        if (screen.isUltimineOpen() && screen.getUltimineMode() == UltimineMode.AREA
+        if (screen.isQuickBuildRangeDestroyMode()
                 && this.controller.getAreaMinePhase() == ClientRtsController.AREA_MINE_PHASE_NEED_HEIGHT) {
             // 第三次点击：确认范围挖掘，直接发包执行，不需要再求 BlockHit
-            this.controller.confirmAreaMine(screen.getSelectedToolSlot());
+            this.controller.confirmAreaMine(screen.getSelectedToolSlot(), screen.getShapeFillMode());
         } else {
             BlockHitResult hit = screen.pickBlockHit();
             if (hit == null) {
                 return false;
             }
-            if (screen.isUltimineOpen() && screen.getUltimineMode() == UltimineMode.AREA) {
+            if (screen.isQuickBuildRangeDestroyMode()) {
                 // 三击选点模式（类似快速建造的 BOX 模式）：
                 // 第 1 击 → setPointA (进入 NEED_SECOND)
                 // 第 2 击 → setPointB (进入 NEED_HEIGHT)

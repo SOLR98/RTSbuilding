@@ -216,7 +216,8 @@ public final class RtsBuilderNetworkHandlers {
                         payload.toolSlot(),
                         payload.toolItemId(),
                         payload.toolPrototype(),
-                        payload.shapeType());
+                        payload.shapeType(),
+                        payload.fillType());
             }
         });
     }

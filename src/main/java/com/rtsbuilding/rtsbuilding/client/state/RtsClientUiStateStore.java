@@ -146,6 +146,7 @@ public final class RtsClientUiStateStore {
         public String fillMode = "FILL";
         public int rotationDegrees = 0;
         public boolean quickBuildOpen = true;
+        public String quickBuildMode = "BUILD";
         public boolean ultimineOpen = false;
         public int ultimineLimit = 64;
         public String ultimineMode = "CHAIN";
@@ -202,6 +203,7 @@ public final class RtsClientUiStateStore {
             clean.fillMode = sanitizeEnum(this.fillMode, "FILL");
             clean.rotationDegrees = Math.floorMod(this.rotationDegrees, 360);
             clean.quickBuildOpen = this.quickBuildOpen;
+            clean.quickBuildMode = sanitizeEnum(this.quickBuildMode, "BUILD");
             clean.ultimineOpen = this.ultimineOpen;
             clean.ultimineLimit = Math.max(1, Math.min(256, this.ultimineLimit));
             clean.ultimineMode = sanitizeEnum(this.ultimineMode, "CHAIN");

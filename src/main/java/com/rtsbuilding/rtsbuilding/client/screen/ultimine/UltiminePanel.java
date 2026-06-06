@@ -27,8 +27,8 @@ public final class UltiminePanel extends RtsWindowPanel {
     /** 连锁挖掘面板宽度 */
     private static final int ULTIMINE_PANEL_W = 178;
     /** 连锁挖掘面板高度 */
-    private static final int ULTIMINE_PANEL_H = 180;
-    private static final int ULTIMINE_PANEL_MIN_H = 180;
+    private static final int ULTIMINE_PANEL_H = 112;
+    private static final int ULTIMINE_PANEL_MIN_H = 112;
     /** 连锁挖掘最小限制 */
     private static final int ULTIMINE_MIN_LIMIT = 1;
     /** 连锁挖掘最大限制 */
@@ -74,11 +74,11 @@ public final class UltiminePanel extends RtsWindowPanel {
     }
 
     public UltimineMode getMode() {
-        return this.ultimineMode;
+        return UltimineMode.CHAIN;
     }
 
     public void setMode(UltimineMode mode) {
-        this.ultimineMode = mode;
+        this.ultimineMode = UltimineMode.CHAIN;
     }
 
     public AreaMineShape getAreaMineShape() {
@@ -87,6 +87,12 @@ public final class UltiminePanel extends RtsWindowPanel {
 
     public void setAreaMineShape(AreaMineShape shape) {
         this.areaMineShape = shape == null ? AreaMineShape.BOX : shape;
+    }
+
+    @Override
+    public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        this.windowHeight = ULTIMINE_PANEL_H;
+        super.render(g, mouseX, mouseY, partialTick);
     }
 
     @Override

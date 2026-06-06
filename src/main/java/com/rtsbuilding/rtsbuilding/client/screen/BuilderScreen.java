@@ -2,6 +2,7 @@ package com.rtsbuilding.rtsbuilding.client.screen;
 
 
 import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanel;
+import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintWindowPanel;
 import com.rtsbuilding.rtsbuilding.client.bootstrap.ClientKeyMappings;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
@@ -12,13 +13,14 @@ import com.rtsbuilding.rtsbuilding.client.screen.guide.GuidePanel;
 import com.rtsbuilding.rtsbuilding.client.screen.guide.GuideTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.input.CameraInputHandler;
 import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionTypes;
-import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionWheelPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.layout.BottomPanelLayoutTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.layout.PanelLayouts;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.BottomPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsFloatingWindowLayer;
+import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
+import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildMode;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.ShapeFillMode;
 import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeDataRecords;
 import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeGeometryUtil;
@@ -65,7 +67,7 @@ import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.*
  * <p>
  * This screen overlays the Minecraft game view and provides all RTS functionality
  * including quick building, vein-mining (ultimine), item storage browsing, the
- * interaction wheel, shape-based building, blueprint placement, guide panels,
+ * shape-based building, blueprint placement, guide panels,
  * the gear/settings menu, and associated UI interactions.
  * <p>
  * <b>Dispatch design:</b> This class acts as a central coordinator. All UI logic
@@ -76,7 +78,7 @@ import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.*
  * <ul>
  *   <li><b>Top Bar:</b> Mode switching, action buttons, shape selection, guide entry.</li>
  *   <li><b>Bottom Panel:</b> Item storage grid, crafting panel, blueprint panel.</li>
- *   <li><b>Overlays:</b> Interaction wheel, gear/settings menu, guide
+ *   <li><b>Overlays:</b> gear/settings menu, guide
  *       panel, dialogs (name entry, material list, craft quantity).</li>
  * </ul>
  * <p>
@@ -105,6 +107,8 @@ public final class BuilderScreen extends Screen {
     private final UltiminePanel ultiminePanel = new UltiminePanel();
     /** Windowed view for inspecting and unlinking bound storage blocks. */
     private final LinkedStoragePanel linkedStoragePanel = new LinkedStoragePanel();
+    /** Windowed blueprint capture/placement controls. */
+    private final BlueprintWindowPanel blueprintWindowPanel = new BlueprintWindowPanel();
     /** Top bar panel with mode buttons, shape selection, and action controls. */
     private final TopBarPanel topBarPanel = new TopBarPanel();
     /** Bottom panel containing storage grid, crafting, blueprints, and pin slots. */
@@ -119,8 +123,6 @@ public final class BuilderScreen extends Screen {
     private final GuidePanel guidePanel = new GuidePanel();
     /** Gear (settings) menu panel with configuration toggles and sliders. */
     private final GearMenuPanel gearMenuPanel = new GearMenuPanel();
-    /** Radial interaction wheel for advanced block/entity interactions. */
-    private final InteractionWheelPanel interactionWheelPanel = new InteractionWheelPanel();
     /** Client-only persisted UI preferences for this screen. */
     private final RtsScreenUiStateManager uiStateManager;
     /** Lightweight overlay/popup renderer split out from the main screen. */
@@ -163,14 +165,16 @@ public final class BuilderScreen extends Screen {
         this.overlayRenderer = new RtsScreenOverlayRenderer(this, this.controller, this.cursorPicker, this.bottomPanel);
         this.floatingWindowLayer = new RtsFloatingWindowLayer(
                 this.linkedStoragePanel,
+                this.blueprintWindowPanel,
                 this.gearMenuPanel,
                 this.guidePanel,
                 this.ultiminePanel,
                 this.quickBuildPanel);
         this.uiStateManager.registerWindowPanel("settings", this.gearMenuPanel);
+        this.uiStateManager.registerWindowPanel("blueprints", this.blueprintWindowPanel);
         this.guidePanel.init(this, this.controller);
         this.gearMenuPanel.init(this, this.controller);
-        this.interactionWheelPanel.init(this, this.controller);
+        this.blueprintWindowPanel.init(this, this.controller);
         this.funnelBufferPanel.init(this, this.controller);
         this.quickBuildPanel.init(this, this.controller);
         this.ultiminePanel.init(this, this.controller);
@@ -258,9 +262,9 @@ public final class BuilderScreen extends Screen {
     public boolean isShapeWheelOpen() {
         return false;
     }
-    /** Returns whether the interaction wheel overlay is currently open. */
+    /** Returns whether the retired interaction wheel overlay is currently open. */
     public boolean isInteractionWheelOpen() {
-        return this.interactionWheelPanel.isOpen();
+        return false;
     }
     /** @deprecated Retained only for binary compatibility; the Alt shape wheel is retired. */
     @Deprecated
@@ -316,14 +320,12 @@ public final class BuilderScreen extends Screen {
         return true;
     }
     /**
-     * Called when the screen is closed.
-     /**
-     * Called when the screen is closed. Cleans up UI state: closes wheels, persists state,
+     * Called when the screen is closed. Cleans up UI state, persists state,
      * resets input handlers, disables funnel mode, toggles camera if needed, and restores cursor.
      */
     @Override
     public void onClose() {
-        closeInteractionWheel();
+        closeShapeWheel();
         this.shapeController.clearShapeBuildSession();
         this.controller.clearAreaMineSession();
         persistUiState();
@@ -383,8 +385,8 @@ public final class BuilderScreen extends Screen {
     @Override
     /*
       Handles mouse click input with RTS GUI scale remapping. Routes clicks through
-      the various UI components in priority order: dialogs, blueprint capture, home selection,
-      overlays, area mine, left-click panels, and world click actions.
+      dialogs, blueprint capture, home selection, floating windows, area mine,
+      left-click panels, and world click actions.
 
       @return true if the click was consumed by this screen, false otherwise
      */
@@ -399,9 +401,9 @@ public final class BuilderScreen extends Screen {
         }
         endFixedRtsScaleInput(frame);
         if (handleDialogClicks(mouseX, mouseY, button)) return true;
+        if (handleOverlayClicks(mouseX, mouseY, button)) return true;
         if (handleBlueprintCaptureClicks(mouseX, mouseY, button)) return true;
         if (handleHomeSelectionClicks(mouseX, mouseY, button)) return true;
-        if (handleOverlayClicks(mouseX, mouseY, button)) return true;
         if (handleAreaMineClickBlock(mouseX, mouseY, button)) return true;
         if (handleLeftClickInteractions(mouseX, mouseY, button)) return true;
         if (handleWorldClickActions(mouseX, mouseY, button)) return true;
@@ -431,17 +433,15 @@ public final class BuilderScreen extends Screen {
         }
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             this.cameraInput.stopActiveMining();
-            if (!BlueprintPanel.mouseClickedCaptureOverlay(mouseX, mouseY, this.width, this.height, TOP_H + 8)) {
-                if (BlueprintPanel.isCaptureSelectionComplete() && isWorldArea(mouseX, mouseY)) {
-                    BlockHitResult hit = this.cursorPicker.pickBlockHit();
-                    if (hit != null
-                            && hit.getType() == HitResult.Type.BLOCK
-                            && BlueprintPanel.toggleCaptureBlockExclusion(hit.getBlockPos())) {
-                        return true;
-                    }
+            if (BlueprintPanel.isCaptureSelectionComplete() && isWorldArea(mouseX, mouseY)) {
+                BlockHitResult hit = this.cursorPicker.pickBlockHit();
+                if (hit != null
+                        && hit.getType() == HitResult.Type.BLOCK
+                        && BlueprintPanel.toggleCaptureBlockExclusion(hit.getBlockPos())) {
+                    return true;
                 }
-                BlueprintPanel.cancelCaptureFromClick();
             }
+            BlueprintPanel.cancelCaptureFromClick();
             return true;
         }
         if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
@@ -478,11 +478,8 @@ public final class BuilderScreen extends Screen {
         return true;
     }
 
-    /** Handles click on overlays: interaction wheel, floating windows, guide/gear panels. */
+    /** Handles click on floating windows and modal guide/gear panels. */
     private boolean handleOverlayClicks(double mouseX, double mouseY, int button) {
-        if (this.interactionWheelPanel.mouseClicked(mouseX, mouseY, button)) {
-            return true;
-        }
         if (handleFloatingWindowClick(mouseX, mouseY, button)) {
             return true;
         }
@@ -507,12 +504,6 @@ public final class BuilderScreen extends Screen {
     private boolean handleLeftClickInteractions(double mouseX, double mouseY, int button) {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             return false;
-        }
-        boolean insideBottomPanel = isInsideBottomPanel(mouseX, mouseY);
-        if (!insideBottomPanel
-                && this.bottomPanel.bottomPanelTab == BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS
-                && BlueprintPanel.mouseClickedPlacementHud(mouseX, mouseY, this.width, this.height, TOP_H + 8, this.bottomPanel.getBottomY(), this.controller)) {
-            return true;
         }
         if (this.storageLinkDetailHandler.handleClick(mouseX, mouseY)) {
             return true;
@@ -602,7 +593,7 @@ public final class BuilderScreen extends Screen {
     @Override
     /**
      * Handles mouse release with RTS GUI scale remapping. Routes release events to
-     * open dialogs, dragging state, wheel panels, and camera input handlers.
+     * open dialogs, dragging state, floating windows, and camera input handlers.
      */
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         RtsUiScaleFrame frame = beginFixedRtsScaleInput();
@@ -621,13 +612,7 @@ public final class BuilderScreen extends Screen {
             this.draggingInputSensitivity = false;
             return true;
         }
-        if (this.interactionWheelPanel.isOpen()) {
-            return true;
-        }
         if (handleFloatingWindowRelease(mouseX, mouseY, button)) {
-            return true;
-        }
-        if (this.guidePanel.isOpen() || this.gearMenuPanel.isOpen()) {
             return true;
         }
         if (this.cameraInput.isLeftMiningActive() && !this.cameraInput.isKeyboardMining() && button == this.cameraInput.getActiveMiningMouseButton()) {
@@ -647,7 +632,7 @@ public final class BuilderScreen extends Screen {
     @Override
     /**
      * Handles mouse drag with RTS GUI scale remapping. Routes drag events to
-     * open dialogs, sensitivity slider dragging, wheel panels, camera drag handlers,
+     * open dialogs, sensitivity slider dragging, floating windows, camera drag handlers,
      * and search box focus logic.
      */
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
@@ -667,14 +652,7 @@ public final class BuilderScreen extends Screen {
             this.cameraInput.updateInputSensitivityFromMouse(mouseX);
             return true;
         }
-        if (this.interactionWheelPanel.isOpen()) {
-            return true;
-        }
-
         if (handleFloatingWindowDrag(mouseX, mouseY, button, dragX, dragY)) {
-            return true;
-        }
-        if (this.guidePanel.isOpen() || this.gearMenuPanel.isOpen()) {
             return true;
         }
 
@@ -726,7 +704,7 @@ public final class BuilderScreen extends Screen {
      * Executes the primary build/interact action at the given screen coordinates.
      * This is the main action route for left-click / primary-keybind:
      * handles GUI binding, blueprint capture, storage linking, funnel, rotation,
-     * interaction wheel opening, shape placement confirmation, blueprint placement,
+     * shape placement confirmation, blueprint placement,
      * and regular block/entity interactions.
      *
      * @param mouseX screen X coordinate
@@ -782,10 +760,6 @@ public final class BuilderScreen extends Screen {
                 this.shapeController.clearShapeBuildSession();
                 this.controller.rotateBlock(target.blockHit().getBlockPos());
             }
-            return true;
-        }
-        if (isWheelModifierDown()) {
-            openInteractionWheel(mouseX, mouseY);
             return true;
         }
         boolean forcePlace = hasShiftDown();
@@ -918,13 +892,7 @@ public final class BuilderScreen extends Screen {
         if (BlueprintPanel.isMaterialDialogOpen()) {
             return BlueprintPanel.mouseScrolledMaterialDialog(scrollY, this.controller, this.width, this.height);
         }
-        if (this.interactionWheelPanel.mouseScrolled(scrollY)) {
-            return true;
-        }
         if (handleFloatingWindowScroll(mouseX, mouseY, scrollX, scrollY)) {
-            return true;
-        }
-        if (this.guidePanel.isOpen() || this.gearMenuPanel.isOpen()) {
             return true;
         }
         if (isInsideBottomPanel(mouseX, mouseY)) {
@@ -957,14 +925,14 @@ public final class BuilderScreen extends Screen {
     }
     @Override
     /**
-     * Handles key press events. Dispatches to dialog, blueprint, overlay, world interaction,
+     * Handles key press events. Dispatches to dialogs, blueprint, overlay, world interaction,
      * search box, tool slot, and sensitivity handlers in priority order.
      */
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (handleDialogKeys(keyCode, scanCode, modifiers)) return true;
+        if (handleOverlayKeys(keyCode, scanCode, modifiers)) return true;
         if (handleBlueprintKeys(keyCode, scanCode, modifiers)) return true;
         if (handleHomeSelectionKey(keyCode)) return true;
-        if (handleOverlayKeys(keyCode, scanCode, modifiers)) return true;
         if (handleWorldInteractionKeys(keyCode, scanCode, modifiers)) return true;
         if (handleSearchFocusKeys(keyCode, scanCode, modifiers)) return true;
         if (handleToolSlotKeys(keyCode, scanCode, modifiers)) return true;
@@ -1011,11 +979,8 @@ public final class BuilderScreen extends Screen {
         return true;
     }
 
-    /** Dispatches key to interaction wheel, floating windows, and guide/gear overlays. */
+    /** Dispatches key to floating windows and guide/gear overlays. */
     private boolean handleOverlayKeys(int keyCode, int scanCode, int modifiers) {
-        if (this.interactionWheelPanel.keyPressed(keyCode)) {
-            return true;
-        }
         if (this.floatingWindowLayer.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
@@ -1212,7 +1177,7 @@ public final class BuilderScreen extends Screen {
         }
         this.cameraInput.stopActiveMining();
         this.shapeController.clearShapeBuildSession();
-        closeInteractionWheel();
+        closeShapeWheel();
         this.controller.setMode(mode);
         this.controller.setFunnelEnabled(funnelEnabled);
         this.funnelHotkeyHeld = false;
@@ -1227,6 +1192,9 @@ public final class BuilderScreen extends Screen {
         if (BlueprintPanel.charTypedNameDialog(codePoint)) {
             return true;
         }
+        if (this.floatingWindowLayer.charTyped(codePoint, modifiers)) {
+            return true;
+        }
         if (this.bottomPanel.bottomPanelTab == BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS && BlueprintPanel.charTyped(codePoint)) {
             return true;
         }
@@ -1238,9 +1206,6 @@ public final class BuilderScreen extends Screen {
         }
         if (this.craftSearchBox != null && this.craftSearchBox.isFocused()) {
             this.craftSearchBox.charTyped(codePoint, modifiers);
-            return true;
-        }
-        if (this.floatingWindowLayer.charTyped(codePoint, modifiers)) {
             return true;
         }
         return super.charTyped(codePoint, modifiers);
@@ -1271,19 +1236,15 @@ public final class BuilderScreen extends Screen {
         this.storageLinkDetailHandler.render(guiGraphics, mouseX, mouseY);
         this.bottomPanel.render(guiGraphics, mouseX, mouseY, partialTick);
         this.funnelBufferPanel.render(guiGraphics, mouseX, mouseY);
-        this.floatingWindowLayer.renderFloatingWindows(guiGraphics, mouseX, mouseY);
-        this.floatingWindowLayer.renderFloatingWindowOverlays(guiGraphics, mouseX, mouseY);
-        this.overlayRenderer.renderQuestDetectPopup(guiGraphics);
-        this.overlayRenderer.renderStorageScanPopup(guiGraphics);
         if (this.bottomPanel.bottomPanelTab == BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS && BlueprintPanel.isCaptureModeActive()) {
             BlockHitResult hit = isWorldArea(mouseX, mouseY) ? this.cursorPicker.pickBlockHit() : null;
             BlueprintPanel.updateCaptureHoverPoint(hit == null ? null : hit.getBlockPos());
         }
-        BlueprintPanel.renderCaptureOverlay(guiGraphics, this.font, this.width, this.height, mouseX, mouseY, TOP_H + 8);
-        if (this.bottomPanel.bottomPanelTab == BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS) {
-            BlueprintPanel.renderPlacementHud(guiGraphics, this.font, this.controller,
-                    this.width, this.height, mouseX, mouseY, TOP_H + 8, this.bottomPanel.getBottomY());
-        }
+        this.blueprintWindowPanel.syncWithBlueprintState();
+        this.floatingWindowLayer.renderFloatingWindows(guiGraphics, mouseX, mouseY);
+        this.floatingWindowLayer.renderFloatingWindowOverlays(guiGraphics, mouseX, mouseY);
+        this.overlayRenderer.renderQuestDetectPopup(guiGraphics);
+        this.overlayRenderer.renderStorageScanPopup(guiGraphics);
         renderHoveredItemTooltips(guiGraphics, mouseX, mouseY);
         this.bottomPanel.renderCraftFeedback(guiGraphics);
         renderModalOverlays(guiGraphics, mouseX, mouseY);
@@ -1314,10 +1275,10 @@ public final class BuilderScreen extends Screen {
     private void renderHoveredItemTooltips(GuiGraphics g, int mouseX, int mouseY) {
         boolean modalOpen = this.gearMenuPanel.isOpen()
                 || this.guidePanel.isOpen()
-                || this.interactionWheelPanel.isOpen()
                 || this.bottomPanel.craftQuantityDialog.isOpen()
                 || BlueprintPanel.isNameDialogOpen()
-                || BlueprintPanel.isMaterialDialogOpen();
+                || BlueprintPanel.isMaterialDialogOpen()
+                || isMouseOverFloatingWindow(mouseX, mouseY);
         boolean placementSelectionActive = this.controller.hasSelectedItem() || this.controller.hasSelectedFluid();
         if (!modalOpen) {
             if (!placementSelectionActive
@@ -1395,7 +1356,8 @@ public final class BuilderScreen extends Screen {
                 drawGuiBindCursor(g, mouseX, mouseY);
             } else {
                 ItemStack cursorPreview = resolveCursorPreview();
-                if (!cursorPreview.isEmpty() && !isSearchFocused() && !this.guidePanel.isOpen() && !this.interactionWheelPanel.isOpen()) {
+                if (!cursorPreview.isEmpty() && !isSearchFocused()
+                        && !isMouseOverFloatingWindow(mouseX, mouseY)) {
                     g.renderItem(cursorPreview, mouseX + 10, mouseY + 10);
                 }
             }
@@ -1405,13 +1367,9 @@ public final class BuilderScreen extends Screen {
     }
 
     /**
-     * Renders modal overlays (interaction wheel, material/name dialogs, craft quantity
-     * dialog) at elevated Z-layers to appear above other elements.
+     * Renders modal overlays at elevated Z-layers to appear above other elements.
      */
     private void renderModalOverlays(GuiGraphics g, int mouseX, int mouseY) {
-        if (this.interactionWheelPanel.isOpen()) {
-            renderAtGuiLayer(g, RTS_MODAL_LAYER_Z, () -> renderInteractionWheel(g, mouseX, mouseY));
-        }
         if (BlueprintPanel.isMaterialDialogOpen()) {
             renderAtGuiLayer(g, RTS_MODAL_LAYER_Z + 50.0F,
                     () -> BlueprintPanel.renderMaterialDialog(g, this.font, this.controller,
@@ -1587,6 +1545,14 @@ public final class BuilderScreen extends Screen {
     public boolean isUltimineOpen() {
         return this.ultiminePanel.isOpen();
     }
+    /** Returns true when quick-build is showing the range-destroy workflow. */
+    public boolean isQuickBuildRangeDestroyMode() {
+        return this.quickBuildPanel.isQuickBuildOpen() && this.quickBuildPanel.isRangeDestroyMode();
+    }
+    /** Sets the quick-build window mode and persists the UI state. */
+    public void setQuickBuildMode(QuickBuildMode mode) {
+        this.quickBuildPanel.setMode(mode);
+    }
     /** Returns the current ultimine block limit. */
     public int getUltimineLimit() {
         return this.ultiminePanel.getLimit();
@@ -1597,7 +1563,7 @@ public final class BuilderScreen extends Screen {
     }
     /** Returns true if currently in area mine height selection phase (NEED_HEIGHT). */
     public boolean isAreaMineHeightPreview() {
-        if (!isUltimineOpen() || getUltimineMode() != UltimineMode.AREA) {
+        if (!isQuickBuildRangeDestroyMode()) {
             return false;
         }
         int phase = this.controller.getAreaMinePhase();
@@ -1657,6 +1623,15 @@ public final class BuilderScreen extends Screen {
         return this.floatingWindowLayer.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
+    private boolean isMouseOverFloatingWindow(double mouseX, double mouseY) {
+        for (RtsWindowPanel window : this.floatingWindowLayer.frontToBackWindows()) {
+            if (window.isOpen() && window.isInsideWindow(mouseX, mouseY)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Closes the gear (settings) menu. */
     public void closeGearMenu() {
         this.gearMenuPanel.close();
@@ -1697,13 +1672,13 @@ public final class BuilderScreen extends Screen {
         return this.bottomPanel.craftQuantityDialog.isOpen();
     }
     /**
-     * Activates the funnel hotkey: stops mining, clears shape preview, closes wheels,
+     * Activates the funnel hotkey: stops mining, clears shape preview,
      * saves the current mode, and switches to funnel mode with funnel enabled.
      */
     private void activateFunnelHotkey() {
         this.cameraInput.stopActiveMining();
         this.shapeController.clearShapeBuildSession();
-        closeInteractionWheel();
+        closeShapeWheel();
         if (this.controller.getMode() != BuilderMode.FUNNEL) {
             this.modeBeforeFunnelHotkey = this.controller.getMode();
         }
@@ -1821,7 +1796,7 @@ public final class BuilderScreen extends Screen {
      * undo/redo key hint, quick-build toggle, quick-build cancel area.
      */
     private void renderDiscoverabilityTooltips(GuiGraphics g, int mouseX, int mouseY) {
-        if (this.guidePanel.isOpen() || this.interactionWheelPanel.isOpen()) {
+        if (isMouseOverFloatingWindow(mouseX, mouseY)) {
             return;
         }
         if (this.storageLinkDetailHandler.renderStatusTooltip(g, mouseX, mouseY)) {
@@ -2067,9 +2042,10 @@ public final class BuilderScreen extends Screen {
             return List.of();
         }
         boolean creative = this.minecraft.player != null && this.minecraft.player.isCreative();
+        boolean areaMode = isQuickBuildRangeDestroyMode();
         int limit = this.ultiminePanel.getLimit();
         UltimineMode mode = this.ultiminePanel.getMode();
-        if (mode == UltimineMode.AREA) {
+        if (areaMode) {
             BlockPos pointA = this.controller.getAreaMinePointA();
             if (pointA == null) {
                 return List.of();
@@ -2083,7 +2059,8 @@ public final class BuilderScreen extends Screen {
                 if (cursorPos != null && pointA != null && !cursorPos.equals(pointA)) {
                     ClientRtsController.AreaMineBounds bounds = ClientRtsController.computeAreaMineBounds(pointA, cursorPos, 0);
                     Set<BlockPos> targets = new HashSet<>();
-                    addAreaMineShapeTargets(targets, bounds, this.controller.getAreaMineShape(), 0);
+                    addAreaMineShapeTargets(targets, bounds, this.controller.getAreaMineShape(),
+                            this.shapeController.getShapeFillMode(), 0);
                     return new ArrayList<>(targets);
                 }
                 return List.of(cursorPos != null ? cursorPos : seed);
@@ -2093,8 +2070,11 @@ public final class BuilderScreen extends Screen {
                     pointA, pointB, this.controller.getAreaMineHeightOffset());
             Set<BlockPos> targets = new HashSet<>();
             addAreaMineShapeTargets(targets, bounds, this.controller.getAreaMineShape(),
-                    bounds.maxY() - bounds.minY());
+                    this.shapeController.getShapeFillMode(), bounds.maxY() - bounds.minY());
             return new ArrayList<>(targets);
+        }
+        if (!isUltimineOpen()) {
+            return List.of();
         }
         return RtsUltimineCollector.collect(
                 this.minecraft.level,
@@ -2117,7 +2097,7 @@ public final class BuilderScreen extends Screen {
      * @param height   高度（未使用，保留接口兼容）
      */
     private void addAreaMineShapeTargets(Set<BlockPos> targets, ClientRtsController.AreaMineBounds bounds,
-            AreaMineShape shape, int height) {
+            AreaMineShape shape, ShapeFillMode fillMode, int height) {
         // 计算形状中心与半径
         double cx = (bounds.minX() + bounds.maxX() + 1) / 2.0D;
         double cz = (bounds.minZ() + bounds.maxZ() + 1) / 2.0D;
@@ -2162,10 +2142,39 @@ public final class BuilderScreen extends Screen {
                         if ((ddx * ddx + ddz * ddz) > cylRadiusSq + 0.5D) continue;
                     }
                     // BOX: 不过滤，全部加入
+                    if (!includeAreaMineFillCell(shape, fillMode, bounds, x, y, z, cx, cz, cylRadiusSq)) {
+                        continue;
+                    }
                     targets.add(new BlockPos(x, y, z));
                 }
             }
         }
+    }
+
+    private static boolean includeAreaMineFillCell(AreaMineShape shape, ShapeFillMode fillMode,
+            ClientRtsController.AreaMineBounds bounds, int x, int y, int z,
+            double cx, double cz, double radiusSq) {
+        if (fillMode == ShapeFillMode.FILL || shape == AreaMineShape.BLOCK || shape == AreaMineShape.LINE) {
+            return true;
+        }
+        boolean xBoundary = x == bounds.minX() || x == bounds.maxX();
+        boolean yBoundary = y == bounds.minY() || y == bounds.maxY();
+        boolean zBoundary = z == bounds.minZ() || z == bounds.maxZ();
+        int boundaryAxes = (xBoundary ? 1 : 0) + (yBoundary ? 1 : 0) + (zBoundary ? 1 : 0);
+        if (shape == AreaMineShape.SQUARE) {
+            return xBoundary || zBoundary;
+        }
+        if (shape == AreaMineShape.CIRCLE) {
+            double radius = Math.sqrt(radiusSq);
+            double inner = Math.max(0.0D, radius - 1.0D);
+            double ddx = (x + 0.5D) - cx;
+            double ddz = (z + 0.5D) - cz;
+            return (ddx * ddx + ddz * ddz) >= inner * inner - 0.5D;
+        }
+        if (fillMode == ShapeFillMode.SKELETON) {
+            return boundaryAxes >= 2;
+        }
+        return boundaryAxes >= 1;
     }
 
     /**
@@ -2210,25 +2219,15 @@ public final class BuilderScreen extends Screen {
         }
         return false;
     }
-    /** Opens the interaction wheel at the given screen position. */
-    private boolean openInteractionWheel(double mouseX, double mouseY) {
-        return this.interactionWheelPanel.open(mouseX, mouseY);
-    }
-    /** Closes the interaction wheel overlay. */
+    /** Retired interaction-wheel hook kept so older extracted callers remain harmless. */
     public void closeInteractionWheel() {
-        this.interactionWheelPanel.close();
     }
     /** @deprecated Retained only for binary compatibility; the shape wheel is retired. */
     @Deprecated
     public void openShapeWheel(double mouseX, double mouseY) {
     }
-    /** Resolves which interaction option is under the mouse cursor on the interaction wheel. */
-    private InteractionTypes.InteractionOption resolveInteractionWheelOption(double mouseX, double mouseY) {
-        return this.interactionWheelPanel.resolveOption(mouseX, mouseY);
-    }
-    /** Delegates rendering of the interaction wheel overlay. */
-    private void renderInteractionWheel(GuiGraphics g, int mouseX, int mouseY) {
-        this.interactionWheelPanel.render(g, mouseX, mouseY);
+    /** Retired shape-wheel hook kept so existing close paths remain harmless. */
+    private void closeShapeWheel() {
     }
     /**
      * Enables a scissor region for clipping, adjusting coordinates for the
@@ -2339,20 +2338,6 @@ public final class BuilderScreen extends Screen {
         return hand.isEmpty() ? ItemStack.EMPTY : hand;
     }
     /**
-     * Returns whether the interaction-wheel modifier (Alt + Ctrl) is currently held.
-     * This modifier opens the interaction wheel when the primary action is triggered.
-     */
-    private boolean isWheelModifierDown() {
-        if (this.minecraft == null) {
-            return false;
-        }
-        long window = this.minecraft.getWindow().getWindow();
-        return (GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_ALT) == GLFW.GLFW_PRESS
-                || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_ALT) == GLFW.GLFW_PRESS)
-                && (GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS
-                        || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
-    }
-    /**
      * Returns whether the funnel cursor (a hopper/funnel icon) should be rendered
      * at the mouse position instead of the normal cursor preview.
      */
@@ -2361,8 +2346,7 @@ public final class BuilderScreen extends Screen {
                 && this.controller.getMode() == BuilderMode.FUNNEL
                 && this.controller.isFunnelEnabled()
                 && !isSearchFocused()
-                && !this.guidePanel.isOpen()
-                && !this.interactionWheelPanel.isOpen();
+                && !isMouseOverFloatingWindow(currentMouseX(), currentMouseY());
     }
     /** Delegates to the cursor picker to compute the ray direction from the current cursor position. */
     public Vec3 computeCursorRayDirection() {

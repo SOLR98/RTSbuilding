@@ -281,7 +281,7 @@ public final class RtsStorageMining {
     public static void areaMine(ServerPlayer player, RtsStorageSession session,
             int minX, int maxX, int minY, int maxY, int minZ, int maxZ,
             byte toolSlot, String toolItemId, ItemStack toolPrototype,
-            byte shapeType) {
+            byte shapeType, byte fillType) {
         // --- 1. 前置检查 ---
         if (!RtsProgressionManager.canUse(player, RtsFeature.ULTIMINE)) {
             return;
@@ -353,6 +353,11 @@ public final class RtsStorageMining {
                         if ((ddx * ddx + ddz * ddz) > cylRadiusSq + 0.5D) continue;
                     }
                     // BOX (shapeType == 5): 不过滤，全部加入
+                    if (!includeAreaMineFillCell(shapeType, fillType, clampedMinX, clampedMaxX,
+                            clampedMinY, clampedMaxY, clampedMinZ, clampedMaxZ,
+                            x, y, z, cx, cz, cylRadiusSq)) {
+                        continue;
+                    }
                     BlockPos pos = new BlockPos(x, y, z);
                     if (!RtsLinkedStorageResolver.canAccessWorldTarget(player, pos)) {
                         continue;
@@ -396,6 +401,32 @@ public final class RtsStorageMining {
         session.miningToolSlot = slot;
         sendUltimineProgress(player, 0, targets.size());
         beginRemoteMining(player, session, targets.peekFirst(), null, slot);
+    }
+
+    private static boolean includeAreaMineFillCell(byte shapeType, byte fillType,
+            int minX, int maxX, int minY, int maxY, int minZ, int maxZ,
+            int x, int y, int z, double cx, double cz, double radiusSq) {
+        if (fillType <= 0 || shapeType == 0 || shapeType == 1) {
+            return true;
+        }
+        boolean xBoundary = x == minX || x == maxX;
+        boolean yBoundary = y == minY || y == maxY;
+        boolean zBoundary = z == minZ || z == maxZ;
+        int boundaryAxes = (xBoundary ? 1 : 0) + (yBoundary ? 1 : 0) + (zBoundary ? 1 : 0);
+        if (shapeType == 2) {
+            return xBoundary || zBoundary;
+        }
+        if (shapeType == 4) {
+            double radius = Math.sqrt(radiusSq);
+            double inner = Math.max(0.0D, radius - 1.0D);
+            double ddx = (x + 0.5D) - cx;
+            double ddz = (z + 0.5D) - cz;
+            return (ddx * ddx + ddz * ddz) >= inner * inner - 0.5D;
+        }
+        if (fillType >= 2) {
+            return boundaryAxes >= 2;
+        }
+        return boundaryAxes >= 1;
     }
 
     /**

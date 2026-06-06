@@ -7,6 +7,7 @@ import com.rtsbuilding.rtsbuilding.client.screen.ScreenShapeController;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
+import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildMode;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.ShapeFillMode;
 import com.rtsbuilding.rtsbuilding.client.screen.ultimine.AreaMineShape;
 import com.rtsbuilding.rtsbuilding.client.screen.ultimine.UltimineMode;
@@ -162,10 +163,11 @@ public final class RtsScreenUiStateManager {
         state.fillMode = this.shapeController.getShapeFillMode().name();
         state.rotationDegrees = this.shapeController.getShapeRotateDegrees();
         state.quickBuildOpen = this.quickBuildPanel.isQuickBuildOpen();
+        state.quickBuildMode = this.quickBuildPanel.getMode().name();
         state.ultimineOpen = this.ultiminePanel.isOpen();
         state.ultimineLimit = this.ultiminePanel.getLimit();
         state.ultimineMode = this.ultiminePanel.getMode().name();
-        state.areaMineShape = this.ultiminePanel.getAreaMineShape().name();
+        state.areaMineShape = this.controller.getAreaMineShape().name();
         state.chunkCurtainVisible = this.controller.isChunkCurtainVisible();
         state.rtsGuiScale = sanitizeRtsGuiScale(this.fixedRtsGuiScale);
         state.inputSensitivityIndex = this.controller.getInputSensitivityIndex();
@@ -186,6 +188,11 @@ public final class RtsScreenUiStateManager {
     /** 恢复面板打开状态与限制值。 */
     private void applyPanelState(RtsClientUiStateStore.UiState state) {
         this.quickBuildPanel.setQuickBuildOpen(state.quickBuildOpen);
+        try {
+            this.quickBuildPanel.setMode(QuickBuildMode.valueOf(state.quickBuildMode));
+        } catch (IllegalArgumentException ignored) {
+            this.quickBuildPanel.setMode(QuickBuildMode.BUILD);
+        }
         this.ultiminePanel.applyOpenState(state.ultimineOpen);
         this.ultiminePanel.setLimit(state.ultimineLimit);
         try {
@@ -194,9 +201,9 @@ public final class RtsScreenUiStateManager {
             this.ultiminePanel.setMode(UltimineMode.CHAIN);
         }
         try {
-            this.ultiminePanel.setAreaMineShape(AreaMineShape.valueOf(state.areaMineShape));
+            this.controller.setAreaMineShape(AreaMineShape.valueOf(state.areaMineShape));
         } catch (IllegalArgumentException ignored) {
-            this.ultiminePanel.setAreaMineShape(AreaMineShape.BOX);
+            this.controller.setAreaMineShape(AreaMineShape.BOX);
         }
     }
 
@@ -237,6 +244,7 @@ public final class RtsScreenUiStateManager {
     /** 恢复形状模式、填充模式与旋转角度。 */
     private void applyShapeState(RtsClientUiStateStore.UiState state) {
         parseAndSetBuildShape(state.buildShape);
+        this.controller.setAreaMineShape(QuickBuildPanel.toAreaMineShape(this.controller.getBuildShape()));
         parseAndSetFillMode(state.fillMode);
         this.shapeController.rotateToDegrees(Math.floorMod(state.rotationDegrees, 360));
         this.shapeController.ensureFillModeForShape(this.controller.getBuildShape());
