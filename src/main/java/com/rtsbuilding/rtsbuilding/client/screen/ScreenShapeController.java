@@ -1,7 +1,6 @@
 package com.rtsbuilding.rtsbuilding.client.screen;
 
-import com.rtsbuilding.rtsbuilding.client.rendering.builder.PlacementAnimationRenderer;
-import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
+import com.rtsbuilding.rtsbuilding.client.rendering.animation.PlacementAnimationRenderer;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
@@ -320,7 +319,37 @@ public final class ScreenShapeController {
             return new ShapeDataRecords.GhostPreview(preview.breakableBlocks(), ready, true, List.of());
         }
         if (this.controller.getBuildShape() == BuildShape.BLOCK) {
-            return ShapeDataRecords.GhostPreview.EMPTY;
+            // Pre-placement ghost for single block: show translucent block model
+            // at the cursor's target position before the player clicks.
+            if (this.controller.hasSelectedFluid()) {
+                return ShapeDataRecords.GhostPreview.EMPTY;
+            }
+            // Check that a block item source is available
+            if (!this.controller.hasSelectedItem() && !this.screen.canUseToolSlotShapeSource()) {
+                Minecraft mc = this.screen.getMinecraft();
+                if (mc == null || mc.player == null) {
+                    return ShapeDataRecords.GhostPreview.EMPTY;
+                }
+                if (!(mc.player.getMainHandItem().getItem() instanceof BlockItem)) {
+                    return ShapeDataRecords.GhostPreview.EMPTY;
+                }
+            }
+            BlockHitResult hit = this.screen.pickBlockHit();
+            if (hit == null) {
+                return ShapeDataRecords.GhostPreview.EMPTY;
+            }
+            BlockPos placePos = resolvePlacementTargetPos(hit.getBlockPos().immutable(), hit.getDirection());
+            if (placePos == null) {
+                return ShapeDataRecords.GhostPreview.EMPTY;
+            }
+            // Skip ghost if the target position is already occupied by a non-replaceable block
+            Minecraft mc = this.screen.getMinecraft();
+            if (mc != null && mc.level != null && mc.level.hasChunkAt(placePos)) {
+                if (!mc.level.getBlockState(placePos).isAir() && !mc.level.getBlockState(placePos).canBeReplaced()) {
+                    return ShapeDataRecords.GhostPreview.EMPTY;
+                }
+            }
+            return new ShapeDataRecords.GhostPreview(List.of(placePos), true);
         }
         if (!this.controller.hasSelectedItem() && !this.controller.hasSelectedFluid() && !this.screen.canUseToolSlotShapeSource()) {
             return ShapeDataRecords.GhostPreview.EMPTY;

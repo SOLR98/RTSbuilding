@@ -5,8 +5,10 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.CornerBracketRenderer;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.RaycastHelper;
+import com.rtsbuilding.rtsbuilding.client.rendering.util.RenderingUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeBuildTypes;
+import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeDataRecords;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -124,7 +126,7 @@ public final class InteractionTargetRenderer {
         }
 
         // ── Compute breathing colour factor ──
-        float breathFactor = getBreathFactor();
+        float breathFactor = RenderingUtil.getBreathFactor(BREATH_SPEED, BREATH_MIN_FACTOR);
 
         // ── Build ray-cast vectors ──
         Vec3 camPos = minecraft.gameRenderer.getMainCamera().getPosition();
@@ -202,6 +204,13 @@ public final class InteractionTargetRenderer {
             return true;
         }
 
+        // Blocked when single block pre-placement ghost is active
+        // The translucent block model overlaps with the corner brackets on the same position.
+        ShapeDataRecords.GhostPreview ghost = builderScreen.getShapeGhostPreview();
+        if (ghost != null && ghost.readyConfirm() && !ghost.destructive() && !ghost.blocks().isEmpty()) {
+            return true;
+        }
+
         return false;
     }
 
@@ -271,25 +280,6 @@ public final class InteractionTargetRenderer {
     }
 
     // ══════════════════════════════════════════════
-    //  Breathing Colour Animation
-    // ══════════════════════════════════════════════
-
-    /**
-     * Computes a time-varying scalar in [{@link #BREATH_MIN_FACTOR}, 1.0] that oscillates
-     * sinusoidally at {@link #BREATH_SPEED} Hz. Multiplying colour channels by this factor
-     * produces a gentle pulsing effect.
-     *
-     * @return the current breath factor (always in [0.7, 1.0])
-     */
-    private static float getBreathFactor() {
-        double timeSeconds = System.currentTimeMillis() / 1000.0D;
-        double phase = timeSeconds * BREATH_SPEED * 2.0D * Math.PI;
-        double sin = Math.sin(phase);
-        // Map sin ∈ [-1, 1] → factor ∈ [BREATH_MIN_FACTOR, 1.0]
-        return (float) ((sin + 1.0D) * 0.5D * (1.0F - BREATH_MIN_FACTOR) + BREATH_MIN_FACTOR);
-    }
-
-    // ══════════════════════════════════════════════
     //  Hit-Face Fog Rendering
     // ══════════════════════════════════════════════
 
@@ -316,34 +306,19 @@ public final class InteractionTargetRenderer {
         double z1 = bounds.minZ, z2 = bounds.maxZ;
 
         switch (face) {
-            case DOWN -> quad(consumer, poseStack,
+            case DOWN -> RenderingUtil.quad(consumer, poseStack,
                     x1, y1 - off, z1, x2, y1 - off, z1, x2, y1 - off, z2, x1, y1 - off, z2, r, g, b, alpha);
-            case UP -> quad(consumer, poseStack,
+            case UP -> RenderingUtil.quad(consumer, poseStack,
                     x1, y2 + off, z1, x1, y2 + off, z2, x2, y2 + off, z2, x2, y2 + off, z1, r, g, b, alpha);
-            case NORTH -> quad(consumer, poseStack,
+            case NORTH -> RenderingUtil.quad(consumer, poseStack,
                     x1, y1, z1 - off, x2, y1, z1 - off, x2, y2, z1 - off, x1, y2, z1 - off, r, g, b, alpha);
-            case SOUTH -> quad(consumer, poseStack,
+            case SOUTH -> RenderingUtil.quad(consumer, poseStack,
                     x1, y1, z2 + off, x1, y2, z2 + off, x2, y2, z2 + off, x2, y1, z2 + off, r, g, b, alpha);
-            case WEST -> quad(consumer, poseStack,
+            case WEST -> RenderingUtil.quad(consumer, poseStack,
                     x1 - off, y1, z1, x1 - off, y2, z1, x1 - off, y2, z2, x1 - off, y1, z2, r, g, b, alpha);
-            case EAST -> quad(consumer, poseStack,
+            case EAST -> RenderingUtil.quad(consumer, poseStack,
                     x2 + off, y1, z1, x2 + off, y1, z2, x2 + off, y2, z2, x2 + off, y2, z1, r, g, b, alpha);
         }
-    }
-
-    /**
-     * Emits a single translucent coloured quad to the vertex consumer.
-     */
-    private static void quad(VertexConsumer consumer, PoseStack poseStack,
-            double x1, double y1, double z1,
-            double x2, double y2, double z2,
-            double x3, double y3, double z3,
-            double x4, double y4, double z4,
-            float r, float g, float b, float a) {
-        consumer.addVertex(poseStack.last(), (float) x1, (float) y1, (float) z1).setColor(r, g, b, a);
-        consumer.addVertex(poseStack.last(), (float) x2, (float) y2, (float) z2).setColor(r, g, b, a);
-        consumer.addVertex(poseStack.last(), (float) x3, (float) y3, (float) z3).setColor(r, g, b, a);
-        consumer.addVertex(poseStack.last(), (float) x4, (float) y4, (float) z4).setColor(r, g, b, a);
     }
 
     // ══════════════════════════════════════════════

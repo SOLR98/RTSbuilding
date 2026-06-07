@@ -4,6 +4,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.CornerBracketRenderer;
+import com.rtsbuilding.rtsbuilding.client.rendering.util.RenderingUtil;
 import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsLinkStoragePayload;
 
 import net.minecraft.client.Minecraft;
@@ -389,27 +390,12 @@ public final class StorageRenderer {
         double z2 = bounds.maxZ;
 
         // Six faces: -X (west), +X (east), -Y (bottom), +Y (top), -Z (north), +Z (south)
-        quad(consumer, poseStack, x1, y1, z1, x1, y1, z2, x1, y2, z2, x1, y2, z1, r, g, b, alpha);
-        quad(consumer, poseStack, x2, y1, z1, x2, y2, z1, x2, y2, z2, x2, y1, z2, r, g, b, alpha);
-        quad(consumer, poseStack, x1, y1, z1, x2, y1, z1, x2, y1, z2, x1, y1, z2, r, g, b, alpha);
-        quad(consumer, poseStack, x1, y2, z1, x1, y2, z2, x2, y2, z2, x2, y2, z1, r, g, b, alpha);
-        quad(consumer, poseStack, x1, y1, z1, x2, y1, z1, x2, y2, z1, x1, y2, z1, r, g, b, alpha);
-        quad(consumer, poseStack, x1, y1, z2, x1, y2, z2, x2, y2, z2, x2, y1, z2, r, g, b, alpha);
-    }
-
-    /**
-     * Emits a single translucent coloured quad to the vertex consumer.
-     */
-    private static void quad(VertexConsumer consumer, PoseStack poseStack,
-            double x1, double y1, double z1,
-            double x2, double y2, double z2,
-            double x3, double y3, double z3,
-            double x4, double y4, double z4,
-            float r, float g, float b, float a) {
-        consumer.addVertex(poseStack.last(), (float) x1, (float) y1, (float) z1).setColor(r, g, b, a);
-        consumer.addVertex(poseStack.last(), (float) x2, (float) y2, (float) z2).setColor(r, g, b, a);
-        consumer.addVertex(poseStack.last(), (float) x3, (float) y3, (float) z3).setColor(r, g, b, a);
-        consumer.addVertex(poseStack.last(), (float) x4, (float) y4, (float) z4).setColor(r, g, b, a);
+        RenderingUtil.quad(consumer, poseStack, x1, y1, z1, x1, y1, z2, x1, y2, z2, x1, y2, z1, r, g, b, alpha);
+        RenderingUtil.quad(consumer, poseStack, x2, y1, z1, x2, y2, z1, x2, y2, z2, x2, y1, z2, r, g, b, alpha);
+        RenderingUtil.quad(consumer, poseStack, x1, y1, z1, x2, y1, z1, x2, y1, z2, x1, y1, z2, r, g, b, alpha);
+        RenderingUtil.quad(consumer, poseStack, x1, y2, z1, x1, y2, z2, x2, y2, z2, x2, y2, z1, r, g, b, alpha);
+        RenderingUtil.quad(consumer, poseStack, x1, y1, z1, x2, y1, z1, x2, y2, z1, x1, y2, z1, r, g, b, alpha);
+        RenderingUtil.quad(consumer, poseStack, x1, y1, z2, x1, y2, z2, x2, y2, z2, x2, y1, z2, r, g, b, alpha);
     }
 
     // ── AABB computation ─────────────────────────────────────────────────────

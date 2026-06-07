@@ -2,7 +2,7 @@ package com.rtsbuilding.rtsbuilding.client.network;
 
 
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
-import com.rtsbuilding.rtsbuilding.client.rendering.builder.PlacementAnimationRenderer;
+import com.rtsbuilding.rtsbuilding.client.rendering.animation.PlacementAnimationRenderer;
 import com.rtsbuilding.rtsbuilding.client.rendering.builder.ShapeGhostRenderer;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraStatePayload;
 import com.rtsbuilding.rtsbuilding.network.feedback.S2CRtsDamageFeedbackPayload;
@@ -56,7 +56,7 @@ public final class RtsClientNetworkHandlers {
     }
 
     public static void handlePlaceAnimation(S2CRtsPlaceAnimationPayload payload, IPayloadContext context) {
-        context.enqueueWork(() -> PlacementAnimationRenderer.add(payload.pos()));
+        context.enqueueWork(() -> PlacementAnimationRenderer.confirmPlacement(payload.pos()));
     }
 
     public static void handleBreakAnimation(S2CRtsBreakAnimationPayload payload, IPayloadContext context) {

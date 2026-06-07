@@ -6,7 +6,7 @@ import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.rendering.blueprint.BlueprintCaptureRenderer;
 import com.rtsbuilding.rtsbuilding.client.rendering.blueprint.BlueprintGhostRenderer;
-import com.rtsbuilding.rtsbuilding.client.rendering.builder.PlacementAnimationRenderer;
+import com.rtsbuilding.rtsbuilding.client.rendering.animation.PlacementAnimationRenderer;
 import com.rtsbuilding.rtsbuilding.client.rendering.builder.ShapeGhostRenderer;
 import com.rtsbuilding.rtsbuilding.client.rendering.overlay.BoundaryLineRenderer;
 import com.rtsbuilding.rtsbuilding.client.rendering.overlay.ChunkGuideRenderer;
@@ -15,7 +15,6 @@ import com.rtsbuilding.rtsbuilding.client.rendering.overlay.StorageRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.RenderType;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -23,32 +22,19 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
 /**
- * RTS边界渲染器主类
- * 负责协调和管理所有RTS相关的视觉渲染效果，包括：
- * - 区块引导网格
- * - 建造范围边界线
- * - 储存方块高亮
- * - 交互目标高亮
- * - 形状建造预览
- * - 蓝图捕获和幽灵预览
- * 采用模块化设计，将不同渲染逻辑委托给专门的子渲染器
+ * 所有 RTS 视觉叠加效果的统一调度入口。
+ * 在 AFTER_TRANSLUCENT_BLOCKS 阶段按固定顺序委托给各子渲染器。
  */
 @EventBusSubscriber(modid = RtsbuildingMod.MODID, value = Dist.CLIENT)
 public final class RtsVisualOverlayRenderer {
-    // OpenGL深度测试常量
     private static final int GL_LEQUAL = 515;
 
-    /**
-     * 自定义渲染类型：区块X射线填充（半透明）
-     * 使用POSITION_COLOR格式，支持三角形带绘制
-     */
+    // ===== 自定义 RenderType =====
+
     private static final RenderType CHUNK_XRAY_FILL = RenderType.create(
             "rtsbuilding_chunk_xray_fill",
-            DefaultVertexFormat.POSITION_COLOR,
-            VertexFormat.Mode.TRIANGLE_STRIP,
-            2 * 1024 * 1024,
-            false,
-            true,
+            DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.TRIANGLE_STRIP,
+            2 * 1024 * 1024, false, true,
             RenderType.CompositeState.builder()
                     .setShaderState(RenderStateShard.POSITION_COLOR_SHADER)
                     .setTransparencyState(RenderStateShard.TRANSLUCENT_TRANSPARENCY)
@@ -58,14 +44,9 @@ public final class RtsVisualOverlayRenderer {
                     .setCullState(RenderStateShard.NO_CULL)
                     .createCompositeState(false));
 
-    /**
-     * 自定义渲染类型：区块X射线边框线
-     * 使用POSITION_COLOR_NORMAL格式，支持线条绘制
-     */
     private static final RenderType CHUNK_XRAY_LINES = RenderType.create(
             "rtsbuilding_chunk_xray_lines",
-            DefaultVertexFormat.POSITION_COLOR_NORMAL,
-            VertexFormat.Mode.LINES,
+            DefaultVertexFormat.POSITION_COLOR_NORMAL, VertexFormat.Mode.LINES,
             2 * 1024 * 1024,
             RenderType.CompositeState.builder()
                     .setShaderState(RenderStateShard.RENDERTYPE_LINES_SHADER)
@@ -77,18 +58,10 @@ public final class RtsVisualOverlayRenderer {
                     .setCullState(RenderStateShard.NO_CULL)
                     .createCompositeState(false));
 
-    /**
-     * 自定义渲染类型：包围盒线框矩形（POSITION_COLOR + QUADS）
-     * 用于渲染选中目标的 12 条棱线完整包围盒，每条棱渲染为 2 个交叉矩形
-     * 代替 GL_LINES 的无限薄线条，从任意视角都能看到可见宽度的线条。
-     */
+    /** 包围盒线框矩形 — QUADS 模式确保从任意视角可见 */
     private static final RenderType BRACKET_QUADS = RenderType.create(
             "rtsbuilding_bracket_quads",
-            DefaultVertexFormat.POSITION_COLOR,
-            VertexFormat.Mode.QUADS,
-            512,
-            false,
-            false,
+            DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS, 512, false, false,
             RenderType.CompositeState.builder()
                     .setShaderState(RenderStateShard.POSITION_COLOR_SHADER)
                     .setTransparencyState(RenderStateShard.TRANSLUCENT_TRANSPARENCY)
@@ -98,188 +71,103 @@ public final class RtsVisualOverlayRenderer {
                     .setCullState(RenderStateShard.NO_CULL)
                     .createCompositeState(false));
 
-    private static final ByteBufferBuilder BRACKET_BACKING = new ByteBufferBuilder(BRACKET_QUADS.bufferSize());
+    private static final RenderType LINES = RenderType.lines();
+    private static final RenderType FILLED_BOX = RenderType.debugFilledBox();
 
-    /**
-     * 自定义渲染类型：屏障边界（使用世界边界纹理）
-     * 使用POSITION_TEX_COLOR格式，支持贴图渲染
-     */
-    private static final ResourceLocation WORLD_BORDER_TEXTURE = ResourceLocation.withDefaultNamespace("textures/misc/forcefield.png");
+    // ===== 后备缓冲区 =====
 
-    private static final RenderType BARRIER_BOUNDARY = RenderType.create(
-            "rtsbuilding_barrier_boundary",
-            DefaultVertexFormat.POSITION_TEX_COLOR,
-            VertexFormat.Mode.QUADS,
-            256,
-            false,
-            true,
-            RenderType.CompositeState.builder()
-                    .setShaderState(RenderStateShard.RENDERTYPE_TRANSLUCENT_SHADER)
-                    .setTextureState(new RenderStateShard.TextureStateShard(WORLD_BORDER_TEXTURE, false, false))
-                    .setTransparencyState(RenderStateShard.TRANSLUCENT_TRANSPARENCY)
-                    .setDepthTestState(RenderStateShard.NO_DEPTH_TEST)
-                    .setCullState(RenderStateShard.NO_CULL)
-                    .setLightmapState(RenderStateShard.NO_LIGHTMAP)
-                    .setOutputState(RenderStateShard.MAIN_TARGET)
-                    .createCompositeState(false));
-
-    // 后备缓冲区，用于存储渲染数据
     private static final ByteBufferBuilder CHUNK_FILL_BACKING = new ByteBufferBuilder(CHUNK_XRAY_FILL.bufferSize());
     private static final ByteBufferBuilder CHUNK_LINE_BACKING = new ByteBufferBuilder(CHUNK_XRAY_LINES.bufferSize());
-    private static final ByteBufferBuilder LINE_BACKING = new ByteBufferBuilder(RenderType.lines().bufferSize());
-    private static final ByteBufferBuilder FILL_BACKING = new ByteBufferBuilder(RenderType.debugFilledBox().bufferSize());
-    /**
-     * 私有构造函数，防止实例化
-     */
-    private RtsVisualOverlayRenderer() {
-    }
+    private static final ByteBufferBuilder LINE_BACKING = new ByteBufferBuilder(LINES.bufferSize());
+    private static final ByteBufferBuilder FILL_BACKING = new ByteBufferBuilder(FILLED_BOX.bufferSize());
+    private static final ByteBufferBuilder BRACKET_BACKING = new ByteBufferBuilder(BRACKET_QUADS.bufferSize());
 
-    /**
-     * 渲染等级事件监听器
-     * 在半透明方块渲染完成后执行，确保RTS视觉效果显示在最上层
-     *
-     * @param event 渲染等级事件
-     */
+    private RtsVisualOverlayRenderer() {}
+
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
-        // 仅在AFTER_TRANSLUCENT_BLOCKS阶段渲染
-        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
-            return;
-        }
+        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) return;
 
         ClientRtsController controller = ClientRtsController.get();
-        if (!controller.hasBounds()) {
-            return;
-        }
+        if (!controller.hasBounds()) return;
 
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.level == null) {
-            return;
-        }
+        if (minecraft.level == null) return;
 
         Vec3 camPos = event.getCamera().getPosition();
         PoseStack poseStack = event.getPoseStack();
         poseStack.pushPose();
         try {
-            // 转换到相机坐标系
             poseStack.translate(-camPos.x, -camPos.y, -camPos.z);
 
-            // 1. 渲染区块引导网格（如果启用）
+            // 1. 区块引导网格（X 射线透视）
             if (controller.isChunkCurtainVisible()) {
-                BufferBuilder chunkFillBuffer = bufferFor(CHUNK_XRAY_FILL, CHUNK_FILL_BACKING);
-                BufferBuilder chunkLineBuffer = bufferFor(CHUNK_XRAY_LINES, CHUNK_LINE_BACKING);
-                ChunkGuideRenderer.renderChunkGuides(minecraft, camPos, poseStack, chunkFillBuffer, chunkLineBuffer);
-                drawBuiltBufferNoDepth(CHUNK_XRAY_FILL, chunkFillBuffer);
-                drawBuiltBufferNoDepth(CHUNK_XRAY_LINES, chunkLineBuffer);
+                renderChunkGuides(minecraft, camPos, poseStack);
             }
 
-            // 准备通用渲染缓冲区
-            RenderType lines = RenderType.lines();
-            RenderType filledBox = RenderType.debugFilledBox();
-            BufferBuilder lineBuffer = bufferFor(lines, LINE_BACKING);
-            BufferBuilder fillBuffer = bufferFor(filledBox, FILL_BACKING);
+            // 2. 通用渲染管线 (lines + filledBox + brackets)
+            double ax = controller.getAnchorX(), ay = controller.getAnchorY(), az = controller.getAnchorZ();
+            double r = controller.getMaxRadius();
+            double minX = ax - r, maxX = ax + r, minZ = az - r, maxZ = az + r;
+
+            BufferBuilder lineBuffer = bufferFor(LINES, LINE_BACKING);
+            BufferBuilder fillBuffer = bufferFor(FILLED_BOX, FILL_BACKING);
             BufferBuilder bracketBuffer = bufferFor(BRACKET_QUADS, BRACKET_BACKING);
 
-            // 获取锚点和半径信息
-            double ax = controller.getAnchorX();
-            double ay = controller.getAnchorY();
-            double az = controller.getAnchorZ();
-            double r = controller.getMaxRadius();
-
-            // 服务端已将对齐到方块中心，直接使用
-            double minX = ax - r;
-            double maxX = ax + r;
-            double minZ = az - r;
-            double maxZ = az + r;
-
-            // 2. 渲染红色建造范围边界线
-            BoundaryLineRenderer.renderRedBoundary(minecraft, poseStack, lineBuffer, minX, minZ, maxX, maxZ, ay);
-
-            // 3. 渲染已链接的储存方块高亮（使用 bracket quads 渲染类型，兼容 CornerBracketRenderer）
+            BoundaryLineRenderer.renderRedBoundary(poseStack, lineBuffer, minX, minZ, maxX, maxZ, ay);
             StorageRenderer.renderLinkedStorages(minecraft, controller, poseStack, bracketBuffer);
-
-            // 4. 渲染鼠标悬停的交互目标（方块或实体）——使用 LEQUAL深度测试 + polygon offset + 交叉矩形
             InteractionTargetRenderer.renderHoveredInteractionTarget(minecraft, controller, poseStack, bracketBuffer);
-
-            // 5. 渲染形状建造预览（快速建造模式）
             ShapeGhostRenderer.renderShapeGhostPreview(minecraft, poseStack, lineBuffer, fillBuffer);
-
-            // 6. 渲染蓝图捕获选择框
             BlueprintCaptureRenderer.renderBlueprintCaptureBox(poseStack, lineBuffer, fillBuffer);
-
-            // 7. 渲染蓝图幽灵预览
             BlueprintGhostRenderer.renderBlueprintGhostPreview(minecraft, poseStack, lineBuffer, fillBuffer);
-
             PlacementAnimationRenderer.render(minecraft, poseStack, lineBuffer, fillBuffer);
 
-            // 提交所有渲染缓冲区
-            drawBuiltBuffer(lines, lineBuffer);
-            drawBuiltBuffer(filledBox, fillBuffer);
-            // 交互目标线框使用 LEQUAL深度测试 + polygon offset，保证可见的同时不穿透方块遮挡
-            drawBuiltBufferWithDepthOffset(BRACKET_QUADS, bracketBuffer);
+            drawIfNotEmpty(LINES, lineBuffer);
+            drawIfNotEmpty(FILLED_BOX, fillBuffer);
+            drawBrackets(bracketBuffer);
         } finally {
             poseStack.popPose();
         }
     }
 
-    /**
-     * 为指定渲染类型创建缓冲区构建器
-     *
-     * @param renderType 渲染类型
-     * @param backing 后备字节缓冲区
-     * @return 配置好的BufferBuilder实例
-     */
-    private static BufferBuilder bufferFor(RenderType renderType, ByteBufferBuilder backing) {
-        return new BufferBuilder(backing, renderType.mode, renderType.format);
+    private static void renderChunkGuides(Minecraft minecraft, Vec3 camPos, PoseStack poseStack) {
+        BufferBuilder fillBuffer = bufferFor(CHUNK_XRAY_FILL, CHUNK_FILL_BACKING);
+        BufferBuilder lineBuffer = bufferFor(CHUNK_XRAY_LINES, CHUNK_LINE_BACKING);
+        ChunkGuideRenderer.renderChunkGuides(minecraft, camPos, poseStack, fillBuffer, lineBuffer);
+        drawNoDepth(CHUNK_XRAY_FILL, fillBuffer);
+        drawNoDepth(CHUNK_XRAY_LINES, lineBuffer);
     }
 
-    /**
-     * 绘制并释放缓冲区（标准深度测试）
-     *
-     * @param renderType 渲染类型
-     * @param buffer 待绘制的缓冲区
-     */
-    private static void drawBuiltBuffer(RenderType renderType, BufferBuilder buffer) {
-        MeshData meshData = buffer.build();
-        if (meshData != null) {
-            renderType.draw(meshData);
-        }
+    // ===== 工具方法 =====
+
+    private static BufferBuilder bufferFor(RenderType type, ByteBufferBuilder backing) {
+        return new BufferBuilder(backing, type.mode, type.format);
     }
 
-    /**
-     * 绘制并释放缓冲区（LEQUAL深度测试 + polygon offset，避免远处 Z-fighting 的同时保留背面遮挡）
-     * <p>
-     * polygon offset 将线框片元的深度值向相机方向微偏，
-     * 使其对同一表面的方块通过深度测试（消除 Z-fighting），
-     * 但方块背面的线框因实际位置在方块后方仍被正确遮挡。
-     *
-     * @param renderType 渲染类型
-     * @param buffer 待绘制的缓冲区
-     */
-    private static void drawBuiltBufferWithDepthOffset(RenderType renderType, BufferBuilder buffer) {
-        MeshData meshData = buffer.build();
-        if (meshData != null) {
+    private static void drawIfNotEmpty(RenderType type, BufferBuilder buffer) {
+        MeshData data = buffer.build();
+        if (data != null) type.draw(data);
+    }
+
+    /** 绘制交互目标包围盒（启用 polygon offset 消除 Z-fighting） */
+    private static void drawBrackets(BufferBuilder buffer) {
+        MeshData data = buffer.build();
+        if (data != null) {
             RenderSystem.enablePolygonOffset();
             RenderSystem.polygonOffset(-1.0F, -1.0F);
-            renderType.draw(meshData);
+            BRACKET_QUADS.draw(data);
             RenderSystem.polygonOffset(0.0F, 0.0F);
             RenderSystem.disablePolygonOffset();
         }
     }
 
-    /**
-     * 绘制并释放缓冲区（禁用深度测试，用于透视效果）
-     * 渲染后恢复深度测试状态
-     *
-     * @param renderType 渲染类型
-     * @param buffer 待绘制的缓冲区
-     */
-    private static void drawBuiltBufferNoDepth(RenderType renderType, BufferBuilder buffer) {
-        MeshData meshData = buffer.build();
-        if (meshData != null) {
+    /** 禁用深度测试绘制（X 射线透视效果） */
+    private static void drawNoDepth(RenderType type, BufferBuilder buffer) {
+        MeshData data = buffer.build();
+        if (data != null) {
             RenderSystem.disableDepthTest();
             RenderSystem.depthMask(false);
-            renderType.draw(meshData);
+            type.draw(data);
             RenderSystem.depthMask(true);
             RenderSystem.enableDepthTest();
             RenderSystem.depthFunc(GL_LEQUAL);

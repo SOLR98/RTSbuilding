@@ -2,6 +2,7 @@ package com.rtsbuilding.rtsbuilding.client.rendering.util;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.rtsbuilding.rtsbuilding.client.rendering.util.RenderingUtil;
 
 /**
  * Renders thickened corner brackets around an AABB using quad-based geometry.
@@ -109,61 +110,46 @@ public final class CornerBracketRenderer {
         switch (axis) {
             case X -> {
                 // Quad expanding in Y: faces YZ-plane
-                quad(consumer, poseStack,
+                RenderingUtil.quad(consumer, poseStack,
                         x1, y1 - t, z1,
                         x1, y1 + t, z1,
                         x2, y2 + t, z2,
-                        x2, y2 - t, z2, r, g, b);
+                        x2, y2 - t, z2, r, g, b, 1.0F);
                 // Quad expanding in Z: faces XY-plane
-                quad(consumer, poseStack,
+                RenderingUtil.quad(consumer, poseStack,
                         x1, y1, z1 - t,
                         x1, y1, z1 + t,
                         x2, y2, z2 + t,
-                        x2, y2, z2 - t, r, g, b);
+                        x2, y2, z2 - t, r, g, b, 1.0F);
             }
             case Y -> {
                 // Quad expanding in Z: faces XZ-plane
-                quad(consumer, poseStack,
+                RenderingUtil.quad(consumer, poseStack,
                         x1, y1, z1 - t,
                         x1, y1, z1 + t,
                         x2, y2, z2 + t,
-                        x2, y2, z2 - t, r, g, b);
+                        x2, y2, z2 - t, r, g, b, 1.0F);
                 // Quad expanding in X: faces YZ-plane
-                quad(consumer, poseStack,
+                RenderingUtil.quad(consumer, poseStack,
                         x1 - t, y1, z1,
                         x1 + t, y1, z1,
                         x2 + t, y2, z2,
-                        x2 - t, y2, z2, r, g, b);
+                        x2 - t, y2, z2, r, g, b, 1.0F);
             }
             case Z -> {
                 // Quad expanding in X: faces YZ-plane
-                quad(consumer, poseStack,
+                RenderingUtil.quad(consumer, poseStack,
                         x1 - t, y1, z1,
                         x1 + t, y1, z1,
                         x2 + t, y2, z2,
-                        x2 - t, y2, z2, r, g, b);
+                        x2 - t, y2, z2, r, g, b, 1.0F);
                 // Quad expanding in Y: faces XZ-plane
-                quad(consumer, poseStack,
+                RenderingUtil.quad(consumer, poseStack,
                         x1, y1 - t, z1,
                         x1, y1 + t, z1,
                         x2, y2 + t, z2,
-                        x2, y2 - t, z2, r, g, b);
+                        x2, y2 - t, z2, r, g, b, 1.0F);
             }
         }
-    }
-
-    /**
-     * Emits a single coloured quad to the vertex consumer.
-     */
-    private static void quad(VertexConsumer consumer, PoseStack poseStack,
-            double x1, double y1, double z1,
-            double x2, double y2, double z2,
-            double x3, double y3, double z3,
-            double x4, double y4, double z4,
-            float r, float g, float b) {
-        consumer.addVertex(poseStack.last(), (float) x1, (float) y1, (float) z1).setColor(r, g, b, 1.0F);
-        consumer.addVertex(poseStack.last(), (float) x2, (float) y2, (float) z2).setColor(r, g, b, 1.0F);
-        consumer.addVertex(poseStack.last(), (float) x3, (float) y3, (float) z3).setColor(r, g, b, 1.0F);
-        consumer.addVertex(poseStack.last(), (float) x4, (float) y4, (float) z4).setColor(r, g, b, 1.0F);
     }
 }

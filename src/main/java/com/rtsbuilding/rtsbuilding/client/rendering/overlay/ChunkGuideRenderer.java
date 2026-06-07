@@ -91,7 +91,7 @@ public final class ChunkGuideRenderer {
         int endZ = startZ + 15;
 
         // 优化：在区块级别检查加载状态，避免每个单元格重复检查
-        if (minecraft.level != null && !minecraft.level.hasChunkAt(new BlockPos(startX, guideY, startZ))) {
+        if (!minecraft.level.hasChunkAt(new BlockPos(startX, guideY, startZ))) {
             return;
         }
 
