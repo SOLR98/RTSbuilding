@@ -111,14 +111,8 @@ public final class BuilderScreenConstants {
     /** 快速建造齿轮行高 */
     public static final int QUICK_BUILD_GEAR_ROW_H = 18;
 
-    // ======================== 连锁挖掘面板 ========================
-    /** 连锁挖掘面板宽度 */
-    public static final int ULTIMINE_PANEL_W = 238;
-    /** 连锁挖掘面板高度 */
-    public static final int ULTIMINE_PANEL_H = 122;
-    /** 连锁挖掘最小限制 */
+    // ======================== Chain Destroy Limits ========================
     public static final int ULTIMINE_MIN_LIMIT = 1;
-    /** 连锁挖掘最大限制 */
     public static final int ULTIMINE_MAX_LIMIT = 256;
 
     // ======================== 形状轮盘 ========================
@@ -224,6 +218,8 @@ public final class BuilderScreenConstants {
     public static final ResourceLocation QUICK_BUILD_CIRCLE_BLOCK = quickBuildTexture("circle_block");
     /** PR #71 QuickBuild shape sheet: box placeholder until final art lands. */
     public static final ResourceLocation QUICK_BUILD_BOX_BLOCK = quickBuildTexture("box_block");
+
+    public static final ResourceLocation QUICK_BUILD_CHAIN_BLOCK = quickBuildTexture("chain_block");
 
     // ======================== 顶部栏模式纹理 ========================
     /** 交互模式（非活跃） */

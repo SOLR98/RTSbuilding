@@ -7,7 +7,6 @@ import com.rtsbuilding.rtsbuilding.client.rendering.util.CornerBracketRenderer;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.RaycastHelper;
 import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeBuildTypes;
-import com.rtsbuilding.rtsbuilding.client.screen.ultimine.UltimineMode;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -198,9 +197,9 @@ public final class InteractionTargetRenderer {
             return true;
         }
 
-        // Blocked in chain-ultimine or area-mine height-preview mode
-        if (builderScreen.isUltimineOpen()) {
-            return builderScreen.getUltimineMode() == UltimineMode.CHAIN || builderScreen.isAreaMineHeightPreview();
+        // Blocked in Quick Build range-destroy preview modes
+        if (builderScreen.isQuickBuildRangeDestroyChainMode() || builderScreen.isAreaMineHeightPreview()) {
+            return true;
         }
 
         return false;

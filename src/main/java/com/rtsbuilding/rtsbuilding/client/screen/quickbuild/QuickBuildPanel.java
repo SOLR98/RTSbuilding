@@ -11,11 +11,13 @@ import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeGeometryUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.ultimine.AreaMineShape;
 import com.rtsbuilding.rtsbuilding.client.util.RtsTextureRenderer;
 import com.rtsbuilding.rtsbuilding.client.widget.WindowButton;
+import com.rtsbuilding.rtsbuilding.client.widget.WindowTextBox;
 import com.rtsbuilding.rtsbuilding.progression.RtsProgressionNodes;
 
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 
@@ -42,10 +44,13 @@ public final class QuickBuildPanel extends RtsWindowPanel {
     private static final int MODE_TOGGLE_GAP = 4;
     private static final int MODE_ROW_TOP = 5;
     private static final int SECTION_TOP = 31;
+    private static final int CHAIN_LIMIT_INPUT_W = 52;
+    private static final int CHAIN_LIMIT_INPUT_H = 18;
 
     // ======================== 面板尺寸 ========================
     private static final int QUICK_BUILD_PANEL_W = 178;
     private static final int QUICK_BUILD_PANEL_H = 184;
+    private static final int QUICK_BUILD_DESTROY_PANEL_H = QUICK_BUILD_PANEL_H + SHAPE_ROW_PITCH;
     private static final int QUICK_BUILD_PANEL_MIN_H = 184;
 
     /** 底部提示文字区域额外高度 */
@@ -64,7 +69,7 @@ public final class QuickBuildPanel extends RtsWindowPanel {
     private static final int MODE_BUTTON_H = STATE_H * 3;
 
     // ======================== 形状定义 ========================
-    private static final BuildShape[] SHAPES = {
+    private static final BuildShape[] BUILD_SHAPES = {
             BuildShape.BLOCK,
             BuildShape.LINE,
             BuildShape.SQUARE,
@@ -73,8 +78,28 @@ public final class QuickBuildPanel extends RtsWindowPanel {
             BuildShape.BOX
     };
 
+    private static final AreaMineShape[] DESTROY_SHAPES = {
+            AreaMineShape.CHAIN,
+            AreaMineShape.BLOCK,
+            AreaMineShape.LINE,
+            AreaMineShape.SQUARE,
+            AreaMineShape.WALL,
+            AreaMineShape.CIRCLE,
+            AreaMineShape.BOX
+    };
+
     /** 各形状按钮对应的悬浮提示翻译键 */
-    private static final String[] SHAPE_TOOLTIP_KEYS = {
+    private static final String[] BUILD_SHAPE_TOOLTIP_KEYS = {
+            "screen.rtsbuilding.tooltip.shape_block",
+            "screen.rtsbuilding.tooltip.shape_line",
+            "screen.rtsbuilding.tooltip.shape_square",
+            "screen.rtsbuilding.tooltip.shape_wall",
+            "screen.rtsbuilding.tooltip.shape_circle",
+            "screen.rtsbuilding.tooltip.shape_box"
+    };
+
+    private static final String[] DESTROY_SHAPE_TOOLTIP_KEYS = {
+            "screen.rtsbuilding.tooltip.shape_chain",
             "screen.rtsbuilding.tooltip.shape_block",
             "screen.rtsbuilding.tooltip.shape_line",
             "screen.rtsbuilding.tooltip.shape_square",
@@ -84,7 +109,17 @@ public final class QuickBuildPanel extends RtsWindowPanel {
     };
 
     /** 各形状按钮对应的精灵图纹理 */
-    private static final ResourceLocation[] SHAPE_TEXTURES = {
+    private static final ResourceLocation[] BUILD_SHAPE_TEXTURES = {
+            QUICK_BUILD_SINGLE_BLOCK,
+            QUICK_BUILD_LINE_BLOCK,
+            QUICK_BUILD_SQUARE_BLOCK,
+            QUICK_BUILD_WALL_BLOCK,
+            QUICK_BUILD_CIRCLE_BLOCK,
+            QUICK_BUILD_BOX_BLOCK
+    };
+
+    private static final ResourceLocation[] DESTROY_SHAPE_TEXTURES = {
+            QUICK_BUILD_CHAIN_BLOCK,
             QUICK_BUILD_SINGLE_BLOCK,
             QUICK_BUILD_LINE_BLOCK,
             QUICK_BUILD_SQUARE_BLOCK,
@@ -97,6 +132,11 @@ public final class QuickBuildPanel extends RtsWindowPanel {
     private WindowButton[] shapeButtons;
     private WindowButton[] fillModeButtons;
     private QuickBuildMode quickBuildMode = QuickBuildMode.BUILD;
+    private BuildShape buildModeShape = BuildShape.BLOCK;
+    private AreaMineShape rangeDestroyShape = AreaMineShape.CHAIN;
+    private WindowTextBox chainLimitInput;
+    private int chainDestroyLimit = 64;
+    private boolean updatingChainLimitInput = false;
 
     /** 缓存的形状，用于检测 fill mode 是否需要重建 */
     private BuildShape lastFillShape;
@@ -108,14 +148,19 @@ public final class QuickBuildPanel extends RtsWindowPanel {
         super.init(screen, controller);
         this.open = true;
         this.resizable = false;
+        this.buildModeShape = controller.getBuildShape();
+        AreaMineShape storedDestroyShape = controller.getAreaMineShape();
+        this.rangeDestroyShape = storedDestroyShape == null ? AreaMineShape.CHAIN : storedDestroyShape;
+        ensureChainLimitInput();
+        syncChainLimitInput();
         createShapeButtons();
+        applyActiveShapeToController();
         this.lastFillShape = controller.getBuildShape();
-        syncAreaMineShapeFromBuildShape();
     }
 
     private void createShapeButtons() {
-        shapeButtons = new WindowButton[SHAPES.length];
-        for (int i = 0; i < SHAPES.length; i++) {
+        shapeButtons = new WindowButton[currentShapeCount()];
+        for (int i = 0; i < shapeButtons.length; i++) {
             shapeButtons[i] = createShapeButton(i);
         }
     }
@@ -125,36 +170,31 @@ public final class QuickBuildPanel extends RtsWindowPanel {
      * 选中状态：始终显示下半（active）贴图；未选中：上半（inactive），悬停时切换至下半。
      */
     private WindowButton createShapeButton(int index) {
-        boolean selected = controller.getBuildShape() == SHAPES[index];
+        ResourceLocation texture = currentShapeTexture(index);
+        boolean selected = isCurrentShapeSelected(index);
         int normalV = selected ? STATE_H : 0;
         return new WindowButton(0, 0,
                 QUICK_BUILD_SHAPE_SLOT, QUICK_BUILD_SHAPE_SLOT,
                 Component.empty(),
-                SHAPE_TEXTURES[index],
+                texture,
                 0, normalV,
                 SHEET_W, STATE_H,
                 STATE_H, STATE_H,
                 SHEET_W, SHEET_H,
-                btn -> {
-                    this.controller.setBuildShape(SHAPES[index]);
-                    syncAreaMineShapeFromBuildShape();
-                    screen.ensureFillModeForShape(SHAPES[index]);
-                    screen.clearShapeBuildSession();
-                    this.controller.clearAreaMineSession();
-                    screen.persistUiState();
-                    rebuildFillModeButtons();
-                    rebuildAllShapeButtons();
-                });
+                btn -> selectShape(index));
     }
 
     /** 当形状切换时刷新所有按钮贴图（选中/未选中状态）。 */
     private void rebuildAllShapeButtons() {
-        for (int i = 0; i < shapeButtons.length; i++) {
-            shapeButtons[i] = createShapeButton(i);
-        }
+        createShapeButtons();
     }
 
     private void rebuildFillModeButtons() {
+        if (isRangeDestroyChainMode()) {
+            this.lastFillShape = controller.getBuildShape();
+            fillModeButtons = new WindowButton[0];
+            return;
+        }
         this.lastFillShape = controller.getBuildShape();
         List<ShapeFillMode> modes =
                 ShapeGeometryUtil.availableFillModes(controller.getBuildShape());
@@ -169,6 +209,150 @@ public final class QuickBuildPanel extends RtsWindowPanel {
         }
     }
 
+    private int currentShapeCount() {
+        return isDestroyModeActive() ? DESTROY_SHAPES.length : BUILD_SHAPES.length;
+    }
+
+    private ResourceLocation currentShapeTexture(int index) {
+        return isDestroyModeActive() ? DESTROY_SHAPE_TEXTURES[index] : BUILD_SHAPE_TEXTURES[index];
+    }
+
+    private String currentShapeTooltipKey(int index) {
+        return isDestroyModeActive() ? DESTROY_SHAPE_TOOLTIP_KEYS[index] : BUILD_SHAPE_TOOLTIP_KEYS[index];
+    }
+
+    private boolean isCurrentShapeSelected(int index) {
+        return isDestroyModeActive()
+                ? this.rangeDestroyShape == DESTROY_SHAPES[index]
+                : this.buildModeShape == BUILD_SHAPES[index];
+    }
+
+    private void selectShape(int index) {
+        if (isDestroyModeActive()) {
+            setRangeDestroyShape(DESTROY_SHAPES[index]);
+            return;
+        }
+        setBuildModeShape(BUILD_SHAPES[index]);
+    }
+
+    public BuildShape getBuildModeShape() {
+        return this.buildModeShape;
+    }
+
+    public AreaMineShape getRangeDestroyShape() {
+        return this.rangeDestroyShape;
+    }
+
+    public void setBuildModeShape(BuildShape shape) {
+        this.buildModeShape = shape == null ? BuildShape.BLOCK : shape;
+        if (!isDestroyModeActive()) {
+            this.controller.setBuildShape(this.buildModeShape);
+            screen.ensureFillModeForShape(this.buildModeShape);
+            screen.clearShapeBuildSession();
+            this.controller.clearAreaMineSession();
+        }
+        screen.persistUiState();
+        rebuildFillModeButtons();
+        rebuildAllShapeButtons();
+    }
+
+    public void setRangeDestroyShape(AreaMineShape shape) {
+        this.rangeDestroyShape = shape == null ? AreaMineShape.CHAIN : shape;
+        if (isDestroyModeActive()) {
+            applyActiveShapeToController();
+            screen.clearShapeBuildSession();
+            this.controller.clearAreaMineSession();
+        }
+        screen.persistUiState();
+        rebuildFillModeButtons();
+        rebuildAllShapeButtons();
+    }
+
+    public void loadStoredShapes(BuildShape storedBuildShape, AreaMineShape storedDestroyShape) {
+        this.buildModeShape = storedBuildShape == null ? BuildShape.BLOCK : storedBuildShape;
+        this.rangeDestroyShape = storedDestroyShape == null ? AreaMineShape.CHAIN : storedDestroyShape;
+        applyActiveShapeToController();
+        rebuildFillModeButtons();
+        rebuildAllShapeButtons();
+    }
+
+    public int getChainDestroyLimit() {
+        return this.chainDestroyLimit;
+    }
+
+    public void setChainDestroyLimit(int limit) {
+        setChainDestroyLimit(limit, true);
+    }
+
+    public void loadChainDestroyLimit(int limit) {
+        setChainDestroyLimit(limit, false);
+    }
+
+    private void setChainDestroyLimit(int limit, boolean persist) {
+        int clamped = sanitizeChainLimit(limit);
+        if (this.chainDestroyLimit == clamped) {
+            syncChainLimitInput();
+            return;
+        }
+        this.chainDestroyLimit = clamped;
+        syncChainLimitInput();
+        if (persist && screen != null) {
+            screen.persistUiState();
+        }
+    }
+
+    private void ensureChainLimitInput() {
+        if (this.chainLimitInput != null) {
+            return;
+        }
+        this.chainLimitInput = new WindowTextBox(screen == null ? null : screen.font(), 0, 0,
+                CHAIN_LIMIT_INPUT_W, CHAIN_LIMIT_INPUT_H);
+        this.chainLimitInput.setMaxLength(3);
+        this.chainLimitInput.setInputMode(WindowTextBox.InputMode.DIGITS_ONLY);
+        this.chainLimitInput.setPlaceholder("64");
+        this.chainLimitInput.onTextChanged(value -> {
+            if (this.updatingChainLimitInput || value == null || value.isBlank()) {
+                return;
+            }
+            try {
+                this.chainDestroyLimit = sanitizeChainLimit(Integer.parseInt(value));
+                if (screen != null) {
+                    screen.persistUiState();
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        });
+    }
+
+    private void syncChainLimitInput() {
+        if (this.chainLimitInput == null) {
+            return;
+        }
+        this.updatingChainLimitInput = true;
+        this.chainLimitInput.setValue(Integer.toString(this.chainDestroyLimit));
+        this.updatingChainLimitInput = false;
+    }
+
+    private void commitChainLimitInput() {
+        if (this.chainLimitInput == null) {
+            return;
+        }
+        String value = this.chainLimitInput.getValue();
+        if (value == null || value.isBlank()) {
+            syncChainLimitInput();
+            return;
+        }
+        try {
+            setChainDestroyLimit(Integer.parseInt(value));
+        } catch (NumberFormatException ignored) {
+            syncChainLimitInput();
+        }
+    }
+
+    private static int sanitizeChainLimit(int value) {
+        return Mth.clamp(value, ULTIMINE_MIN_LIMIT, ULTIMINE_MAX_LIMIT);
+    }
+
     // ======================== 渲染 ========================
 
     /**
@@ -176,7 +360,7 @@ public final class QuickBuildPanel extends RtsWindowPanel {
      */
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        this.windowHeight = QUICK_BUILD_PANEL_H + (shouldShowBottomInfo() ? BOTTOM_INFO_H : 0);
+        this.windowHeight = currentBasePanelHeight() + BOTTOM_INFO_H;
         super.render(g, mouseX, mouseY, partialTick);
     }
 
@@ -191,7 +375,7 @@ public final class QuickBuildPanel extends RtsWindowPanel {
             WindowButton btn = shapeButtons[i];
             if (mouseX >= btn.getX() && mouseX < btn.getX() + btn.getWidth()
                     && mouseY >= btn.getY() && mouseY < btn.getY() + btn.getHeight()) {
-                g.renderTooltip(screen.font(), Component.translatable(SHAPE_TOOLTIP_KEYS[i]), mouseX, mouseY);
+                g.renderTooltip(screen.font(), Component.translatable(currentShapeTooltipKey(i)), mouseX, mouseY);
                 break;
             }
         }
@@ -225,6 +409,22 @@ public final class QuickBuildPanel extends RtsWindowPanel {
         g.drawString(screen.font(), label, labelX, labelY, color, false);
     }
 
+    private void renderProgressStrip(GuiGraphics g, int x, int dividerY) {
+        int barX = x + 8;
+        int barY = dividerY + 4;
+        int barW = this.windowWidth - 16;
+        int barH = 4;
+        g.fill(barX, barY, barX + barW, barY + barH, 0xFF0B1118);
+        int processed = this.controller.getUltimineProgressProcessed();
+        int total = this.controller.getUltimineProgressTotal();
+        if (processed >= 0 && total > 0) {
+            int filled = Math.max(1, Math.min(barW, Math.round(barW * (processed / (float) total))));
+            g.fill(barX, barY, barX + filled, barY + barH, 0xFFFF8EAD);
+        } else {
+            g.fill(barX, barY, barX + 1, barY + barH, 0xFF5F6F7F);
+        }
+    }
+
     @Override
     protected void renderContent(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         int x = this.windowX;
@@ -245,6 +445,12 @@ public final class QuickBuildPanel extends RtsWindowPanel {
             int slotY = bodyY + SECTION_TOP + 15 + (row * SHAPE_ROW_PITCH);
             shapeButtons[i].setX(slotX);
             shapeButtons[i].setY(slotY);
+            if (isDestroyModeActive() && DESTROY_SHAPES[i] == AreaMineShape.CHAIN
+                    && this.rangeDestroyShape == AreaMineShape.CHAIN) {
+                g.fill(slotX, slotY, slotX + QUICK_BUILD_SHAPE_SLOT, slotY + QUICK_BUILD_SHAPE_SLOT, 0xFF78B28C);
+                g.fill(slotX + 2, slotY + 2, slotX + QUICK_BUILD_SHAPE_SLOT - 2,
+                        slotY + QUICK_BUILD_SHAPE_SLOT - 2, 0xFF163222);
+            }
             shapeButtons[i].render(g, mouseX, mouseY, partialTick);
         }
 
@@ -253,12 +459,20 @@ public final class QuickBuildPanel extends RtsWindowPanel {
         g.drawString(screen.font(), Component.translatable("screen.rtsbuilding.quick_build.fill"),
                 rightX, shapeTitleY, 0xD8E3EE, false);
 
-        if (fillModeButtons == null || controller.getBuildShape() != lastFillShape) {
+        if (isRangeDestroyChainMode()) {
+            ensureChainLimitInput();
+            int labelY = bodyY + SECTION_TOP + 17;
+            g.drawString(screen.font(), Component.translatable("screen.rtsbuilding.quick_build.chain_limit_label"),
+                    rightX, labelY, 0xFFD8E3EE, false);
+            this.chainLimitInput.setX(rightX);
+            this.chainLimitInput.setY(labelY + 12);
+            this.chainLimitInput.render(g, mouseX, mouseY, partialTick);
+        } else if (fillModeButtons == null || controller.getBuildShape() != lastFillShape) {
             rebuildFillModeButtons();
         }
         List<ShapeFillMode> modes =
                 ShapeGeometryUtil.availableFillModes(controller.getBuildShape());
-        for (int i = 0; i < fillModeButtons.length; i++) {
+        for (int i = 0; fillModeButtons != null && i < fillModeButtons.length; i++) {
             int rowY = bodyY + SECTION_TOP + 15 + (i * 38); // 垂直居中对齐对应行的形状按钮
             fillModeButtons[i].setX(rightX);
             fillModeButtons[i].setY(rowY);
@@ -277,18 +491,22 @@ public final class QuickBuildPanel extends RtsWindowPanel {
         }
 
         // --- 底部提示文字（仅在选中物品时显示，使用面板扩展区域） ---
-        if (shouldShowBottomInfo()) {
+        {
             // 分界线
-            int dividerY = y + QUICK_BUILD_PANEL_H;
+            int dividerY = y + currentBasePanelHeight();
             g.fill(x + 6, dividerY - 1, x + windowWidth - 6, dividerY, 0xFF647B92);
+            renderProgressStrip(g, x, dividerY);
 
             // 扩展区域中心线
             int centerY = dividerY + BOTTOM_INFO_H / 2;
-            int textY = centerY - screen.font().lineHeight / 2;
+            int textY = centerY - screen.font().lineHeight / 2 + 6;
             int itemY = centerY - 8;
 
             if (effectiveMode() == QuickBuildMode.DESTROY) {
-                g.drawString(screen.font(), screen.text("screen.rtsbuilding.quick_build.destroy_hint"),
+                String hintKey = isRangeDestroyChainMode()
+                        ? "screen.rtsbuilding.quick_build.chain_hint"
+                        : "screen.rtsbuilding.quick_build.destroy_hint";
+                g.drawString(screen.font(), screen.text(hintKey),
                         x + 8, textY, 0xFFB8B8, false);
                 return;
             }
@@ -342,6 +560,15 @@ public final class QuickBuildPanel extends RtsWindowPanel {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             return;
         }
+        if (this.chainLimitInput != null) {
+            if (isRangeDestroyChainMode() && this.chainLimitInput.mouseClicked(mouseX, mouseY, button)) {
+                return;
+            }
+            if (this.chainLimitInput.isFocused()) {
+                commitChainLimitInput();
+                this.chainLimitInput.setFocused(false);
+            }
+        }
         if (handleModeToggleClick(mouseX, mouseY)) {
             return;
         }
@@ -358,6 +585,34 @@ public final class QuickBuildPanel extends RtsWindowPanel {
                 }
             }
         }
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (this.chainLimitInput != null && this.chainLimitInput.isFocused()) {
+            return handleWindowKeyPressed(keyCode, scanCode, modifiers);
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    protected boolean handleWindowKeyPressed(int keyCode, int scanCode, int modifiers) {
+        if (this.chainLimitInput == null || !this.chainLimitInput.isFocused()) {
+            return false;
+        }
+        if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER || keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            commitChainLimitInput();
+            this.chainLimitInput.setFocused(false);
+            return true;
+        }
+        return this.chainLimitInput.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    protected boolean handleWindowCharTyped(char codePoint, int modifiers) {
+        return this.chainLimitInput != null
+                && this.chainLimitInput.isFocused()
+                && this.chainLimitInput.charTyped(codePoint, modifiers);
     }
 
     private boolean handleModeToggleClick(double mouseX, double mouseY) {
@@ -446,21 +701,24 @@ public final class QuickBuildPanel extends RtsWindowPanel {
             next = QuickBuildMode.BUILD;
         }
         if (this.quickBuildMode == next) {
-            syncAreaMineShapeFromBuildShape();
+            applyActiveShapeToController();
             return;
         }
         this.quickBuildMode = next;
-        syncAreaMineShapeFromBuildShape();
-        if (next == QuickBuildMode.DESTROY) {
-            screen.clearShapeBuildSession();
-        } else {
-            this.controller.clearAreaMineSession();
-        }
+        applyActiveShapeToController();
+        screen.clearShapeBuildSession();
+        this.controller.clearAreaMineSession();
         screen.persistUiState();
+        rebuildFillModeButtons();
+        rebuildAllShapeButtons();
     }
 
     public boolean isRangeDestroyMode() {
         return effectiveMode() == QuickBuildMode.DESTROY;
+    }
+
+    public boolean isRangeDestroyChainMode() {
+        return isRangeDestroyMode() && this.rangeDestroyShape == AreaMineShape.CHAIN;
     }
 
     public static AreaMineShape toAreaMineShape(BuildShape shape) {
@@ -471,6 +729,17 @@ public final class QuickBuildPanel extends RtsWindowPanel {
             case CIRCLE -> AreaMineShape.CIRCLE;
             case BOX -> AreaMineShape.BOX;
             case BLOCK -> AreaMineShape.BLOCK;
+        };
+    }
+
+    private static BuildShape toBuildShape(AreaMineShape shape) {
+        return switch (shape == null ? AreaMineShape.BLOCK : shape) {
+            case LINE -> BuildShape.LINE;
+            case SQUARE -> BuildShape.SQUARE;
+            case WALL -> BuildShape.WALL;
+            case CIRCLE -> BuildShape.CIRCLE;
+            case BOX -> BuildShape.BOX;
+            case BLOCK, CHAIN -> BuildShape.BLOCK;
         };
     }
 
@@ -507,12 +776,8 @@ public final class QuickBuildPanel extends RtsWindowPanel {
      * 是否显示底部提示文字。
      * 仅在玩家选中了可放置的方块物品时扩展面板并显示。
      */
-    private boolean shouldShowBottomInfo() {
-        if (effectiveMode() == QuickBuildMode.DESTROY) {
-            return true;
-        }
-        ItemStack preview = resolveShapeBuildItem();
-        return !preview.isEmpty() && preview.getItem() instanceof BlockItem;
+    private int currentBasePanelHeight() {
+        return isDestroyModeActive() ? QUICK_BUILD_DESTROY_PANEL_H : QUICK_BUILD_PANEL_H;
     }
 
     private QuickBuildMode effectiveMode() {
@@ -521,12 +786,25 @@ public final class QuickBuildPanel extends RtsWindowPanel {
                 : this.quickBuildMode;
     }
 
+    private boolean isDestroyModeActive() {
+        return effectiveMode() == QuickBuildMode.DESTROY;
+    }
+
     private boolean canUseRangeDestroy() {
         return screen == null || screen.hasProgressionNode(RtsProgressionNodes.AREA_DESTROY);
     }
 
-    private void syncAreaMineShapeFromBuildShape() {
-        this.controller.setAreaMineShape(toAreaMineShape(this.controller.getBuildShape()));
+    private void applyActiveShapeToController() {
+        if (isDestroyModeActive()) {
+            this.controller.setAreaMineShape(this.rangeDestroyShape);
+            this.controller.setBuildShape(toBuildShape(this.rangeDestroyShape));
+            if (this.rangeDestroyShape != AreaMineShape.CHAIN) {
+                screen.ensureFillModeForShape(this.controller.getBuildShape());
+            }
+            return;
+        }
+        this.controller.setBuildShape(this.buildModeShape);
+        screen.ensureFillModeForShape(this.buildModeShape);
     }
 
     /**

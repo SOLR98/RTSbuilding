@@ -277,6 +277,12 @@ public final class ScreenShapeController {
 
     public ShapeDataRecords.GhostPreview getShapeGhostPreview() {
         if (this.screen.isQuickBuildRangeDestroyMode()) {
+            if (this.screen.isQuickBuildRangeDestroyChainMode()) {
+                List<BlockPos> preview = this.screen.collectUltiminePreviewBlocks();
+                return preview.isEmpty()
+                        ? ShapeDataRecords.GhostPreview.EMPTY
+                        : new ShapeDataRecords.GhostPreview(preview, true, true, List.of(), true);
+            }
             if (this.controller.getBuildShape() == BuildShape.BLOCK) {
                 BlockHitResult hit = this.screen.pickBlockHit();
                 if (hit == null) {
@@ -297,12 +303,6 @@ public final class ScreenShapeController {
             }
             boolean ready = this.shapeBuildSession != null && this.shapeBuildSession.phase() == ShapeBuildTypes.Phase.READY_CONFIRM;
             return new ShapeDataRecords.GhostPreview(preview.breakableBlocks(), ready, true, preview.emptyBlocks());
-        }
-        if (this.screen.isUltimineOpen()) {
-            List<BlockPos> preview = this.screen.collectUltiminePreviewBlocks();
-            if (!preview.isEmpty()) {
-                return new ShapeDataRecords.GhostPreview(preview, true);
-            }
         }
         if (this.controller.getBuildShape() == BuildShape.BLOCK) {
             return ShapeDataRecords.GhostPreview.EMPTY;
@@ -522,6 +522,10 @@ public final class ScreenShapeController {
     }
 
     public String currentShapeCostText() {
+        if (this.screen.isQuickBuildRangeDestroyChainMode()) {
+            List<BlockPos> preview = this.screen.collectUltiminePreviewBlocks();
+            return Integer.toString(preview.size());
+        }
         BuildShape shape = this.controller.getBuildShape();
         if (shape == BuildShape.BLOCK) {
             return "1";
@@ -543,6 +547,9 @@ public final class ScreenShapeController {
         }
         BuildShape currentShape = this.controller.getBuildShape();
         boolean destroyMode = this.screen.isQuickBuildRangeDestroyMode();
+        if (this.screen.isQuickBuildRangeDestroyChainMode()) {
+            return this.screen.text("screen.rtsbuilding.shape_status.destroy_chain");
+        }
         if (currentShape == BuildShape.BLOCK) {
             return this.screen.text(destroyMode
                     ? "screen.rtsbuilding.shape_status.destroy"

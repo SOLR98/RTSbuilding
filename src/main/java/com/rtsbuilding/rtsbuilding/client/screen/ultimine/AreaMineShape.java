@@ -19,5 +19,6 @@ public enum AreaMineShape {
     SQUARE,
     WALL,
     CIRCLE,
-    BOX
+    BOX,
+    CHAIN
 }

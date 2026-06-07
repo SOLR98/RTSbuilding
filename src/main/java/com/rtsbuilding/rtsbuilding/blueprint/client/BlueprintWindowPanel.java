@@ -32,7 +32,7 @@ import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.T
  * fragments (top capture status plus side adjustment box) become one larger
  * window. After selecting a saved blueprint and pinning it in the world, the
  * same window family exposes rotation, previous/next blueprint selection,
- * position nudging, material details, and build confirmation. Keyboard nudging
+ * exact position entry, material details, and build confirmation. Keyboard nudging
  * continues to use the mature existing blueprint placement path instead of a
  * second implementation.</p>
  */
@@ -43,11 +43,18 @@ public final class BlueprintWindowPanel extends RtsWindowPanel {
     private static final int MIN_H = 206;
     private static final int PAD = 10;
     private static final int BUTTON_H = 16;
-    private static final int SMALL_BUTTON_W = 18;
+    private static final int SMALL_BUTTON_W = 22;
+    private static final int SELECTOR_BUTTON_W = 22;
     private static final int AXIS_W = 46;
+    private static final int AXIS_LABEL_W = 8;
+    private static final int AXIS_ROW_GAP = 3;
+    private static final int AXIS_CONTROL_GAP = 2;
+    private static final int AXIS_ROW_W = AXIS_LABEL_W + AXIS_CONTROL_GAP
+            + SMALL_BUTTON_W + AXIS_CONTROL_GAP + AXIS_W + AXIS_CONTROL_GAP + SMALL_BUTTON_W;
     private static final int TEXTBOX_H = 16;
     private static final int ACTION_W = 58;
-    private static final int COMPACT_ACTION_W = 48;
+    private static final int PRIMARY_ACTION_W = 84;
+    private static final int SECONDARY_ACTION_W = 64;
 
     private WindowTextBox captureNameInput;
     private WindowTextBox sizeXInput;
@@ -70,17 +77,10 @@ public final class BlueprintWindowPanel extends RtsWindowPanel {
     private WindowButton detailsButton;
     private WindowButton buildButton;
     private WindowButton clearButton;
-    private WindowButton applyPositionButton;
     private WindowButton[] sizePlusButtons;
     private WindowButton[] sizeMinusButtons;
     private WindowButton[] posPlusButtons;
     private WindowButton[] posMinusButtons;
-    private WindowButton nudgeForwardButton;
-    private WindowButton nudgeBackButton;
-    private WindowButton nudgeLeftButton;
-    private WindowButton nudgeRightButton;
-    private WindowButton nudgeUpButton;
-    private WindowButton nudgeDownButton;
 
     @Override
     public void init(BuilderScreen screen, ClientRtsController controller) {
@@ -128,7 +128,7 @@ public final class BlueprintWindowPanel extends RtsWindowPanel {
         y += 28;
 
         drawSectionTitle(g, Component.translatable("screen.rtsbuilding.blueprints.window_size"), x, y);
-        renderAxisSpinnerRow(g, mouseX, mouseY, partialTick,
+        renderAxisColumnRow(g, mouseX, mouseY, partialTick,
                 x + 54, y - 8, this.sizeXInput, this.sizeYInput, this.sizeZInput,
                 this.sizePlusButtons, this.sizeMinusButtons, complete && !saving);
 
@@ -166,55 +166,56 @@ public final class BlueprintWindowPanel extends RtsWindowPanel {
         int w = contentWidth() - PAD * 2;
         boolean pinned = BlueprintPanel.hasPinnedPreview();
 
-        drawLabel(g, Component.literal(BlueprintPanel.selectedBlueprintName()), x, y, 0xFFEAF2FF, w);
-        drawLabel(g, Component.literal(BlueprintPanel.selectedBlueprintSizeText()), x, y + 12, 0xFF9FB3C8, w);
-        renderButton(g, this.previousButton, x + w - COMPACT_ACTION_W * 2 - 6, y, true, mouseX, mouseY, partialTick);
-        renderButton(g, this.nextButton, x + w - COMPACT_ACTION_W, y, true, mouseX, mouseY, partialTick);
-        y += 34;
+        renderBlueprintSelector(g, mouseX, mouseY, partialTick, x, y, w);
+        y += 44;
 
         drawSectionTitle(g, Component.translatable("screen.rtsbuilding.blueprints.window_position"), x, y);
+        drawControlGroup(g, x - 4, y + 12, AXIS_ROW_W + 148, 78);
         renderAxisSpinnerRow(g, mouseX, mouseY, partialTick,
-                x + 54, y - 8, this.posXInput, this.posYInput, this.posZInput,
+                x, y + 18, this.posXInput, this.posYInput, this.posZInput,
                 this.posPlusButtons, this.posMinusButtons, pinned);
-        renderButton(g, this.applyPositionButton, x + w - COMPACT_ACTION_W, y + 8,
-                pinned, mouseX, mouseY, partialTick);
-        y += 50;
+        int transformX = x + 144;
+        renderButton(g, this.rotateButton, transformX, y + 18, true, mouseX, mouseY, partialTick);
+        renderButton(g, this.resetRotationButton, transformX, y + 37, true, mouseX, mouseY, partialTick);
+        y += 100;
 
-        renderButton(g, this.rotateButton, x, y, true, mouseX, mouseY, partialTick);
-        renderButton(g, this.resetRotationButton, x + ACTION_W + 6, y, true, mouseX, mouseY, partialTick);
-        renderButton(g, this.detailsButton, x + (ACTION_W + 6) * 2, y, true, mouseX, mouseY, partialTick);
-        y += 24;
-
-        renderNudgeGrid(g, mouseX, mouseY, partialTick, x, y, pinned);
-        if (!pinned) {
-            drawLabel(g, Component.translatable("screen.rtsbuilding.blueprints.placement_window_hint"),
-                    x + 142, y + 4, 0xFFFFC06C, Math.max(80, w - 142));
-        }
-
-        int actionY = contentY() + contentHeight() - 28;
-        renderButton(g, this.buildButton, x, actionY, pinned, mouseX, mouseY, partialTick);
-        renderButton(g, this.clearButton, x + ACTION_W + 8, actionY, true, mouseX, mouseY, partialTick);
+        int actionY = contentY() + contentHeight() - 42;
+        int actionX = x + w - PRIMARY_ACTION_W - SECONDARY_ACTION_W - 8;
+        renderPrimaryButton(g, this.buildButton, actionX, actionY, pinned, mouseX, mouseY, partialTick);
+        renderButton(g, this.clearButton, actionX + PRIMARY_ACTION_W + 8, actionY, true, mouseX, mouseY, partialTick);
     }
 
-    private void renderNudgeGrid(GuiGraphics g, int mouseX, int mouseY, float partialTick, int x, int y, boolean enabled) {
-        renderButtonAt(g, this.nudgeForwardButton, x + 48, y, enabled, mouseX, mouseY, partialTick);
-        renderButtonAt(g, this.nudgeLeftButton, x, y + 18, enabled, mouseX, mouseY, partialTick);
-        renderButtonAt(g, this.nudgeRightButton, x + 96, y + 18, enabled, mouseX, mouseY, partialTick);
-        renderButtonAt(g, this.nudgeUpButton, x + 48, y + 18, enabled, mouseX, mouseY, partialTick);
-        renderButtonAt(g, this.nudgeDownButton, x + 48, y + 36, enabled, mouseX, mouseY, partialTick);
-        renderButtonAt(g, this.nudgeBackButton, x + 96, y + 36, enabled, mouseX, mouseY, partialTick);
+    private void renderBlueprintSelector(GuiGraphics g, int mouseX, int mouseY, float partialTick, int x, int y, int w) {
+        renderButton(g, this.previousButton, x, y, true, mouseX, mouseY, partialTick);
+        int nameX = x + SELECTOR_BUTTON_W + 6;
+        int detailsX = x + w - ACTION_W;
+        int maxNameWidth = Math.max(60, detailsX - nameX - SELECTOR_BUTTON_W - 12);
+        String name = RtsClientUiUtil.trimToWidth(this.screen.font(), BlueprintPanel.selectedBlueprintName(), maxNameWidth);
+        g.drawString(this.screen.font(), name, nameX, y + 2, 0xFFEAF2FF, false);
+        int nextX = Math.min(detailsX - SELECTOR_BUTTON_W - 6, nameX + this.screen.font().width(name) + 6);
+        renderButton(g, this.nextButton, nextX, y, true, mouseX, mouseY, partialTick);
+        renderButton(g, this.detailsButton, detailsX, y, true, mouseX, mouseY, partialTick);
+        drawLabel(g, Component.literal(BlueprintPanel.selectedBlueprintSizeText()), nameX, y + 18, 0xFF9FB3C8,
+                Math.max(60, w - (nameX - x)));
     }
 
     private void renderStatusLine(GuiGraphics g) {
         Component status = BlueprintPanel.statusText();
+        int color = BlueprintPanel.statusColor();
+        if (!BlueprintPanel.isCaptureModeActive() && BlueprintPanel.hasSelectedBlueprint()
+                && !BlueprintPanel.hasPinnedPreview()) {
+            status = Component.translatable("screen.rtsbuilding.blueprints.placement_window_hint");
+            color = 0xFFFFC06C;
+        }
         if (status == null) {
             return;
         }
         int x = contentX() + PAD;
-        int y = contentY() + contentHeight() - 10;
+        int y = contentY() + contentHeight() - 62;
         int w = contentWidth() - PAD * 2;
+        g.fill(x - 2, y - 2, x + w + 2, y + 10, 0x66111821);
         g.drawString(this.screen.font(), RtsClientUiUtil.trimToWidth(this.screen.font(), status.getString(), w),
-                x, y, BlueprintPanel.statusColor(), false);
+                x, y, color, false);
     }
 
     private void drawPointRow(GuiGraphics g, int x, int y, int w) {
@@ -238,9 +239,30 @@ public final class BlueprintWindowPanel extends RtsWindowPanel {
         WindowTextBox[] boxes = {xBox, yBox, zBox};
         String[] labels = {"X", "Y", "Z"};
         for (int i = 0; i < boxes.length; i++) {
+            int axisY = y + i * (BUTTON_H + AXIS_ROW_GAP);
+            g.drawString(this.screen.font(), labels[i], x, axisY + 4, 0xFF9FB3C8, false);
+            int controlX = x + AXIS_LABEL_W + AXIS_CONTROL_GAP;
+            renderButtonAt(g, minusButtons[i], controlX, axisY, enabled, mouseX, mouseY, partialTick);
+            boxes[i].setX(controlX + SMALL_BUTTON_W + AXIS_CONTROL_GAP);
+            boxes[i].setY(axisY);
+            boxes[i].setWidth(AXIS_W);
+            boxes[i].setEditable(enabled);
+            boxes[i].renderWidget(g, mouseX, mouseY, partialTick);
+            renderButtonAt(g, plusButtons[i], boxes[i].getX() + AXIS_W + AXIS_CONTROL_GAP,
+                    axisY, enabled, mouseX, mouseY, partialTick);
+        }
+    }
+
+    private void renderAxisColumnRow(GuiGraphics g, int mouseX, int mouseY, float partialTick,
+            int x, int y, WindowTextBox xBox, WindowTextBox yBox, WindowTextBox zBox,
+            WindowButton[] plusButtons, WindowButton[] minusButtons, boolean enabled) {
+        WindowTextBox[] boxes = {xBox, yBox, zBox};
+        String[] labels = {"X", "Y", "Z"};
+        for (int i = 0; i < boxes.length; i++) {
             int axisX = x + i * (AXIS_W + 12);
             g.drawString(this.screen.font(), labels[i], axisX + AXIS_W / 2 - 3, y - 9, 0xFF9FB3C8, false);
-            renderButtonAt(g, plusButtons[i], axisX + (AXIS_W - SMALL_BUTTON_W) / 2, y, enabled, mouseX, mouseY, partialTick);
+            renderButtonAt(g, plusButtons[i], axisX + (AXIS_W - SMALL_BUTTON_W) / 2,
+                    y, enabled, mouseX, mouseY, partialTick);
             boxes[i].setX(axisX);
             boxes[i].setY(y + BUTTON_H + 2);
             boxes[i].setWidth(AXIS_W);
@@ -273,6 +295,28 @@ public final class BlueprintWindowPanel extends RtsWindowPanel {
         button.render(g, mouseX, mouseY, partialTick);
     }
 
+    private void drawControlGroup(GuiGraphics g, int x, int y, int w, int h) {
+        g.fill(x, y, x + w, y + h, 0x33111821);
+    }
+
+    private void renderPrimaryButton(GuiGraphics g, WindowButton button, int x, int y, boolean active,
+            int mouseX, int mouseY, float partialTick) {
+        if (active) {
+            g.fill(x, y, x + PRIMARY_ACTION_W, y + BUTTON_H, 0xAA244E35);
+        }
+        renderButton(g, button, x, y, active, mouseX, mouseY, partialTick);
+        if (active) {
+            drawButtonHighlight(g, x, y, PRIMARY_ACTION_W, BUTTON_H, 0xFF7FCEA0);
+        }
+    }
+
+    private void drawButtonHighlight(GuiGraphics g, int x, int y, int w, int h, int color) {
+        g.fill(x - 1, y - 1, x + w + 1, y, color);
+        g.fill(x - 1, y + h, x + w + 1, y + h + 1, color);
+        g.fill(x - 1, y - 1, x, y + h + 1, color);
+        g.fill(x + w, y - 1, x + w + 1, y + h + 1, color);
+    }
+
     @Override
     protected void handleContentClick(double mouseX, double mouseY, int button) {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
@@ -302,17 +346,18 @@ public final class BlueprintWindowPanel extends RtsWindowPanel {
     }
 
     private void handlePlacementClick(double mouseX, double mouseY, int button) {
+        WindowTextBox focusedBefore = focusedTextBox();
         if (clickTextBox(this.posXInput, mouseX, mouseY, button)
                 || clickTextBox(this.posYInput, mouseX, mouseY, button)
                 || clickTextBox(this.posZInput, mouseX, mouseY, button)) {
+            commitPositionIfFocusChanged(focusedBefore);
             return;
         }
+        commitFocusedPositionBeforeBlur();
         clearFocus();
         clickButtons(mouseX, mouseY, button,
                 this.previousButton, this.nextButton, this.rotateButton, this.resetRotationButton,
-                this.detailsButton, this.buildButton, this.clearButton, this.applyPositionButton,
-                this.nudgeForwardButton, this.nudgeBackButton, this.nudgeLeftButton,
-                this.nudgeRightButton, this.nudgeUpButton, this.nudgeDownButton);
+                this.detailsButton, this.buildButton, this.clearButton);
         clickButtons(mouseX, mouseY, button, this.posPlusButtons);
         clickButtons(mouseX, mouseY, button, this.posMinusButtons);
     }
@@ -497,6 +542,20 @@ public final class BlueprintWindowPanel extends RtsWindowPanel {
         this.posZInput.setFocused(false);
     }
 
+    private void commitFocusedPositionBeforeBlur() {
+        WindowTextBox focused = focusedTextBox();
+        if (focused == this.posXInput || focused == this.posYInput || focused == this.posZInput) {
+            commitPinnedPositionDraft();
+        }
+    }
+
+    private void commitPositionIfFocusChanged(WindowTextBox focusedBefore) {
+        if (focusedBefore != null && focusedBefore != focusedTextBox()
+                && (focusedBefore == this.posXInput || focusedBefore == this.posYInput || focusedBefore == this.posZInput)) {
+            commitPinnedPositionDraft();
+        }
+    }
+
     @Override
     protected Component getTitle() {
         return Component.translatable(BlueprintPanel.isCaptureModeActive()
@@ -595,32 +654,24 @@ public final class BlueprintWindowPanel extends RtsWindowPanel {
                 button -> BlueprintPanel.moveCaptureSelection(0, -1, 0));
         this.previewButton = actionButton("screen.rtsbuilding.blueprints.capture_preview", ACTION_W,
                 button -> BlueprintPanel.toggleCapturePreview());
-        this.previousButton = actionButton("screen.rtsbuilding.blueprints.previous_short", COMPACT_ACTION_W,
+        this.previousButton = new WindowButton(0, 0, SELECTOR_BUTTON_W, BUTTON_H, Component.literal("<"),
                 button -> BlueprintPanel.selectRelativeBlueprint(-1));
-        this.nextButton = actionButton("screen.rtsbuilding.blueprints.next_short", COMPACT_ACTION_W,
+        this.nextButton = new WindowButton(0, 0, SELECTOR_BUTTON_W, BUTTON_H, Component.literal(">"),
                 button -> BlueprintPanel.selectRelativeBlueprint(1));
-        this.rotateButton = actionButton("screen.rtsbuilding.blueprints.y_rotate_short", ACTION_W,
+        this.rotateButton = actionButton("screen.rtsbuilding.blueprints.y_rotate_short", AXIS_ROW_W,
                 button -> BlueprintPanel.rotateSelectedBlueprintY(1));
-        this.resetRotationButton = actionButton("screen.rtsbuilding.blueprints.reset_rotation_short", ACTION_W,
+        this.resetRotationButton = actionButton("screen.rtsbuilding.blueprints.reset_rotation_short", AXIS_ROW_W,
                 button -> BlueprintPanel.resetSelectedBlueprintRotation());
         this.detailsButton = actionButton("screen.rtsbuilding.blueprints.details", ACTION_W,
                 button -> BlueprintPanel.openMaterialDialog());
-        this.buildButton = actionButton("screen.rtsbuilding.blueprints.build_preview", ACTION_W,
+        this.buildButton = actionButton("screen.rtsbuilding.blueprints.build_preview", PRIMARY_ACTION_W,
                 button -> BlueprintPanel.confirmPinnedPreview());
-        this.clearButton = actionButton("screen.rtsbuilding.blueprints.capture_cancel", ACTION_W,
+        this.clearButton = actionButton("screen.rtsbuilding.blueprints.capture_cancel", SECONDARY_ACTION_W,
                 button -> BlueprintPanel.clearSelectedBlueprint());
-        this.applyPositionButton = actionButton("screen.rtsbuilding.blueprints.apply_short", COMPACT_ACTION_W,
-                button -> commitPinnedPositionDraft());
         this.sizePlusButtons = axisButtons(true, true);
         this.sizeMinusButtons = axisButtons(false, true);
         this.posPlusButtons = axisButtons(true, false);
         this.posMinusButtons = axisButtons(false, false);
-        this.nudgeForwardButton = nudgeButton("screen.rtsbuilding.blueprints.nudge_forward_short", 0, 1, 0);
-        this.nudgeBackButton = nudgeButton("screen.rtsbuilding.blueprints.nudge_back_short", 0, -1, 0);
-        this.nudgeLeftButton = nudgeButton("screen.rtsbuilding.blueprints.nudge_left_short", -1, 0, 0);
-        this.nudgeRightButton = nudgeButton("screen.rtsbuilding.blueprints.nudge_right_short", 1, 0, 0);
-        this.nudgeUpButton = nudgeButton("screen.rtsbuilding.blueprints.nudge_y_plus_short", 0, 0, 1);
-        this.nudgeDownButton = nudgeButton("screen.rtsbuilding.blueprints.nudge_y_minus_short", 0, 0, -1);
     }
 
     private WindowButton actionButton(String key, int width, WindowButton.OnPress onPress) {
@@ -651,14 +702,6 @@ public final class BlueprintWindowPanel extends RtsWindowPanel {
                     });
         }
         return buttons;
-    }
-
-    private WindowButton nudgeButton(String key, int rightSteps, int forwardSteps, int upSteps) {
-        return new WindowButton(0, 0, COMPACT_ACTION_W, BUTTON_H, Component.translatable(key),
-                button -> {
-                    BlueprintPanel.nudgePinnedAnchorRelative(rightSteps, forwardSteps, upSteps, this.controller);
-                    syncPinnedPositionInputs(true);
-                });
     }
 
     private void syncCaptureInputs() {

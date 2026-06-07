@@ -10,8 +10,6 @@ import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildMode;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.ShapeFillMode;
 import com.rtsbuilding.rtsbuilding.client.screen.ultimine.AreaMineShape;
-import com.rtsbuilding.rtsbuilding.client.screen.ultimine.UltimineMode;
-import com.rtsbuilding.rtsbuilding.client.screen.ultimine.UltiminePanel;
 import net.minecraft.util.Mth;
 
 import java.util.LinkedHashMap;
@@ -51,7 +49,6 @@ public final class RtsScreenUiStateManager {
     /** 快速建造面板，用于持久化其打开状态。 */
     private final QuickBuildPanel quickBuildPanel;
     /** 连锁挖掘面板，用于持久化其打开状态与限制值。 */
-    private final UltiminePanel ultiminePanel;
 
     /** 已注册的可持久化窗口面板（key → panel），在 applyStoredUiState / persistUiState 中间接处理。 */
     private final Map<String, RtsWindowPanel> persistablePanels = new LinkedHashMap<>();
@@ -67,21 +64,17 @@ public final class RtsScreenUiStateManager {
      * @param controller     客户端 RTS 控制器
      * @param shapeController 形状控制器
      * @param quickBuildPanel 快速建造面板（自动注册为 "quick_build"）
-     * @param ultiminePanel   连锁挖掘面板（自动注册为 "ultimine"）
      */
     public RtsScreenUiStateManager(
             ClientRtsController controller,
             ScreenShapeController shapeController,
-            QuickBuildPanel quickBuildPanel,
-            UltiminePanel ultiminePanel) {
+            QuickBuildPanel quickBuildPanel) {
         this.controller = controller;
         this.shapeController = shapeController;
         this.quickBuildPanel = quickBuildPanel;
-        this.ultiminePanel = ultiminePanel;
 
         // 注册可持久化位置的窗口面板
         registerWindowPanel("quick_build", quickBuildPanel);
-        registerWindowPanel("ultimine", ultiminePanel);
     }
 
     /**
@@ -159,15 +152,15 @@ public final class RtsScreenUiStateManager {
      */
     public void persistUiState() {
         RtsClientUiStateStore.UiState state = RtsClientUiStateStore.load();
-        state.buildShape = this.controller.getBuildShape().name();
+        state.buildShape = this.quickBuildPanel.getBuildModeShape().name();
         state.fillMode = this.shapeController.getShapeFillMode().name();
         state.rotationDegrees = this.shapeController.getShapeRotateDegrees();
         state.quickBuildOpen = this.quickBuildPanel.isQuickBuildOpen();
         state.quickBuildMode = this.quickBuildPanel.getMode().name();
-        state.ultimineOpen = this.ultiminePanel.isOpen();
-        state.ultimineLimit = this.ultiminePanel.getLimit();
-        state.ultimineMode = this.ultiminePanel.getMode().name();
-        state.areaMineShape = this.controller.getAreaMineShape().name();
+        state.ultimineOpen = false;
+        state.ultimineLimit = this.quickBuildPanel.getChainDestroyLimit();
+        state.ultimineMode = "CHAIN";
+        state.areaMineShape = this.quickBuildPanel.getRangeDestroyShape().name();
         state.chunkCurtainVisible = this.controller.isChunkCurtainVisible();
         state.rtsGuiScale = sanitizeRtsGuiScale(this.fixedRtsGuiScale);
         state.inputSensitivityIndex = this.controller.getInputSensitivityIndex();
@@ -193,13 +186,7 @@ public final class RtsScreenUiStateManager {
         } catch (IllegalArgumentException ignored) {
             this.quickBuildPanel.setMode(QuickBuildMode.BUILD);
         }
-        this.ultiminePanel.applyOpenState(state.ultimineOpen);
-        this.ultiminePanel.setLimit(state.ultimineLimit);
-        try {
-            this.ultiminePanel.setMode(UltimineMode.valueOf(state.ultimineMode));
-        } catch (IllegalArgumentException ignored) {
-            this.ultiminePanel.setMode(UltimineMode.CHAIN);
-        }
+        this.quickBuildPanel.loadChainDestroyLimit(state.ultimineLimit);
         try {
             this.controller.setAreaMineShape(AreaMineShape.valueOf(state.areaMineShape));
         } catch (IllegalArgumentException ignored) {
@@ -244,7 +231,7 @@ public final class RtsScreenUiStateManager {
     /** 恢复形状模式、填充模式与旋转角度。 */
     private void applyShapeState(RtsClientUiStateStore.UiState state) {
         parseAndSetBuildShape(state.buildShape);
-        this.controller.setAreaMineShape(QuickBuildPanel.toAreaMineShape(this.controller.getBuildShape()));
+        this.quickBuildPanel.loadStoredShapes(this.controller.getBuildShape(), this.controller.getAreaMineShape());
         parseAndSetFillMode(state.fillMode);
         this.shapeController.rotateToDegrees(Math.floorMod(state.rotationDegrees, 360));
         this.shapeController.ensureFillModeForShape(this.controller.getBuildShape());

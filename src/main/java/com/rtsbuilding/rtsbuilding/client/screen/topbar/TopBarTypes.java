@@ -28,7 +28,6 @@ public final class TopBarTypes {
         FUNNEL,
         ROTATE,
         QUICK_BUILD,
-        ULTIMINE,
         CHUNK_VIEW,
         DEBUG,
         GEAR,

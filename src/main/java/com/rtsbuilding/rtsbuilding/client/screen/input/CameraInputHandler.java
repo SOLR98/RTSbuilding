@@ -6,7 +6,6 @@ import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionTypes;
 import com.rtsbuilding.rtsbuilding.client.bootstrap.ClientKeyMappings;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
-import com.rtsbuilding.rtsbuilding.client.screen.ultimine.UltimineMode;
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -335,6 +334,9 @@ public final class CameraInputHandler {
                 || this.controller.getMode() == BuilderMode.FUNNEL) {
             return false;
         }
+        if (screen.isQuickBuildRangeDestroyMode() && !screen.isQuickBuildRangeDestroyChainMode()) {
+            return screen.handleQuickBuildRangeDestroyClick(mouseX, mouseY);
+        }
         if (screen.isQuickBuildRangeDestroyMode()
                 && this.controller.getAreaMinePhase() == ClientRtsController.AREA_MINE_PHASE_NEED_HEIGHT) {
             // 第三次点击：确认范围挖掘，直接发包执行，不需要再求 BlockHit
@@ -349,7 +351,7 @@ public final class CameraInputHandler {
             if (hit == null) {
                 return false;
             }
-            if (screen.isQuickBuildRangeDestroyMode()) {
+            if (screen.isQuickBuildRangeDestroyMode() && !screen.isQuickBuildRangeDestroyChainMode()) {
                 // 三击选点模式（类似快速建造的 BOX 模式）：
                 // 第 1 击 → setPointA (进入 NEED_SECOND)
                 // 第 2 击 → setPointB (进入 NEED_HEIGHT)
@@ -362,12 +364,11 @@ public final class CameraInputHandler {
                     // Second click: set point B (defines base rectangle), enter height adjustment phase
                     this.controller.setAreaMinePointB(hit.getBlockPos().immutable());
                 }
-            } else if (screen.isUltimineOpen()) {
-                this.controller.startUltimine(hit.getBlockPos(), hit.getDirection().get3DDataValue(), screen.getSelectedToolSlot(), screen.getUltimineLimit(), (byte) screen.getUltimineMode().ordinal());
-                screen.setUltimineLastSentLimit(screen.getUltimineLimit());
-            } else if (!screen.isUltimineOpen()) {
+            } else if (screen.isQuickBuildRangeDestroyChainMode()) {
+                this.controller.startUltimine(hit.getBlockPos(), hit.getDirection().get3DDataValue(),
+                        screen.getSelectedToolSlot(), screen.getUltimineLimit(), (byte) 0);
+            } else {
                 this.controller.startMining(hit.getBlockPos(), hit.getDirection().get3DDataValue(), screen.getSelectedToolSlot());
-                screen.setUltimineLastSentLimit(1);
             }
         }
         this.leftMiningActive = true;

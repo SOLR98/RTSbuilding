@@ -28,8 +28,6 @@ import com.rtsbuilding.rtsbuilding.client.screen.storage.LinkedStoragePanel;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.ultimine.AreaMineShape;
-import com.rtsbuilding.rtsbuilding.client.screen.ultimine.UltimineMode;
-import com.rtsbuilding.rtsbuilding.client.screen.ultimine.UltiminePanel;
 import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
 import com.rtsbuilding.rtsbuilding.client.state.RtsScreenUiStateManager;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
@@ -56,10 +54,7 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.ModList;
 import org.lwjgl.glfw.GLFW;
 
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.*;
 /**
@@ -103,8 +98,6 @@ public final class BuilderScreen extends Screen {
     private final FunnelBufferPanel funnelBufferPanel = new FunnelBufferPanel();
     /** Panel for quick-build remote placement (place items from storage at a distance). */
     private final QuickBuildPanel quickBuildPanel = new QuickBuildPanel();
-    /** Panel for configuring and triggering vein-mining (ultimine) operations. */
-    private final UltiminePanel ultiminePanel = new UltiminePanel();
     /** Windowed view for inspecting and unlinking bound storage blocks. */
     private final LinkedStoragePanel linkedStoragePanel = new LinkedStoragePanel();
     /** Windowed blueprint capture/placement controls. */
@@ -161,14 +154,13 @@ public final class BuilderScreen extends Screen {
     public BuilderScreen(ClientRtsController controller) {
         super(Component.literal("RTS Builder"));
         this.controller = controller;
-        this.uiStateManager = new RtsScreenUiStateManager(this.controller, this.shapeController, this.quickBuildPanel, this.ultiminePanel);
+        this.uiStateManager = new RtsScreenUiStateManager(this.controller, this.shapeController, this.quickBuildPanel);
         this.overlayRenderer = new RtsScreenOverlayRenderer(this, this.controller, this.cursorPicker, this.bottomPanel);
         this.floatingWindowLayer = new RtsFloatingWindowLayer(
                 this.linkedStoragePanel,
                 this.blueprintWindowPanel,
                 this.gearMenuPanel,
                 this.guidePanel,
-                this.ultiminePanel,
                 this.quickBuildPanel);
         this.uiStateManager.registerWindowPanel("settings", this.gearMenuPanel);
         this.uiStateManager.registerWindowPanel("blueprints", this.blueprintWindowPanel);
@@ -177,7 +169,6 @@ public final class BuilderScreen extends Screen {
         this.blueprintWindowPanel.init(this, this.controller);
         this.funnelBufferPanel.init(this, this.controller);
         this.quickBuildPanel.init(this, this.controller);
-        this.ultiminePanel.init(this, this.controller);
         this.linkedStoragePanel.init(this, this.controller);
         this.topBarPanel.init(this, this.controller);
         this.bottomPanel.init(this, this.controller);
@@ -763,7 +754,7 @@ public final class BuilderScreen extends Screen {
             return true;
         }
         boolean forcePlace = hasShiftDown();
-        if (this.shapeController.tryConfirmPendingRangeDestroy()) {
+        if (isQuickBuildRangeDestroyMode()) {
             return true;
         }
         if (this.shapeController.tryConfirmPendingShapeBuild(forcePlace)) {
@@ -785,10 +776,6 @@ public final class BuilderScreen extends Screen {
         }
         InteractionTypes.InteractionTarget target = this.cursorPicker.pickInteractionTarget(false);
         if (target == null) {
-            return true;
-        }
-        if (isQuickBuildRangeDestroyMode() && target.blockHit() != null) {
-            this.shapeController.selectRangeDestroyShape(target.blockHit(), mouseY, target.rayDir());
             return true;
         }
         if (this.controller.hasSelectedFluid()) {
@@ -1552,13 +1539,35 @@ public final class BuilderScreen extends Screen {
         return this.floatingWindowLayer;
     }
 
-    /** Returns whether the ultimine panel is currently open. */
-    public boolean isUltimineOpen() {
-        return this.ultiminePanel.isOpen();
-    }
     /** Returns true when quick-build is showing the range-destroy workflow. */
     public boolean isQuickBuildRangeDestroyMode() {
         return this.quickBuildPanel.isQuickBuildOpen() && this.quickBuildPanel.isRangeDestroyMode();
+    }
+    /** Returns true when Quick Build range-destroy is using the connected-chain shape. */
+    public boolean isQuickBuildRangeDestroyChainMode() {
+        return this.quickBuildPanel.isQuickBuildOpen() && this.quickBuildPanel.isRangeDestroyChainMode();
+    }
+    /** Player-facing shape label for the top status row. */
+    public String activeQuickBuildShapeLabel() {
+        if (isQuickBuildRangeDestroyChainMode()) {
+            return text("screen.rtsbuilding.shape.chain");
+        }
+        return shapeLabel(this.controller.getBuildShape());
+    }
+    /** Handles the left-click shape selection flow for Quick Build range destroy. */
+    public boolean handleQuickBuildRangeDestroyClick(double mouseX, double mouseY) {
+        if (!isQuickBuildRangeDestroyMode() || isQuickBuildRangeDestroyChainMode() || !isWorldArea(mouseX, mouseY)) {
+            return false;
+        }
+        if (this.shapeController.tryConfirmPendingRangeDestroy()) {
+            return true;
+        }
+        InteractionTypes.InteractionTarget target = this.cursorPicker.pickInteractionTarget(false);
+        if (target != null && target.blockHit() != null) {
+            this.shapeController.selectRangeDestroyShape(target.blockHit(), mouseY, target.rayDir());
+            return true;
+        }
+        return true;
     }
     /** Sets the quick-build window mode and persists the UI state. */
     public void setQuickBuildMode(QuickBuildMode mode) {
@@ -1566,11 +1575,7 @@ public final class BuilderScreen extends Screen {
     }
     /** Returns the current ultimine block limit. */
     public int getUltimineLimit() {
-        return this.ultiminePanel.getLimit();
-    }
-    /** Returns the current ultimine mode (CHAIN or AREA). */
-    public UltimineMode getUltimineMode() {
-        return this.ultiminePanel.getMode();
+        return this.quickBuildPanel.getChainDestroyLimit();
     }
     /** Returns true if currently in area mine height selection phase (NEED_HEIGHT). */
     public boolean isAreaMineHeightPreview() {
@@ -1580,14 +1585,6 @@ public final class BuilderScreen extends Screen {
         int phase = this.controller.getAreaMinePhase();
         return phase == ClientRtsController.AREA_MINE_PHASE_NEED_SECOND
                 || phase == ClientRtsController.AREA_MINE_PHASE_NEED_HEIGHT;
-    }
-    /** Sets the current ultimine mode. */
-    public void setUltimineMode(UltimineMode mode) {
-        this.ultiminePanel.setMode(mode);
-    }
-    /** Sets the last sent ultimine limit value (to avoid redundant network packets). */
-    public void setUltimineLastSentLimit(int limit) {
-        this.ultiminePanel.setLastSentLimit(limit);
     }
     /** Returns the number of available undo steps for shape placement. */
     public int getShapeUndoSize() {
@@ -1613,11 +1610,6 @@ public final class BuilderScreen extends Screen {
     public void toggleQuickBuild() {
         this.quickBuildPanel.toggleOpen();
     }
-    /** Toggles the ultimine panel open/closed. */
-    public void toggleUltimine() {
-        this.ultiminePanel.setOpen(!this.ultiminePanel.isOpen());
-    }
-
     private boolean handleFloatingWindowClick(double mouseX, double mouseY, int button) {
         return this.floatingWindowLayer.mouseClicked(mouseX, mouseY, button);
     }
@@ -1761,7 +1753,7 @@ public final class BuilderScreen extends Screen {
         out.append("mode=").append(this.controller.getMode())
                 .append(" topAction=").append(this.topBarPanel.topActionForMode())
                 .append(" quickBuild=").append(this.quickBuildPanel.isQuickBuildOpen())
-                .append(" ultimine=").append(this.ultiminePanel.isOpen())
+                .append(" quickDestroy=").append(isQuickBuildRangeDestroyMode())
                 .append(" debugButton=").append(this.uiStateManager.isDebugButtonVisible())
                 .append(" invertPanDragX=").append(this.controller.isInvertPanDragX())
                 .append(" invertPanDragY=").append(this.controller.isInvertPanDragY())
@@ -2040,8 +2032,11 @@ public final class BuilderScreen extends Screen {
         if (this.minecraft == null || this.minecraft.level == null) {
             return List.of();
         }
+        if (!isQuickBuildRangeDestroyChainMode()) {
+            return List.of();
+        }
         BlockPos seed = this.controller.getMineProgressPos();
-        if (seed == null) {
+        if (seed == null || this.minecraft.level.getBlockState(seed).isAir()) {
             BlockHitResult hit = this.cursorPicker.pickBlockHit();
             if (hit == null) {
                 return List.of();
@@ -2053,44 +2048,10 @@ public final class BuilderScreen extends Screen {
             return List.of();
         }
         boolean creative = this.minecraft.player != null && this.minecraft.player.isCreative();
-        boolean areaMode = isQuickBuildRangeDestroyMode();
-        int limit = this.ultiminePanel.getLimit();
-        UltimineMode mode = this.ultiminePanel.getMode();
-        if (areaMode) {
-            BlockPos pointA = this.controller.getAreaMinePointA();
-            if (pointA == null) {
-                return List.of();
-            }
-            int phase = this.controller.getAreaMinePhase();
-            BlockPos pointB = this.controller.getAreaMinePointB();
-            if (phase == ClientRtsController.AREA_MINE_PHASE_NEED_SECOND || pointB == null) {
-                // Phase 1: show 2D floor rectangle from pointA to cursor cursor (heightOffset=0)
-                BlockHitResult cursorHit = this.cursorPicker.pickBlockHit();
-                BlockPos cursorPos = cursorHit != null ? cursorHit.getBlockPos() : seed;
-                if (cursorPos != null && pointA != null && !cursorPos.equals(pointA)) {
-                    ClientRtsController.AreaMineBounds bounds = ClientRtsController.computeAreaMineBounds(pointA, cursorPos, 0);
-                    Set<BlockPos> targets = new HashSet<>();
-                    addAreaMineShapeTargets(targets, bounds, this.controller.getAreaMineShape(),
-                            this.shapeController.getShapeFillMode(), 0);
-                    return new ArrayList<>(targets);
-                }
-                return List.of(cursorPos != null ? cursorPos : seed);
-            }
-            // Phase NEED_HEIGHT: show the full 3D volume with height offset
-            ClientRtsController.AreaMineBounds bounds = ClientRtsController.computeAreaMineBounds(
-                    pointA, pointB, this.controller.getAreaMineHeightOffset());
-            Set<BlockPos> targets = new HashSet<>();
-            addAreaMineShapeTargets(targets, bounds, this.controller.getAreaMineShape(),
-                    this.shapeController.getShapeFillMode(), bounds.maxY() - bounds.minY());
-            return new ArrayList<>(targets);
-        }
-        if (!isUltimineOpen()) {
-            return List.of();
-        }
         return RtsUltimineCollector.collect(
                 this.minecraft.level,
                 seed,
-                limit,
+                getUltimineLimit(),
                 (pos, state, originalState) -> {
                     if (state.isAir() || (!creative && state.getDestroySpeed(this.minecraft.level, pos) < 0.0F)) {
                         return false;
@@ -2099,99 +2060,6 @@ public final class BuilderScreen extends Screen {
                 });
     }
 
-    /**
-     * 根据范围破坏的形状类型向集合中添加目标方块位置。
-     *
-     * @param targets  目标集合
-     * @param bounds   三维边界
-     * @param shape    形状类型
-     * @param height   高度（未使用，保留接口兼容）
-     */
-    private void addAreaMineShapeTargets(Set<BlockPos> targets, ClientRtsController.AreaMineBounds bounds,
-            AreaMineShape shape, ShapeFillMode fillMode, int height) {
-        // 计算形状中心与半径
-        double cx = (bounds.minX() + bounds.maxX() + 1) / 2.0D;
-        double cz = (bounds.minZ() + bounds.maxZ() + 1) / 2.0D;
-        double rx = (bounds.maxX() - bounds.minX() + 1) / 2.0D;
-        double rz = (bounds.maxZ() - bounds.minZ() + 1) / 2.0D;
-        double cylRadiusSq = Math.max(rx, rz) * Math.max(rx, rz);
-
-        int dx = bounds.maxX() - bounds.minX();
-        int dy = bounds.maxY() - bounds.minY();
-        int dz = bounds.maxZ() - bounds.minZ();
-
-        for (int y = bounds.minY(); y <= bounds.maxY(); y++) {
-            for (int x = bounds.minX(); x <= bounds.maxX(); x++) {
-                for (int z = bounds.minZ(); z <= bounds.maxZ(); z++) {
-                    if (shape == AreaMineShape.BLOCK) {
-                        // 仅中心方块
-                        int cxBlock = bounds.minX() + dx / 2;
-                        int cyBlock = bounds.minY() + dy / 2;
-                        int czBlock = bounds.minZ() + dz / 2;
-                        if (x != cxBlock || y != cyBlock || z != czBlock) continue;
-                    } else if (shape == AreaMineShape.LINE) {
-                        // 沿最长轴延伸的直线
-                        if (dx >= dy && dx >= dz) {
-                            if (y != bounds.minY() || z != bounds.minZ()) continue;
-                        } else if (dy >= dx && dy >= dz) {
-                            if (x != bounds.minX() || z != bounds.minZ()) continue;
-                        } else {
-                            if (x != bounds.minX() || y != bounds.minY()) continue;
-                        }
-                    } else if (shape == AreaMineShape.SQUARE) {
-                        // 仅底面一层
-                        if (y != bounds.minY()) continue;
-                    } else if (shape == AreaMineShape.WALL) {
-                        // 垂直外壁（XZ 平面边界）
-                        boolean onWall = (x == bounds.minX() || x == bounds.maxX())
-                                || (z == bounds.minZ() || z == bounds.maxZ());
-                        if (!onWall) continue;
-                    } else if (shape == AreaMineShape.CIRCLE) {
-                        // XZ 平面圆形（等同旧 CYLINDER）
-                        double ddx = (x + 0.5D) - cx;
-                        double ddz = (z + 0.5D) - cz;
-                        if ((ddx * ddx + ddz * ddz) > cylRadiusSq + 0.5D) continue;
-                    }
-                    // BOX: 不过滤，全部加入
-                    if (!includeAreaMineFillCell(shape, fillMode, bounds, x, y, z, cx, cz, cylRadiusSq)) {
-                        continue;
-                    }
-                    targets.add(new BlockPos(x, y, z));
-                }
-            }
-        }
-    }
-
-    private static boolean includeAreaMineFillCell(AreaMineShape shape, ShapeFillMode fillMode,
-            ClientRtsController.AreaMineBounds bounds, int x, int y, int z,
-            double cx, double cz, double radiusSq) {
-        if (fillMode == ShapeFillMode.FILL || shape == AreaMineShape.BLOCK || shape == AreaMineShape.LINE) {
-            return true;
-        }
-        boolean xBoundary = x == bounds.minX() || x == bounds.maxX();
-        boolean yBoundary = y == bounds.minY() || y == bounds.maxY();
-        boolean zBoundary = z == bounds.minZ() || z == bounds.maxZ();
-        int boundaryAxes = (xBoundary ? 1 : 0) + (yBoundary ? 1 : 0) + (zBoundary ? 1 : 0);
-        if (shape == AreaMineShape.SQUARE) {
-            return xBoundary || zBoundary;
-        }
-        if (shape == AreaMineShape.CIRCLE) {
-            double radius = Math.sqrt(radiusSq);
-            double inner = Math.max(0.0D, radius - 1.0D);
-            double ddx = (x + 0.5D) - cx;
-            double ddz = (z + 0.5D) - cz;
-            return (ddx * ddx + ddz * ddz) >= inner * inner - 0.5D;
-        }
-        if (fillMode == ShapeFillMode.SKELETON) {
-            return boundaryAxes >= 2;
-        }
-        return boundaryAxes >= 1;
-    }
-
-    /**
-     * Returns the effective RTS GUI render scale for the current frame,
-     * factoring in the fixed RTS scale and the Minecraft window's actual scale.
-     */
     private double currentRtsGuiRenderScale() {
         if (this.minecraft == null || this.minecraft.getWindow() == null || this.width <= 0) {
             return 1.0D;

@@ -806,6 +806,9 @@ public final class RtsStorageMining {
             if (targetBroken && canAutoStoreDrops(player, session)) {
                 session.ultimineAbsorbedDrops |= absorbNearbyMinedDrops(player, target, session);
             }
+            if (targetBroken && isToolNearBreak(session)) {
+                break;
+            }
         }
 
         sendUltimineBatchProgress(player, session);
@@ -891,8 +894,9 @@ public final class RtsStorageMining {
      *   <li>In mode 0, its block type matches the seed block.</li>
      *   <li>The player can access the world target.</li>
      *   <li>Creative mode bypasses further checks.</li>
-     *   <li>Survival: the block has a valid destroy speed and the tool
-     *       can make progress on it.</li>
+     *   <li>Survival: the block has a valid destroy speed, is not
+     *       significantly harder than the seed block, and the tool can make
+     *       progress on it.</li>
      * </ol>
      */
     private static boolean isUltimineCandidate(
@@ -917,6 +921,11 @@ public final class RtsStorageMining {
             return true;
         }
         if (state.getDestroySpeed(player.serverLevel(), pos) < 0.0F) {
+            return false;
+        }
+        float seedDestroySpeed = seedState.getDestroySpeed(player.serverLevel(), pos);
+        float candidateDestroySpeed = state.getDestroySpeed(player.serverLevel(), pos);
+        if (seedDestroySpeed >= 0.0F && candidateDestroySpeed > seedDestroySpeed * 1.5F) {
             return false;
         }
         return computeRemoteDestroyStep(player, state, pos, toolSlot, linkedTool) > 0.0F;
@@ -1297,6 +1306,15 @@ public final class RtsStorageMining {
     private static boolean canAutoStoreDrops(ServerPlayer player, RtsStorageSession session) {
         return session.autoStoreMinedDrops
                 && RtsProgressionManager.canUse(player, RtsFeature.AUTO_STORE_MINED_DROPS);
+    }
+
+    private static boolean isToolNearBreak(RtsStorageSession session) {
+        if (session == null || session.miningToolLease == null || session.miningToolLease.isEmpty()) {
+            return false;
+        }
+        ItemStack tool = session.miningToolLease.stack();
+        return tool.isDamageableItem()
+                && tool.getDamageValue() >= tool.getMaxDamage() - 1;
     }
 
     /** Outcome of destroying a block with a temporary main-hand tool. */

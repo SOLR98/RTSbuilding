@@ -150,7 +150,7 @@ public final class RtsClientUiStateStore {
         public boolean ultimineOpen = false;
         public int ultimineLimit = 64;
         public String ultimineMode = "CHAIN";
-        public String areaMineShape = "BOX";
+        public String areaMineShape = "CHAIN";
         public boolean chunkCurtainVisible = false;
         public double rtsGuiScale = 2.0D;
         public int inputSensitivityIndex = 2;
@@ -207,7 +207,7 @@ public final class RtsClientUiStateStore {
             clean.ultimineOpen = this.ultimineOpen;
             clean.ultimineLimit = Math.max(1, Math.min(256, this.ultimineLimit));
             clean.ultimineMode = sanitizeEnum(this.ultimineMode, "CHAIN");
-            clean.areaMineShape = sanitizeEnum(this.areaMineShape, "BOX");
+            clean.areaMineShape = sanitizeEnum(this.areaMineShape, "CHAIN");
             clean.chunkCurtainVisible = this.chunkCurtainVisible;
             clean.rtsGuiScale = sanitizeScale(this.rtsGuiScale);
             clean.inputSensitivityIndex = Math.max(0, Math.min(32, this.inputSensitivityIndex));
