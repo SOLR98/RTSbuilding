@@ -11,7 +11,7 @@ import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeGeometryUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.ultimine.AreaMineShape;
 import com.rtsbuilding.rtsbuilding.client.util.RtsTextureRenderer;
 import com.rtsbuilding.rtsbuilding.client.widget.WindowButton;
-import com.rtsbuilding.rtsbuilding.client.widget.WindowTextBox;
+import com.rtsbuilding.rtsbuilding.client.widget.WindowSlider;
 import com.rtsbuilding.rtsbuilding.progression.RtsProgressionNodes;
 
 import net.minecraft.client.gui.GuiGraphics;
@@ -44,8 +44,7 @@ public final class QuickBuildPanel extends RtsWindowPanel {
     private static final int MODE_TOGGLE_GAP = 4;
     private static final int MODE_ROW_TOP = 5;
     private static final int SECTION_TOP = 31;
-    private static final int CHAIN_LIMIT_INPUT_W = 52;
-    private static final int CHAIN_LIMIT_INPUT_H = 18;
+    /** 连锁破坏滑条 */
 
     // ======================== 面板尺寸 ========================
     private static final int QUICK_BUILD_PANEL_W = 178;
@@ -134,9 +133,8 @@ public final class QuickBuildPanel extends RtsWindowPanel {
     private QuickBuildMode quickBuildMode = QuickBuildMode.BUILD;
     private BuildShape buildModeShape = BuildShape.BLOCK;
     private AreaMineShape rangeDestroyShape = AreaMineShape.CHAIN;
-    private WindowTextBox chainLimitInput;
+    private WindowSlider chainLimitSlider;
     private int chainDestroyLimit = 64;
-    private boolean updatingChainLimitInput = false;
 
     /** 缓存的形状，用于检测 fill mode 是否需要重建 */
     private BuildShape lastFillShape;
@@ -151,8 +149,7 @@ public final class QuickBuildPanel extends RtsWindowPanel {
         this.buildModeShape = controller.getBuildShape();
         AreaMineShape storedDestroyShape = controller.getAreaMineShape();
         this.rangeDestroyShape = storedDestroyShape == null ? AreaMineShape.CHAIN : storedDestroyShape;
-        ensureChainLimitInput();
-        syncChainLimitInput();
+        ensureChainLimitSlider();
         createShapeButtons();
         applyActiveShapeToController();
         this.lastFillShape = controller.getBuildShape();
@@ -291,62 +288,35 @@ public final class QuickBuildPanel extends RtsWindowPanel {
     private void setChainDestroyLimit(int limit, boolean persist) {
         int clamped = sanitizeChainLimit(limit);
         if (this.chainDestroyLimit == clamped) {
-            syncChainLimitInput();
+            syncSliderValue();
             return;
         }
         this.chainDestroyLimit = clamped;
-        syncChainLimitInput();
+        syncSliderValue();
         if (persist && screen != null) {
             screen.persistUiState();
         }
     }
 
-    private void ensureChainLimitInput() {
-        if (this.chainLimitInput != null) {
+    private void syncSliderValue() {
+        if (this.chainLimitSlider != null) {
+            this.chainLimitSlider.setValue(this.chainDestroyLimit);
+        }
+    }
+
+    private void ensureChainLimitSlider() {
+        if (this.chainLimitSlider != null) {
             return;
         }
-        this.chainLimitInput = new WindowTextBox(screen == null ? null : screen.font(), 0, 0,
-                CHAIN_LIMIT_INPUT_W, CHAIN_LIMIT_INPUT_H);
-        this.chainLimitInput.setMaxLength(3);
-        this.chainLimitInput.setInputMode(WindowTextBox.InputMode.DIGITS_ONLY);
-        this.chainLimitInput.setPlaceholder("64");
-        this.chainLimitInput.onTextChanged(value -> {
-            if (this.updatingChainLimitInput || value == null || value.isBlank()) {
-                return;
-            }
-            try {
-                this.chainDestroyLimit = sanitizeChainLimit(Integer.parseInt(value));
-                if (screen != null) {
-                    screen.persistUiState();
-                }
-            } catch (NumberFormatException ignored) {
+        int sliderW = Math.max(50, windowWidth - RIGHT_COL_X - 40);
+        this.chainLimitSlider = new WindowSlider(0, 0, sliderW, 18,
+                ULTIMINE_MIN_LIMIT, ULTIMINE_MAX_LIMIT, this.chainDestroyLimit);
+        this.chainLimitSlider.onChange(value -> {
+            this.chainDestroyLimit = value;
+            if (screen != null) {
+                screen.persistUiState();
             }
         });
-    }
-
-    private void syncChainLimitInput() {
-        if (this.chainLimitInput == null) {
-            return;
-        }
-        this.updatingChainLimitInput = true;
-        this.chainLimitInput.setValue(Integer.toString(this.chainDestroyLimit));
-        this.updatingChainLimitInput = false;
-    }
-
-    private void commitChainLimitInput() {
-        if (this.chainLimitInput == null) {
-            return;
-        }
-        String value = this.chainLimitInput.getValue();
-        if (value == null || value.isBlank()) {
-            syncChainLimitInput();
-            return;
-        }
-        try {
-            setChainDestroyLimit(Integer.parseInt(value));
-        } catch (NumberFormatException ignored) {
-            syncChainLimitInput();
-        }
     }
 
     private static int sanitizeChainLimit(int value) {
@@ -460,13 +430,18 @@ public final class QuickBuildPanel extends RtsWindowPanel {
                 rightX, shapeTitleY, 0xD8E3EE, false);
 
         if (isRangeDestroyChainMode()) {
-            ensureChainLimitInput();
+            ensureChainLimitSlider();
             int labelY = bodyY + SECTION_TOP + 17;
             g.drawString(screen.font(), Component.translatable("screen.rtsbuilding.quick_build.chain_limit_label"),
                     rightX, labelY, 0xFFD8E3EE, false);
-            this.chainLimitInput.setX(rightX);
-            this.chainLimitInput.setY(labelY + 12);
-            this.chainLimitInput.render(g, mouseX, mouseY, partialTick);
+            int sliderW = Math.max(50, windowWidth - RIGHT_COL_X - 40);
+            this.chainLimitSlider.setWidth(sliderW);
+            this.chainLimitSlider.setX(rightX);
+            this.chainLimitSlider.setY(labelY + 14);
+            this.chainLimitSlider.render(g, mouseX, mouseY, partialTick);
+            // 显示当前值
+            String valueStr = Integer.toString(this.chainDestroyLimit);
+            g.drawString(screen.font(), valueStr, rightX + sliderW + 6, labelY + 16, 0xFFEAF4FF, false);
         } else if (fillModeButtons == null || controller.getBuildShape() != lastFillShape) {
             rebuildFillModeButtons();
         }
@@ -560,13 +535,9 @@ public final class QuickBuildPanel extends RtsWindowPanel {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             return;
         }
-        if (this.chainLimitInput != null) {
-            if (isRangeDestroyChainMode() && this.chainLimitInput.mouseClicked(mouseX, mouseY, button)) {
+        if (this.chainLimitSlider != null && isRangeDestroyChainMode()) {
+            if (this.chainLimitSlider.mouseClicked(mouseX, mouseY, button)) {
                 return;
-            }
-            if (this.chainLimitInput.isFocused()) {
-                commitChainLimitInput();
-                this.chainLimitInput.setFocused(false);
             }
         }
         if (handleModeToggleClick(mouseX, mouseY)) {
@@ -588,31 +559,21 @@ public final class QuickBuildPanel extends RtsWindowPanel {
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (this.chainLimitInput != null && this.chainLimitInput.isFocused()) {
-            return handleWindowKeyPressed(keyCode, scanCode, modifiers);
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (this.chainLimitSlider != null && isRangeDestroyChainMode()) {
+            if (this.chainLimitSlider.mouseDragged(mouseX, mouseY, button)) {
+                return true;
+            }
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
     }
 
     @Override
-    protected boolean handleWindowKeyPressed(int keyCode, int scanCode, int modifiers) {
-        if (this.chainLimitInput == null || !this.chainLimitInput.isFocused()) {
-            return false;
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (this.chainLimitSlider != null) {
+            this.chainLimitSlider.mouseReleased(mouseX, mouseY, button);
         }
-        if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER || keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            commitChainLimitInput();
-            this.chainLimitInput.setFocused(false);
-            return true;
-        }
-        return this.chainLimitInput.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    @Override
-    protected boolean handleWindowCharTyped(char codePoint, int modifiers) {
-        return this.chainLimitInput != null
-                && this.chainLimitInput.isFocused()
-                && this.chainLimitInput.charTyped(codePoint, modifiers);
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     private boolean handleModeToggleClick(double mouseX, double mouseY) {
