@@ -6,6 +6,7 @@ import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.ScreenCursorPicker;
 import com.rtsbuilding.rtsbuilding.client.screen.layout.BottomPanelLayoutTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.BottomPanel;
+import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsQuestDetectStatusPayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -39,6 +40,11 @@ public final class RtsScreenOverlayRenderer {
 
     private long damageFlashStartMs = -1L;
     private boolean nativeCursorHidden = false;
+    private RtsWindowPanel.ResizeCursor nativeCursorStyle = RtsWindowPanel.ResizeCursor.DEFAULT;
+    private long resizeEwCursor;
+    private long resizeNsCursor;
+    private long resizeNwseCursor;
+    private long resizeNeswCursor;
 
     public RtsScreenOverlayRenderer(
             BuilderScreen screen,
@@ -73,14 +79,75 @@ public final class RtsScreenOverlayRenderer {
         Minecraft minecraft = this.screen.getMinecraft();
         if (minecraft == null) {
             this.nativeCursorHidden = false;
+            this.nativeCursorStyle = RtsWindowPanel.ResizeCursor.DEFAULT;
             return;
         }
         long window = minecraft.getWindow().getWindow();
-        if (hide == this.nativeCursorHidden) {
+        if (hide) {
+            if (this.nativeCursorStyle != RtsWindowPanel.ResizeCursor.DEFAULT) {
+                GLFW.glfwSetCursor(window, 0L);
+                this.nativeCursorStyle = RtsWindowPanel.ResizeCursor.DEFAULT;
+            }
+            if (this.nativeCursorHidden) {
+                return;
+            }
+            GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_HIDDEN);
+            this.nativeCursorHidden = true;
             return;
         }
-        GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, hide ? GLFW.GLFW_CURSOR_HIDDEN : GLFW.GLFW_CURSOR_NORMAL);
-        this.nativeCursorHidden = hide;
+        updateNativeCursor(RtsWindowPanel.ResizeCursor.DEFAULT);
+    }
+
+    public void updateNativeCursor(RtsWindowPanel.ResizeCursor cursor) {
+        Minecraft minecraft = this.screen.getMinecraft();
+        if (minecraft == null) {
+            this.nativeCursorHidden = false;
+            this.nativeCursorStyle = RtsWindowPanel.ResizeCursor.DEFAULT;
+            return;
+        }
+        long window = minecraft.getWindow().getWindow();
+        if (this.nativeCursorHidden) {
+            GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
+            this.nativeCursorHidden = false;
+        }
+        RtsWindowPanel.ResizeCursor safeCursor = cursor == null
+                ? RtsWindowPanel.ResizeCursor.DEFAULT
+                : cursor;
+        if (safeCursor == this.nativeCursorStyle) {
+            return;
+        }
+        GLFW.glfwSetCursor(window, cursorHandle(safeCursor));
+        this.nativeCursorStyle = safeCursor;
+    }
+
+    private long cursorHandle(RtsWindowPanel.ResizeCursor cursor) {
+        return switch (cursor) {
+            case RESIZE_EW -> {
+                if (this.resizeEwCursor == 0L) {
+                    this.resizeEwCursor = GLFW.glfwCreateStandardCursor(GLFW.GLFW_RESIZE_EW_CURSOR);
+                }
+                yield this.resizeEwCursor;
+            }
+            case RESIZE_NS -> {
+                if (this.resizeNsCursor == 0L) {
+                    this.resizeNsCursor = GLFW.glfwCreateStandardCursor(GLFW.GLFW_RESIZE_NS_CURSOR);
+                }
+                yield this.resizeNsCursor;
+            }
+            case RESIZE_NWSE -> {
+                if (this.resizeNwseCursor == 0L) {
+                    this.resizeNwseCursor = GLFW.glfwCreateStandardCursor(GLFW.GLFW_RESIZE_NWSE_CURSOR);
+                }
+                yield this.resizeNwseCursor;
+            }
+            case RESIZE_NESW -> {
+                if (this.resizeNeswCursor == 0L) {
+                    this.resizeNeswCursor = GLFW.glfwCreateStandardCursor(GLFW.GLFW_RESIZE_NESW_CURSOR);
+                }
+                yield this.resizeNeswCursor;
+            }
+            case DEFAULT -> 0L;
+        };
     }
 
     public void renderHomeSelectionOverlay(GuiGraphics g, int mouseX, int mouseY) {

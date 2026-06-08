@@ -1,5 +1,9 @@
 package com.rtsbuilding.rtsbuilding.client.screen.gear;
 
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
 import com.rtsbuilding.rtsbuilding.Config;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
@@ -10,6 +14,7 @@ import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
+import net.minecraft.util.FormattedCharSequence;
 
 import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.*;
 
@@ -26,8 +31,21 @@ public final class GearMenuPanel extends RtsWindowPanel {
     private static final int DEFAULT_WINDOW_W = 380;
     private static final int MIN_WINDOW_W = 280;
     private static final int CONTENT_TOP_PADDING = 8;
+    private static final int SECTION_HEADER_H = 22;
+    private static final int SECTION_GAP = 6;
+    private static final int SENSITIVITY_ROW_H = 68;
+    private static final int SCALE_ROW_H = 34;
+    private static final int SIMPLE_TOGGLE_ROW_H = 28;
+    private static final int HINT_TOGGLE_ROW_H = 34;
+    private static final int HINT_LINE_H = 10;
+    private static final int HINT_EXPAND_BUTTON_SIZE = 12;
 
     private int scroll = 0;
+    private boolean controlsExpanded = false;
+    private boolean displayExpanded = false;
+    private boolean helpersExpanded = false;
+    private boolean animationExpanded = false;
+    private final Set<String> expandedHintKeys = new HashSet<>();
 
     @Override
     public void init(BuilderScreen screen, ClientRtsController controller) {
@@ -37,6 +55,11 @@ public final class GearMenuPanel extends RtsWindowPanel {
 
     public void open() {
         this.scroll = 0;
+        this.controlsExpanded = false;
+        this.displayExpanded = false;
+        this.helpersExpanded = false;
+        this.animationExpanded = false;
+        this.expandedHintKeys.clear();
         setOpen(true);
         markBroughtToFront();
     }
@@ -136,15 +159,136 @@ public final class GearMenuPanel extends RtsWindowPanel {
     }
 
     private void renderControls(GuiGraphics g, int mouseX, int mouseY, int x, int controlsY, int w) {
-        drawSettingsSection(g, x + 8, controlsY, w - 16, GEAR_MENU_CONTENT_H,
-                Component.translatable("screen.rtsbuilding.settings.controls").getString());
+        int rowY = controlsY;
+        rowY = drawSectionHeader(g, mouseX, mouseY, x, w, rowY,
+                "screen.rtsbuilding.settings.category.controls", this.controlsExpanded);
+        if (this.controlsExpanded) {
+            drawSensitivityRow(g, rowY, x, w);
+            rowY += SENSITIVITY_ROW_H;
+            drawSimpleToggleRow(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.head_start",
+                    this.controller.isStartCameraAtPlayerHead());
+            rowY += SIMPLE_TOGGLE_ROW_H;
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.pan_drag_x_invert",
+                    "screen.rtsbuilding.settings.pan_drag_x_invert.hint",
+                    this.controller.isInvertPanDragX());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.pan_drag_x_invert.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.pan_drag_y_invert",
+                    "screen.rtsbuilding.settings.pan_drag_y_invert.hint",
+                    this.controller.isInvertPanDragY());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.pan_drag_y_invert.hint");
+        }
+        rowY += SECTION_GAP;
+
+        rowY = drawSectionHeader(g, mouseX, mouseY, x, w, rowY,
+                "screen.rtsbuilding.settings.category.display", this.displayExpanded);
+        if (this.displayExpanded) {
+            drawScaleRow(g, mouseX, mouseY, rowY, x, w);
+            rowY += SCALE_ROW_H;
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.debug_button",
+                    "screen.rtsbuilding.settings.debug_button.hint",
+                    this.debugButtonVisible());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.debug_button.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.container_overlay",
+                    "screen.rtsbuilding.settings.container_overlay.hint",
+                    RtsClientUiStateStore.isContainerOverlayEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.container_overlay.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.shift_import",
+                    "screen.rtsbuilding.settings.shift_import.hint",
+                    RtsClientUiStateStore.isOverlayShiftImportEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.shift_import.hint");
+        }
+        rowY += SECTION_GAP;
+
+        rowY = drawSectionHeader(g, mouseX, mouseY, x, w, rowY,
+                "screen.rtsbuilding.settings.category.helpers", this.helpersExpanded);
+        if (this.helpersExpanded) {
+            drawSimpleToggleRow(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.auto_store",
+                    this.controller.isAutoStoreMinedDrops());
+            rowY += SIMPLE_TOGGLE_ROW_H;
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.storage_refresh_quiet",
+                    "screen.rtsbuilding.settings.storage_refresh_quiet.hint",
+                    RtsClientUiStateStore.isStorageRefreshQuietEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.storage_refresh_quiet.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.storage_auto_refresh",
+                    "screen.rtsbuilding.settings.storage_auto_refresh.hint",
+                    RtsClientUiStateStore.isStorageAutoRefreshEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.storage_auto_refresh.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.placed_recovery",
+                    "screen.rtsbuilding.settings.placed_recovery.hint",
+                    this.controller.isAllowPlacedBlockRecovery());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.placed_recovery.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.damage_sound",
+                    "screen.rtsbuilding.settings.damage_sound.hint",
+                    this.controller.isDamageSoundEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.damage_sound.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.damage_auto_return",
+                    "screen.rtsbuilding.settings.damage_auto_return.hint",
+                    this.controller.isDamageAutoReturnEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.damage_auto_return.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.bd_network",
+                    "screen.rtsbuilding.settings.bd_network.hint",
+                    this.controller.isBdNetworkEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.bd_network.hint");
+        }
+        rowY += SECTION_GAP;
+
+        rowY = drawSectionHeader(g, mouseX, mouseY, x, w, rowY,
+                "screen.rtsbuilding.settings.category.animation", this.animationExpanded);
+        if (this.animationExpanded) {
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.smooth_camera",
+                    "screen.rtsbuilding.settings.smooth_camera.hint",
+                    this.controller.isSmoothCamera());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.smooth_camera.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.block_ghost_preview",
+                    "screen.rtsbuilding.settings.block_ghost_preview.hint",
+                    Config.isBlockGhostPreviewEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.block_ghost_preview.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.wireframe_preview",
+                    "screen.rtsbuilding.settings.wireframe_preview.hint",
+                    Config.isWireframePreviewEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.wireframe_preview.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.range_destroy_skeleton",
+                    "screen.rtsbuilding.settings.range_destroy_skeleton.hint",
+                    Config.isRangeDestroySkeletonEnabled());
+        }
+    }
+
+    private int drawSectionHeader(GuiGraphics g, int mouseX, int mouseY, int x, int w, int y,
+            String titleKey, boolean expanded) {
+        boolean hover = inside(mouseX, mouseY, x + 8, y, w - 16, SECTION_HEADER_H);
+        int bg = hover ? 0xCC2C3948 : 0xCC202A35;
+        RtsClientUiUtil.drawPanelFrame(g, x + 8, y, w - 16, SECTION_HEADER_H,
+                bg, 0xFF596D82, 0xFF0B1016);
+        g.drawString(screen.font(), expanded ? "v" : ">", x + 16, y + 7, 0xEAF4FF, false);
+        g.drawString(screen.font(), trimToWidth(text(titleKey), w - 58), x + 31, y + 7, 0xF4F7FF, false);
+        return y + SECTION_HEADER_H;
+    }
+
+    private void drawSensitivityRow(GuiGraphics g, int rowY, int x, int w) {
         g.drawString(screen.font(), Component.translatable("screen.rtsbuilding.settings.sensitivity"),
-                x + 16, controlsY + 20, 0xC8D3DF, false);
+                x + 16, rowY + 6, 0xC8D3DF, false);
         g.drawString(screen.font(), this.controller.getInputSensitivityLabel(),
-                x + w - 60, controlsY + 20, 0xEAF4FF, false);
+                x + w - 60, rowY + 6, 0xEAF4FF, false);
 
         int trackX = x + 16;
-        int trackY = controlsY + 42;
+        int trackY = rowY + 28;
         int trackW = w - 32;
         g.fill(trackX, trackY, trackX + trackW, trackY + 4, 0xFF07090D);
         g.fill(trackX + 1, trackY + 1, trackX + trackW - 1, trackY + 3, 0xFF313946);
@@ -156,99 +300,48 @@ public final class GearMenuPanel extends RtsWindowPanel {
                 trackX, trackY + 10, 0xB5C1CE, false);
         g.drawString(screen.font(), Component.translatable("screen.rtsbuilding.settings.fast"),
                 trackX + trackW - 24, trackY + 10, 0xB5C1CE, false);
+    }
 
-        int scaleButtonY = controlsY + 70;
+    private void drawScaleRow(GuiGraphics g, int mouseX, int mouseY, int rowY, int x, int w) {
         int minusX = x + w - 124;
         int valueX = minusX + 26;
         int plusX = valueX + 60;
         g.drawString(screen.font(), Component.translatable("screen.rtsbuilding.settings.ui_scale"),
-                x + 16, scaleButtonY + 7, 0xC8D3DF, false);
-        drawGearMenuRow(g, mouseX, mouseY, minusX, scaleButtonY, 22, 22, "-", false);
-        RtsClientUiUtil.drawPanelFrame(g, valueX, scaleButtonY, 56, 22, 0xCC1A232E, 0xFF566B80, 0xFF0D1218);
+                x + 16, rowY + 8, 0xC8D3DF, false);
+        drawGearMenuRow(g, mouseX, mouseY, minusX, rowY + 6, 22, 22, "-", false);
+        RtsClientUiUtil.drawPanelFrame(g, valueX, rowY + 6, 56, 22, 0xCC1A232E, 0xFF566B80, 0xFF0D1218);
         RtsClientUiUtil.drawCenteredStringNoShadow(g, screen.font(), rtsGuiScaleLabel(),
-                valueX + 28, scaleButtonY + 7, 0xEAF4FF);
-        drawGearMenuRow(g, mouseX, mouseY, plusX, scaleButtonY, 22, 22, "+", false);
+                valueX + 28, rowY + 13, 0xEAF4FF);
+        drawGearMenuRow(g, mouseX, mouseY, plusX, rowY + 6, 22, 22, "+", false);
+    }
 
-        g.drawString(screen.font(), Component.translatable("screen.rtsbuilding.settings.auto_store"),
-                x + 16, controlsY + 118, 0xC8D3DF, false);
-        drawToggleButton(g, mouseX, mouseY, x + w - 92, controlsY + 112, 76, 22,
-                this.controller.isAutoStoreMinedDrops(),
-                text(this.controller.isAutoStoreMinedDrops() ? "gui.rtsbuilding.on" : "gui.rtsbuilding.off"));
-
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 140,
-                "screen.rtsbuilding.settings.storage_refresh_quiet",
-                "screen.rtsbuilding.settings.storage_refresh_quiet.hint",
-                RtsClientUiStateStore.isStorageRefreshQuietEnabled());
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 176,
-                "screen.rtsbuilding.settings.storage_auto_refresh",
-                "screen.rtsbuilding.settings.storage_auto_refresh.hint",
-                RtsClientUiStateStore.isStorageAutoRefreshEnabled());
-
-        g.drawString(screen.font(), Component.translatable("screen.rtsbuilding.settings.head_start"),
-                x + 16, controlsY + 218, 0xC8D3DF, false);
-        drawToggleButton(g, mouseX, mouseY, x + w - 92, controlsY + 212, 76, 22,
-                this.controller.isStartCameraAtPlayerHead(),
-                text(this.controller.isStartCameraAtPlayerHead() ? "gui.rtsbuilding.on" : "gui.rtsbuilding.off"));
-
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 240,
-                "screen.rtsbuilding.settings.placed_recovery",
-                "screen.rtsbuilding.settings.placed_recovery.hint",
-                this.controller.isAllowPlacedBlockRecovery());
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 276,
-                "screen.rtsbuilding.settings.debug_button",
-                "screen.rtsbuilding.settings.debug_button.hint",
-                this.debugButtonVisible());
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 312,
-                "screen.rtsbuilding.settings.container_overlay",
-                "screen.rtsbuilding.settings.container_overlay.hint",
-                RtsClientUiStateStore.isContainerOverlayEnabled());
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 348,
-                "screen.rtsbuilding.settings.shift_import",
-                "screen.rtsbuilding.settings.shift_import.hint",
-                RtsClientUiStateStore.isOverlayShiftImportEnabled());
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 384,
-                "screen.rtsbuilding.settings.pan_drag_x_invert",
-                "screen.rtsbuilding.settings.pan_drag_x_invert.hint",
-                this.controller.isInvertPanDragX());
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 420,
-                "screen.rtsbuilding.settings.pan_drag_y_invert",
-                "screen.rtsbuilding.settings.pan_drag_y_invert.hint",
-                this.controller.isInvertPanDragY());
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 456,
-                "screen.rtsbuilding.settings.smooth_camera",
-                "screen.rtsbuilding.settings.smooth_camera.hint",
-                this.controller.isSmoothCamera());
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 492,
-                "screen.rtsbuilding.settings.damage_sound",
-                "screen.rtsbuilding.settings.damage_sound.hint",
-                this.controller.isDamageSoundEnabled());
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 528,
-                "screen.rtsbuilding.settings.damage_auto_return",
-                "screen.rtsbuilding.settings.damage_auto_return.hint",
-                this.controller.isDamageAutoReturnEnabled());
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 564,
-                "screen.rtsbuilding.settings.bd_network",
-                "screen.rtsbuilding.settings.bd_network.hint",
-                this.controller.isBdNetworkEnabled());
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 600,
-                "screen.rtsbuilding.settings.block_ghost_preview",
-                "screen.rtsbuilding.settings.block_ghost_preview.hint",
-                Config.isBlockGhostPreviewEnabled());
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 636,
-                "screen.rtsbuilding.settings.wireframe_preview",
-                "screen.rtsbuilding.settings.wireframe_preview.hint",
-                Config.isWireframePreviewEnabled());
-        drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, controlsY + 672,
-                "screen.rtsbuilding.settings.range_destroy_skeleton",
-                "screen.rtsbuilding.settings.range_destroy_skeleton.hint",
-                Config.isRangeDestroySkeletonEnabled());
+    private void drawSimpleToggleRow(GuiGraphics g, int mouseX, int mouseY, int x, int w, int rowY,
+            String labelKey, boolean active) {
+        g.drawString(screen.font(), trimToWidth(text(labelKey), w - 126),
+                x + 16, rowY + 9, 0xC8D3DF, false);
+        drawToggleButton(g, mouseX, mouseY, x + w - 92, rowY + 4, 76, 22, active,
+                text(active ? "gui.rtsbuilding.on" : "gui.rtsbuilding.off"));
     }
 
     private void drawSettingsToggleWithHint(GuiGraphics g, int mouseX, int mouseY, int x, int w, int rowY,
             String labelKey, String hintKey, boolean active) {
-        String label = trimToWidth(text(labelKey), w - 126);
+        boolean expandable = hintCanExpand(x, w, hintKey);
+        boolean expanded = expandable && this.expandedHintKeys.contains(hintKey);
+        int hintX = hintTextX(x, expandable);
+        int hintW = hintTextMaxWidth(x, w, expandable);
+        String label = trimToWidth(text(labelKey), w - 116);
         g.drawString(screen.font(), label, x + 16, rowY + 2, 0xC8D3DF, false);
-        g.drawString(screen.font(), trimToWidth(text(hintKey), w - 126), x + 16, rowY + 13, 0x9FB0C2, false);
+        if (expandable) {
+            drawHintExpandButton(g, mouseX, mouseY, x, rowY, expanded);
+        }
+        if (expanded) {
+            List<FormattedCharSequence> lines = wrappedHintLines(x, w, hintKey);
+            for (int i = 0; i < lines.size(); i++) {
+                g.drawString(screen.font(), lines.get(i), hintX, rowY + 13 + i * HINT_LINE_H, 0x9FB0C2, false);
+            }
+        } else {
+            g.drawString(screen.font(), trimToWidth(text(hintKey), hintW), hintX, rowY + 13, 0x9FB0C2, false);
+        }
         drawToggleButton(g, mouseX, mouseY, x + w - 92, rowY + 4, 76, 22, active,
                 text(active ? "gui.rtsbuilding.on" : "gui.rtsbuilding.off"));
     }
@@ -256,99 +349,245 @@ public final class GearMenuPanel extends RtsWindowPanel {
     private void handleClick(double mouseX, double mouseY) {
         int x = contentX();
         int w = contentWidth();
-        int controlsY = contentY() + CONTENT_TOP_PADDING;
+        int rowY = contentY() + CONTENT_TOP_PADDING;
         double contentMouseY = mouseY + this.scroll;
 
-        if (inside(mouseX, contentMouseY, x + 16, controlsY + 34, w - 32, 24)) {
-            this.controller.setInputSensitivityByFraction(calcSensitivityFraction(mouseX, x, w));
+        if (inside(mouseX, contentMouseY, x + 8, rowY, w - 16, SECTION_HEADER_H)) {
+            this.controlsExpanded = !this.controlsExpanded;
+            clampScroll();
             return;
         }
-        int scaleButtonY = controlsY + 70;
-        int minusX = x + w - 124;
-        int plusX = minusX + 86;
-        if (inside(mouseX, contentMouseY, minusX, scaleButtonY, 22, 22)) {
-            adjustRtsGuiScale(-RTS_GUI_SCALE_STEP);
+        rowY += SECTION_HEADER_H;
+        if (this.controlsExpanded) {
+            if (inside(mouseX, contentMouseY, x + 16, rowY + 20, w - 32, 24)) {
+                this.controller.setInputSensitivityByFraction(calcSensitivityFraction(mouseX, x, w));
+                return;
+            }
+            rowY += SENSITIVITY_ROW_H;
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24, SIMPLE_TOGGLE_ROW_H)) {
+                this.controller.toggleStartCameraAtPlayerHead();
+                screen.persistUiState();
+                return;
+            }
+            rowY += SIMPLE_TOGGLE_ROW_H;
+            if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.pan_drag_x_invert.hint")) {
+                return;
+            }
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                    hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.pan_drag_x_invert.hint"))) {
+                this.controller.toggleInvertPanDragX();
+                screen.persistUiState();
+                return;
+            }
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.pan_drag_x_invert.hint");
+            if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.pan_drag_y_invert.hint")) {
+                return;
+            }
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                    hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.pan_drag_y_invert.hint"))) {
+                this.controller.toggleInvertPanDragY();
+                screen.persistUiState();
+                return;
+            }
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.pan_drag_y_invert.hint");
+        }
+        rowY += SECTION_GAP;
+
+        if (inside(mouseX, contentMouseY, x + 8, rowY, w - 16, SECTION_HEADER_H)) {
+            this.displayExpanded = !this.displayExpanded;
+            clampScroll();
             return;
         }
-        if (inside(mouseX, contentMouseY, plusX, scaleButtonY, 22, 22)) {
-            adjustRtsGuiScale(RTS_GUI_SCALE_STEP);
+        rowY += SECTION_HEADER_H;
+        if (this.displayExpanded) {
+            int minusX = x + w - 124;
+            int plusX = minusX + 86;
+            if (inside(mouseX, contentMouseY, minusX, rowY + 6, 22, 22)) {
+                adjustRtsGuiScale(-RTS_GUI_SCALE_STEP);
+                return;
+            }
+            if (inside(mouseX, contentMouseY, plusX, rowY + 6, 22, 22)) {
+                adjustRtsGuiScale(RTS_GUI_SCALE_STEP);
+                return;
+            }
+            rowY += SCALE_ROW_H;
+            if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.debug_button.hint")) {
+                return;
+            }
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                    hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.debug_button.hint"))) {
+                screen.toggleDebugButton();
+                screen.persistUiState();
+                return;
+            }
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.debug_button.hint");
+            if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.container_overlay.hint")) {
+                return;
+            }
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                    hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.container_overlay.hint"))) {
+                RtsClientUiStateStore.setContainerOverlayEnabled(!RtsClientUiStateStore.isContainerOverlayEnabled());
+                return;
+            }
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.container_overlay.hint");
+            if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.shift_import.hint")) {
+                return;
+            }
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                    hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.shift_import.hint"))) {
+                RtsClientUiStateStore.setOverlayShiftImportEnabled(!RtsClientUiStateStore.isOverlayShiftImportEnabled());
+                return;
+            }
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.shift_import.hint");
+        }
+        rowY += SECTION_GAP;
+
+        if (inside(mouseX, contentMouseY, x + 8, rowY, w - 16, SECTION_HEADER_H)) {
+            this.helpersExpanded = !this.helpersExpanded;
+            clampScroll();
             return;
         }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 104, w - 24, 28)) {
-            this.controller.toggleAutoStoreMinedDrops();
+        rowY += SECTION_HEADER_H;
+        if (this.helpersExpanded) {
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24, SIMPLE_TOGGLE_ROW_H)) {
+                this.controller.toggleAutoStoreMinedDrops();
+                return;
+            }
+            rowY += SIMPLE_TOGGLE_ROW_H;
+            if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.storage_refresh_quiet.hint")) {
+                return;
+            }
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                    hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.storage_refresh_quiet.hint"))) {
+                RtsClientUiStateStore.setStorageRefreshQuietEnabled(!RtsClientUiStateStore.isStorageRefreshQuietEnabled());
+                return;
+            }
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.storage_refresh_quiet.hint");
+            if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.storage_auto_refresh.hint")) {
+                return;
+            }
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                    hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.storage_auto_refresh.hint"))) {
+                RtsClientUiStateStore.setStorageAutoRefreshEnabled(!RtsClientUiStateStore.isStorageAutoRefreshEnabled());
+                return;
+            }
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.storage_auto_refresh.hint");
+            if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.placed_recovery.hint")) {
+                return;
+            }
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                    hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.placed_recovery.hint"))) {
+                this.controller.toggleAllowPlacedBlockRecovery();
+                screen.persistUiState();
+                return;
+            }
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.placed_recovery.hint");
+            if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.damage_sound.hint")) {
+                return;
+            }
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                    hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.damage_sound.hint"))) {
+                this.controller.toggleDamageSoundEnabled();
+                screen.persistUiState();
+                return;
+            }
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.damage_sound.hint");
+            if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.damage_auto_return.hint")) {
+                return;
+            }
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                    hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.damage_auto_return.hint"))) {
+                this.controller.toggleDamageAutoReturnEnabled();
+                screen.persistUiState();
+                return;
+            }
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.damage_auto_return.hint");
+            if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.bd_network.hint")) {
+                return;
+            }
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                    hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.bd_network.hint"))) {
+                this.controller.toggleBdNetworkEnabled();
+                return;
+            }
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.bd_network.hint");
+        }
+        rowY += SECTION_GAP;
+
+        if (inside(mouseX, contentMouseY, x + 8, rowY, w - 16, SECTION_HEADER_H)) {
+            this.animationExpanded = !this.animationExpanded;
+            clampScroll();
             return;
         }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 136, w - 24, 34)) {
-            RtsClientUiStateStore.setStorageRefreshQuietEnabled(!RtsClientUiStateStore.isStorageRefreshQuietEnabled());
+        rowY += SECTION_HEADER_H;
+        if (!this.animationExpanded) {
             return;
         }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 172, w - 24, 34)) {
-            RtsClientUiStateStore.setStorageAutoRefreshEnabled(!RtsClientUiStateStore.isStorageAutoRefreshEnabled());
+        if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                "screen.rtsbuilding.settings.smooth_camera.hint")) {
             return;
         }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 204, w - 24, 36)) {
-            this.controller.toggleStartCameraAtPlayerHead();
-            screen.persistUiState();
-            return;
-        }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 236, w - 24, 34)) {
-            this.controller.toggleAllowPlacedBlockRecovery();
-            screen.persistUiState();
-            return;
-        }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 272, w - 24, 34)) {
-            screen.toggleDebugButton();
-            screen.persistUiState();
-            return;
-        }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 308, w - 24, 34)) {
-            RtsClientUiStateStore.setContainerOverlayEnabled(!RtsClientUiStateStore.isContainerOverlayEnabled());
-            return;
-        }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 344, w - 24, 34)) {
-            RtsClientUiStateStore.setOverlayShiftImportEnabled(!RtsClientUiStateStore.isOverlayShiftImportEnabled());
-            return;
-        }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 380, w - 24, 34)) {
-            this.controller.toggleInvertPanDragX();
-            screen.persistUiState();
-            return;
-        }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 416, w - 24, 34)) {
-            this.controller.toggleInvertPanDragY();
-            screen.persistUiState();
-            return;
-        }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 452, w - 24, 34)) {
+        if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.smooth_camera.hint"))) {
             this.controller.toggleSmoothCamera();
             screen.persistUiState();
             return;
         }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 488, w - 24, 34)) {
-            this.controller.toggleDamageSoundEnabled();
-            screen.persistUiState();
+        rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.smooth_camera.hint");
+        if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                "screen.rtsbuilding.settings.block_ghost_preview.hint")) {
             return;
         }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 524, w - 24, 34)) {
-            this.controller.toggleDamageAutoReturnEnabled();
-            screen.persistUiState();
-            return;
-        }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 560, w - 24, 34)) {
-            this.controller.toggleBdNetworkEnabled();
-            return;
-        }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 596, w - 24, 34)) {
+        if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.block_ghost_preview.hint"))) {
             Config.setBlockGhostPreviewEnabled(!Config.isBlockGhostPreviewEnabled());
             return;
         }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 632, w - 24, 34)) {
+        rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.block_ghost_preview.hint");
+        if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                "screen.rtsbuilding.settings.wireframe_preview.hint")) {
+            return;
+        }
+        if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.wireframe_preview.hint"))) {
             Config.setWireframePreviewEnabled(!Config.isWireframePreviewEnabled());
             return;
         }
-        if (inside(mouseX, contentMouseY, x + 12, controlsY + 668, w - 24, 34)) {
+        rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.wireframe_preview.hint");
+        if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                "screen.rtsbuilding.settings.range_destroy_skeleton.hint")) {
+            return;
+        }
+        if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.range_destroy_skeleton.hint"))) {
             Config.setRangeDestroySkeletonEnabled(!Config.isRangeDestroySkeletonEnabled());
         }
+    }
+
+    private boolean handleHintExpandClick(double mouseX, double mouseY, int x, int w, int rowY, String hintKey) {
+        if (!hintCanExpand(x, w, hintKey)) {
+            return false;
+        }
+        if (!inside(mouseX, mouseY, hintExpandButtonX(x), rowY + 12,
+                HINT_EXPAND_BUTTON_SIZE, HINT_EXPAND_BUTTON_SIZE)) {
+            return false;
+        }
+        if (!this.expandedHintKeys.remove(hintKey)) {
+            this.expandedHintKeys.add(hintKey);
+        }
+        clampScroll();
+        return true;
     }
 
     private double calcSensitivityFraction(double mouseX, int menuX, int menuW) {
@@ -378,7 +617,47 @@ public final class GearMenuPanel extends RtsWindowPanel {
     }
 
     private int maxScroll() {
-        return Math.max(0, GEAR_MENU_CONTENT_H + CONTENT_TOP_PADDING - contentHeight());
+        return Math.max(0, settingsContentHeight() + CONTENT_TOP_PADDING - contentHeight());
+    }
+
+    private void clampScroll() {
+        this.scroll = Mth.clamp(this.scroll, 0, maxScroll());
+    }
+
+    private int settingsContentHeight() {
+        int x = contentX();
+        int w = contentWidth();
+        int height = sectionHeight(this.controlsExpanded,
+                SENSITIVITY_ROW_H
+                        + SIMPLE_TOGGLE_ROW_H
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.pan_drag_x_invert.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.pan_drag_y_invert.hint"));
+        height += SECTION_GAP;
+        height += sectionHeight(this.displayExpanded,
+                SCALE_ROW_H
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.debug_button.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.container_overlay.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.shift_import.hint"));
+        height += SECTION_GAP;
+        height += sectionHeight(this.helpersExpanded,
+                SIMPLE_TOGGLE_ROW_H
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.storage_refresh_quiet.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.storage_auto_refresh.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.placed_recovery.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.damage_sound.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.damage_auto_return.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.bd_network.hint"));
+        height += SECTION_GAP;
+        height += sectionHeight(this.animationExpanded,
+                hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.smooth_camera.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.block_ghost_preview.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.wireframe_preview.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.range_destroy_skeleton.hint"));
+        return height;
+    }
+
+    private int sectionHeight(boolean expanded, int expandedContentHeight) {
+        return SECTION_HEADER_H + (expanded ? expandedContentHeight : 0);
     }
 
     private void renderScrollbar(GuiGraphics g, int x, int y, int w, int h) {
@@ -389,15 +668,14 @@ public final class GearMenuPanel extends RtsWindowPanel {
         int trackX = x + w - 7;
         int trackH = Math.max(1, h);
         g.fill(trackX, y + 2, trackX + 2, y + h - 2, 0x88313A46);
-        int totalH = GEAR_MENU_CONTENT_H + CONTENT_TOP_PADDING;
+        int totalH = settingsContentHeight() + CONTENT_TOP_PADDING;
         int thumbH = Math.max(18, (int) Math.round(trackH * (trackH / (double) Math.max(trackH, totalH))));
         int thumbY = y + (int) Math.round((trackH - thumbH) * (this.scroll / (double) maxScroll));
         g.fill(trackX - 1, thumbY, trackX + 3, thumbY + thumbH, 0xCC8AA0B8);
     }
 
-    private void drawSettingsSection(GuiGraphics g, int x, int y, int w, int h, String title) {
-        g.drawString(screen.font(), title, x + 2, y, 0xF4F7FF, false);
-        RtsClientUiUtil.drawPanelFrame(g, x, y + 12, w, h - 12, 0xDD111720, 0xFF384351, 0xFF080B10);
+    private static boolean inside(double mouseX, double mouseY, int x, int y, int w, int h) {
+        return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
     }
 
     private void drawToggleButton(GuiGraphics g, int mouseX, int mouseY, int x, int y, int w, int h,
@@ -410,6 +688,46 @@ public final class GearMenuPanel extends RtsWindowPanel {
         RtsClientUiUtil.drawCenteredStringNoShadow(g, screen.font(), label, x + w / 2, y + 7, 0xF7FBFF);
     }
 
+    private int hintToggleRowHeight(int x, int w, String hintKey) {
+        if (!hintCanExpand(x, w, hintKey) || !this.expandedHintKeys.contains(hintKey)) {
+            return HINT_TOGGLE_ROW_H;
+        }
+        return Math.max(HINT_TOGGLE_ROW_H, 18 + wrappedHintLines(x, w, hintKey).size() * HINT_LINE_H);
+    }
+
+    private boolean hintCanExpand(int x, int w, String hintKey) {
+        return screen.font().width(text(hintKey)) > hintTextMaxWidth(x, w, true);
+    }
+
+    private List<FormattedCharSequence> wrappedHintLines(int x, int w, String hintKey) {
+        return screen.font().split(Component.translatable(hintKey), hintTextMaxWidth(x, w, true));
+    }
+
+    private int hintTextX(int x, boolean hasExpandButton) {
+        return x + 16 + (hasExpandButton ? HINT_EXPAND_BUTTON_SIZE + 4 : 0);
+    }
+
+    private int hintTextMaxWidth(int x, int w, boolean hasExpandButton) {
+        int toggleX = x + w - 92;
+        return Math.max(24, toggleX - hintTextX(x, hasExpandButton) - 8);
+    }
+
+    private int hintExpandButtonX(int x) {
+        return x + 16;
+    }
+
+    private void drawHintExpandButton(GuiGraphics g, int mouseX, int mouseY, int x, int rowY, boolean expanded) {
+        int buttonX = hintExpandButtonX(x);
+        int buttonY = rowY + 12;
+        boolean hover = inside(mouseX, mouseY, buttonX, buttonY,
+                HINT_EXPAND_BUTTON_SIZE, HINT_EXPAND_BUTTON_SIZE);
+        int bg = hover ? 0xCC334054 : 0xAA26303D;
+        RtsClientUiUtil.drawPanelFrame(g, buttonX, buttonY,
+                HINT_EXPAND_BUTTON_SIZE, HINT_EXPAND_BUTTON_SIZE, bg, 0xFF6A8299, 0xFF0E1116);
+        RtsClientUiUtil.drawCenteredStringNoShadow(g, screen.font(), expanded ? "v" : ">",
+                buttonX + HINT_EXPAND_BUTTON_SIZE / 2, buttonY + 2, 0xDDEBFA);
+    }
+
     private void drawGearMenuRow(GuiGraphics g, int mouseX, int mouseY, int x, int y, int w, int h,
             String label, boolean active) {
         boolean hover = inside(mouseX, mouseY, x, y, w, h);
@@ -419,7 +737,4 @@ public final class GearMenuPanel extends RtsWindowPanel {
                 x + w / 2, y + 7, 0xF2F6FB);
     }
 
-    private static boolean inside(double mouseX, double mouseY, int x, int y, int w, int h) {
-        return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
-    }
 }

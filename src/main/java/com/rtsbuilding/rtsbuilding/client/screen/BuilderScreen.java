@@ -1234,6 +1234,7 @@ public final class BuilderScreen extends Screen {
         this.overlayRenderer.renderQuestDetectPopup(guiGraphics);
         this.overlayRenderer.renderStorageScanPopup(guiGraphics);
         renderHoveredItemTooltips(guiGraphics, mouseX, mouseY);
+        this.overlayRenderer.updateNativeCursor(this.floatingWindowLayer.resizeCursorAt(mouseX, mouseY));
         this.bottomPanel.renderCraftFeedback(guiGraphics);
         this.overlayRenderer.renderDamageFlash(guiGraphics);
     }
@@ -1599,12 +1600,7 @@ public final class BuilderScreen extends Screen {
     }
 
     public boolean isMouseOverFloatingWindow(double mouseX, double mouseY) {
-        for (RtsWindowPanel window : this.floatingWindowLayer.frontToBackWindows()) {
-            if (window.isOpen() && window.isInsideWindow(mouseX, mouseY)) {
-                return true;
-            }
-        }
-        return false;
+        return this.floatingWindowLayer.isMouseOverWindowOrResizableBorder(mouseX, mouseY);
     }
 
     /** Closes the gear (settings) menu. */

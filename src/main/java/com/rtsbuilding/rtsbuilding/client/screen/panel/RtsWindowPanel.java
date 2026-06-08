@@ -84,6 +84,14 @@ public abstract class RtsWindowPanel implements RtsPanel {
      */
     private boolean skipHoverDetection;
 
+    public enum ResizeCursor {
+        DEFAULT,
+        RESIZE_EW,
+        RESIZE_NS,
+        RESIZE_NWSE,
+        RESIZE_NESW
+    }
+
     protected enum ResizeEdge {
         NONE,
         LEFT,
@@ -306,6 +314,25 @@ public abstract class RtsWindowPanel implements RtsPanel {
         int border = getResizeBorderWidth();
         return mouseX >= this.windowX - border && mouseX < this.windowX + this.windowWidth + border
                 && mouseY >= this.windowY - border && mouseY < this.windowY + this.windowHeight + border;
+    }
+
+    public boolean isInsideResizableBorder(double mouseX, double mouseY) {
+        return currentResizeCursor(mouseX, mouseY) != ResizeCursor.DEFAULT;
+    }
+
+    public ResizeCursor currentResizeCursor(double mouseX, double mouseY) {
+        if (!this.open || !canShowWindow() || !this.resizable) {
+            return ResizeCursor.DEFAULT;
+        }
+        initializePosition();
+        ResizeEdge edge = this.resizing ? this.resizeEdge : getResizeEdgeAt((int) mouseX, (int) mouseY);
+        return switch (edge) {
+            case LEFT, RIGHT -> ResizeCursor.RESIZE_EW;
+            case TOP, BOTTOM -> ResizeCursor.RESIZE_NS;
+            case TOP_LEFT, BOTTOM_RIGHT -> ResizeCursor.RESIZE_NWSE;
+            case TOP_RIGHT, BOTTOM_LEFT -> ResizeCursor.RESIZE_NESW;
+            case NONE -> ResizeCursor.DEFAULT;
+        };
     }
 
     @Override
