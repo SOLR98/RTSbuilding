@@ -58,14 +58,14 @@ public final class RtsClientNetworkHandlers {
 
     public static void handlePlaceAnimation(S2CRtsPlaceAnimationPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
-            PlacementAnimationRenderer.confirmPlacement(payload.pos());
+            PlacementAnimationRenderer.confirmPlacement(payload.pos(), payload.state());
             PlacementHistoryManager.confirmPlacement(payload.pos());
         });
     }
 
     public static void handleBreakAnimation(S2CRtsBreakAnimationPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
-            PlacementAnimationRenderer.addDestroy(payload.pos());
+            PlacementAnimationRenderer.addDestroy(payload.pos(), payload.state());
             ShapeGhostRenderer.markDestroyed(payload.pos());
             PlacementHistoryManager.confirmBreak(payload.pos());
         });

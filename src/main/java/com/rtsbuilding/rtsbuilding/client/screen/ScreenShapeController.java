@@ -3,20 +3,25 @@ package com.rtsbuilding.rtsbuilding.client.screen;
 import com.rtsbuilding.rtsbuilding.client.rendering.animation.PlacementAnimationRenderer;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.RenderingUtil;
+import com.rtsbuilding.rtsbuilding.client.rendering.util.RaycastHelper;
 import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.ShapeFillMode;
 import com.rtsbuilding.rtsbuilding.client.screen.shape.*;
+import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
 import org.lwjgl.glfw.GLFW;
 
@@ -146,8 +151,9 @@ public final class ScreenShapeController {
             } else {
                 this.controller.placeSelected(hit, forcePlace, rayOrigin, rayDir);
                 this.placementHistory.recordSinglePlacement(hit, replayKind, replayItemId, replayToolSlot);
-                // Single block pending ghost
-                BlockState pendingState = resolvePendingGhostBlockState();
+                // Single block pending ghost — resolve target position for accurate direction
+                BlockPos placePos = resolvePlacementTargetPos(hit.getBlockPos(), hit.getDirection());
+                BlockState pendingState = resolvePendingGhostBlockState(placePos);
                 PlacementAnimationRenderer.addPendingBatch(
                         List.of(hit.getBlockPos().immutable()), pendingState);
             }
@@ -367,8 +373,9 @@ public final class ScreenShapeController {
             for (BlockHitResult shapedHit : hits) {
                 positions.add(shapedHit.getBlockPos().immutable());
             }
-            // 解析放置的方块类型
-            BlockState pendingState = resolvePendingGhostBlockState();
+            // 解析放置的方块类型 — use first hit position for direction
+            BlockPos firstPlacePos = hits.isEmpty() ? null : hits.get(0).getBlockPos();
+            BlockState pendingState = resolvePendingGhostBlockState(firstPlacePos);
             String blockStateId = pendingState != null
                     ? BuiltInRegistries.BLOCK.getKey(pendingState.getBlock()).toString()
                     : "";
@@ -442,14 +449,38 @@ public final class ScreenShapeController {
             if (hit == null) {
                 return ShapeDataRecords.GhostPreview.EMPTY;
             }
-            BlockPos placePos = resolvePlacementTargetPos(hit.getBlockPos().immutable(), hit.getDirection());
+            Minecraft mc = this.screen.getMinecraft();
+            if (mc == null || mc.level == null || mc.player == null) {
+                return ShapeDataRecords.GhostPreview.EMPTY;
+            }
+
+            // Resolve the held item stack (same approach as resolvePendingGhostBlockState)
+            ItemStack itemStack = ItemStack.EMPTY;
+            if (this.controller.hasSelectedItem()) {
+                itemStack = this.controller.getSelectedItemPreview();
+            } else {
+                itemStack = mc.player.getMainHandItem();
+            }
+            if (itemStack.isEmpty()) {
+                return ShapeDataRecords.GhostPreview.EMPTY;
+            }
+
+            // Use BlockPlaceContext to properly determine the placement position,
+            // matching the server's auto-adjustment logic (handles slab merging
+            // where canBeReplaced(context) returns true for matching slabs, etc.).
+            BlockPlaceContext context = new BlockPlaceContext(
+                    mc.level, mc.player, InteractionHand.MAIN_HAND, itemStack, hit);
+            BlockPos placePos = context.getClickedPos();
             if (placePos == null) {
                 return ShapeDataRecords.GhostPreview.EMPTY;
             }
-            // Skip ghost if the target position is already occupied by a non-replaceable block
-            Minecraft mc = this.screen.getMinecraft();
-            if (mc != null && mc.level != null && mc.level.hasChunkAt(placePos)) {
-                if (!mc.level.getBlockState(placePos).isAir() && !mc.level.getBlockState(placePos).canBeReplaced()) {
+
+            // Use context-aware canBeReplaced() instead of the no-arg variant so
+            // that blocks replaceable only with context (e.g., slabs that can merge
+            // into DOUBLE) are not incorrectly treated as occupied.
+            if (mc.level.hasChunkAt(placePos)) {
+                if (!mc.level.getBlockState(placePos).isAir()
+                        && !mc.level.getBlockState(placePos).canBeReplaced(context)) {
                     return ShapeDataRecords.GhostPreview.EMPTY;
                 }
             }
@@ -775,22 +806,189 @@ public final class ScreenShapeController {
 
     /**
      * Resolves the block state to use for pending ghost rendering at placement confirmation time.
+     * Uses the target→camera direction to simulate {@link
+     * net.minecraft.world.level.block.Block#getStateForPlacement(BlockPlaceContext)}
+     * so the ghost preview matches the server-placed block state.
+     *
+     * @param targetPos actual block position where the new block will be placed
      */
-    private BlockState resolvePendingGhostBlockState() {
+    private BlockState resolvePendingGhostBlockState(BlockPos targetPos) {
         Minecraft mc = this.screen.getMinecraft();
+        ItemStack itemStack = ItemStack.EMPTY;
+
         if (this.controller.hasSelectedItem()) {
-            ItemStack preview = this.controller.getSelectedItemPreview();
-            if (preview.getItem() instanceof BlockItem blockItem) {
-                return blockItem.getBlock().defaultBlockState();
+            itemStack = this.controller.getSelectedItemPreview();
+        } else if (mc != null && mc.player != null) {
+            itemStack = mc.player.getMainHandItem();
+        }
+
+        if (itemStack.isEmpty() || !(itemStack.getItem() instanceof BlockItem blockItem)) {
+            return null;
+        }
+
+        // If no target position, use default state
+        if (targetPos == null) {
+            return blockItem.getBlock().defaultBlockState();
+        }
+
+        // Resolve block state using target-to-camera direction
+        BlockState state = resolveStateWithCamera(mc, blockItem, itemStack, targetPos);
+        if (state == null) return null;
+
+        // Apply rotation from shape controller
+        int rotateDegrees = this.shapeRotateDegrees;
+        if (rotateDegrees != 0) {
+            state = applyRotation(state, rotateDegrees);
+        }
+        return state;
+    }
+
+    /**
+     * Simulates {@link BlockItem#getBlock()}.{@link
+     * net.minecraft.world.level.block.Block#getStateForPlacement(BlockPlaceContext)
+     * getStateForPlacement} using the target→camera direction.
+     *
+     * <p>Uses an anonymous {@link BlockPlaceContext} subclass that overrides the
+     * direction methods to return values computed from the target→camera vector,
+     * avoiding any mutation of the player entity. The target position is passed
+     * through so neighbor-dependent blocks (fences, walls, etc.) see correct
+     * context.
+     */
+    private static BlockState resolveStateWithCamera(Minecraft mc, BlockItem blockItem, ItemStack stack, BlockPos targetPos) {
+        if (mc == null || mc.player == null || mc.level == null) return null;
+
+        Camera camera = mc.gameRenderer.getMainCamera();
+        Vec3 cameraPos = camera.getPosition();
+        Vec3 targetCenter = Vec3.atCenterOf(targetPos);
+
+        // Compute the direction the camera is looking (camera → target).
+        double dx = targetCenter.x - cameraPos.x;
+        double dy = targetCenter.y - cameraPos.y;
+        double dz = targetCenter.z - cameraPos.z;
+        float yawDeg = (float) Math.toDegrees(Mth.atan2(-dx, dz));
+
+        // Use the actual cursor ray direction (matching ScreenCursorPicker's ray mechanism).
+        Vec3 viewDir = RaycastHelper.computeCursorRayDirection(mc);
+
+        // ── Perform an actual block raycast to get the precise clicked face and hit location ──
+        // This matches what ScreenCursorPicker.pickBlockHit() returns and avoids snapping
+        // to cardinal axes with Direction.getNearest(), which gives wrong faces when aiming
+        // at wall blocks from an angle.
+        Vec3 rayEnd = cameraPos.add(viewDir.scale(128.0D));
+        BlockHitResult actualHit = RaycastHelper.raycastBlockFromCursor(
+                mc, cameraPos, rayEnd, false);
+
+        Direction clickedFace;
+        BlockPos adjacentPos;
+        Vec3 hitLocation;
+
+        if (actualHit != null) {
+            // Use the actual raycast result: real clicked face, clicked block, and exact
+            // intersection point.
+            clickedFace = actualHit.getDirection();
+            adjacentPos = actualHit.getBlockPos();
+            hitLocation = actualHit.getLocation();
+        } else {
+            // Fallback when no block is hit: compute from ray direction via ray-plane
+            // intersection on the adjacent block's face.
+            clickedFace = Direction.getNearest(-viewDir.x, -viewDir.y, -viewDir.z);
+            adjacentPos = targetPos.relative(clickedFace.getOpposite());
+            switch (clickedFace) {
+                case DOWN -> {
+                    double planeY = adjacentPos.getY();
+                    if (viewDir.y != 0.0) {
+                        double t = (planeY - cameraPos.y) / viewDir.y;
+                        hitLocation = new Vec3(cameraPos.x + t * viewDir.x, planeY, cameraPos.z + t * viewDir.z);
+                    } else {
+                        hitLocation = new Vec3(targetCenter.x, planeY, targetCenter.z);
+                    }
+                }
+                case UP -> {
+                    double planeY = adjacentPos.getY() + 1.0;
+                    if (viewDir.y != 0.0) {
+                        double t = (planeY - cameraPos.y) / viewDir.y;
+                        hitLocation = new Vec3(cameraPos.x + t * viewDir.x, planeY, cameraPos.z + t * viewDir.z);
+                    } else {
+                        hitLocation = new Vec3(targetCenter.x, planeY, targetCenter.z);
+                    }
+                }
+                case NORTH -> {
+                    double planeZ = adjacentPos.getZ();
+                    if (viewDir.z != 0.0) {
+                        double t = (planeZ - cameraPos.z) / viewDir.z;
+                        hitLocation = new Vec3(cameraPos.x + t * viewDir.x, cameraPos.y + t * viewDir.y, planeZ);
+                    } else {
+                        hitLocation = new Vec3(targetCenter.x, targetCenter.y, planeZ);
+                    }
+                }
+                case SOUTH -> {
+                    double planeZ = adjacentPos.getZ() + 1.0;
+                    if (viewDir.z != 0.0) {
+                        double t = (planeZ - cameraPos.z) / viewDir.z;
+                        hitLocation = new Vec3(cameraPos.x + t * viewDir.x, cameraPos.y + t * viewDir.y, planeZ);
+                    } else {
+                        hitLocation = new Vec3(targetCenter.x, targetCenter.y, planeZ);
+                    }
+                }
+                case WEST -> {
+                    double planeX = adjacentPos.getX();
+                    if (viewDir.x != 0.0) {
+                        double t = (planeX - cameraPos.x) / viewDir.x;
+                        hitLocation = new Vec3(planeX, cameraPos.y + t * viewDir.y, cameraPos.z + t * viewDir.z);
+                    } else {
+                        hitLocation = new Vec3(planeX, targetCenter.y, targetCenter.z);
+                    }
+                }
+                case EAST -> {
+                    double planeX = adjacentPos.getX() + 1.0;
+                    if (viewDir.x != 0.0) {
+                        double t = (planeX - cameraPos.x) / viewDir.x;
+                        hitLocation = new Vec3(planeX, cameraPos.y + t * viewDir.y, cameraPos.z + t * viewDir.z);
+                    } else {
+                        hitLocation = new Vec3(planeX, targetCenter.y, targetCenter.z);
+                    }
+                }
+                default -> hitLocation = targetCenter;
             }
         }
-        if (mc != null && mc.player != null) {
-            ItemStack mainHand = mc.player.getMainHandItem();
-            if (mainHand.getItem() instanceof BlockItem blockItem) {
-                return blockItem.getBlock().defaultBlockState();
+
+        BlockPlaceContext context = new BlockPlaceContext(
+                mc.level,
+                mc.player,
+                InteractionHand.MAIN_HAND,
+                stack,
+                new BlockHitResult(hitLocation, clickedFace, adjacentPos, false)) {
+            @Override
+            public Direction getHorizontalDirection() {
+                return Direction.fromYRot(yawDeg);
             }
+
+            @Override
+            public Direction getNearestLookingDirection() {
+                return clickedFace;
+            }
+
+            @Override
+            public Direction getNearestLookingVerticalDirection() {
+                return Direction.getNearest(0.0, dy, 0.0);
+            }
+
+            @Override
+            public float getRotation() {
+                return yawDeg;
+            }
+        };
+        return blockItem.getBlock().getStateForPlacement(context);
+    }
+
+    private static BlockState applyRotation(BlockState state, int rotateDegrees) {
+        int turns = (rotateDegrees / 90) & 3;
+        if (turns == 0) return state;
+        BlockState rotated = state;
+        for (int i = 0; i < turns; i++) {
+            rotated = rotated.rotate(Rotation.CLOCKWISE_90);
         }
-        return null;
+        return rotated;
     }
 
     private ShapeBuildTypes.Input resolveCurrentShapeBuildInput(BlockHitResult cursorHit, boolean requireReady) {
