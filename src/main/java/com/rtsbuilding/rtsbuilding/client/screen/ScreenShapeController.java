@@ -1,6 +1,5 @@
 package com.rtsbuilding.rtsbuilding.client.screen;
 
-import com.rtsbuilding.rtsbuilding.client.rendering.animation.PlacementAnimationRenderer;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.RenderingUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionTypes;
@@ -145,10 +144,6 @@ public final class ScreenShapeController {
             } else {
                 this.controller.placeSelected(hit, forcePlace, rayOrigin, rayDir);
                 this.placementHistory.recordSinglePlacement(hit, replayKind, replayItemId, replayToolSlot);
-                // Single block pending ghost
-                BlockState pendingState = resolvePendingGhostBlockState();
-                PlacementAnimationRenderer.addPendingBatch(
-                        List.of(hit.getBlockPos().immutable()), pendingState);
             }
             return;
         }
@@ -379,9 +374,6 @@ public final class ScreenShapeController {
                     input.placementFace(),
                     positions,
                     blockStates);
-        
-            // Register pending ghosts for visual feedback while waiting for server confirmation
-            PlacementAnimationRenderer.addPendingBatch(positions, pendingState);
         }
         return true;
     }

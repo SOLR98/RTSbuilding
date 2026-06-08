@@ -202,6 +202,8 @@ public final class ClientRtsController {
     private int activeMineToolSlot;
     private BlockPos mineRenderPos;
     private int mineRenderStage = -1;
+    private BlockPos mineProgressCompletedPos;
+    private long mineProgressCompletedAtMs;
     /** Ultimine overall progress: number of blocks already processed. Negative = no ultimine in progress. */
     private int ultimineProgressProcessed = -1;
     /** Ultimine overall progress: total number of target blocks. */
@@ -2122,8 +2124,16 @@ public final class ClientRtsController {
     }
 
     public void applyUltimineProgress(S2CRtsUltimineProgressPayload payload) {
+        if (payload.total() > 0 && payload.processed() >= payload.total() && this.mineRenderPos != null) {
+            rememberMineProgressCompleted(this.mineRenderPos);
+        }
         this.ultimineProgressProcessed = payload.processed();
         this.ultimineProgressTotal = payload.total();
+    }
+
+    private void rememberMineProgressCompleted(BlockPos pos) {
+        this.mineProgressCompletedPos = pos == null ? null : pos.immutable();
+        this.mineProgressCompletedAtMs = System.currentTimeMillis();
     }
 
     public void applyProgressionState(S2CRtsProgressionStatePayload payload) {
@@ -2859,6 +2869,14 @@ public final class ClientRtsController {
 
     public BlockPos getMineProgressPos() {
         return this.mineRenderPos;
+    }
+
+    public BlockPos getMineProgressCompletedPos() {
+        return this.mineProgressCompletedPos;
+    }
+
+    public long getMineProgressCompletedAtMs() {
+        return this.mineProgressCompletedAtMs;
     }
 
     private void beginRemoteMenuOpenGrace() {
