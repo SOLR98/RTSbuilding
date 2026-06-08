@@ -9,7 +9,7 @@ version="${mod_version}"
 displayName="${mod_name}"
 credits="卓清婉, 凌墨问, 可怜Bot, 五世桃花亭"
 authors="${mod_authors}"
-displayURL="https://github.com/Hcrab/RTSbuilding"
+displayURL="https://rts.ciallo.ltd/"
 description='''
 Build, manage storage, and interact with your base from an overhead RTS-style building panel.
 '''
