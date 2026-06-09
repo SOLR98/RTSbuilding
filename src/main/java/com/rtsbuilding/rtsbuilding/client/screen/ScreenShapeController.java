@@ -438,6 +438,9 @@ public final class ScreenShapeController {
             return new ShapeDataRecords.GhostPreview(preview.breakableBlocks(), ready, true, List.of());
         }
         if (this.controller.getBuildShape() == BuildShape.BLOCK) {
+            if (this.controller.isEmptyHandSelected()) {
+                return ShapeDataRecords.GhostPreview.EMPTY;
+            }
             // Pre-placement ghost for single block: show translucent block model
             // at the cursor's target position before the player clicks.
             if (this.controller.hasSelectedFluid()) {
