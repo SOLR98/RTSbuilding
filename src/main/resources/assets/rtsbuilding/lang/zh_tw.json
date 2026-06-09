@@ -325,7 +325,6 @@
   "screen.rtsbuilding.tooltip.buffered": "快取 x%s",
   "screen.rtsbuilding.tooltip.undo_redo_keys": "撤銷：Ctrl+Z  重做：Ctrl+Y",
   "screen.rtsbuilding.tooltip.quick_build_toggle": "再次點選可關閉快速建造，並取消預覽。",
-  "screen.rtsbuilding.tooltip.quick_build_cancel": "切換形狀或關閉面板可取消目前預覽。",
   "screen.rtsbuilding.tooltip.count_storage": "儲存視圖：%s",
   "screen.rtsbuilding.tooltip.count_inventory": "背包：%s",
   "screen.rtsbuilding.tooltip.gui_empty": "空 GUI 槽位",

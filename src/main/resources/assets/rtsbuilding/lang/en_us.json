@@ -325,7 +325,6 @@
   "screen.rtsbuilding.tooltip.buffered": "Buffered x%s",
   "screen.rtsbuilding.tooltip.undo_redo_keys": "Undo: Ctrl+Z  Redo: Ctrl+Y",
   "screen.rtsbuilding.tooltip.quick_build_toggle": "Click again to close Quick Build and cancel the preview.",
-  "screen.rtsbuilding.tooltip.quick_build_cancel": "Switch shape or close this panel to cancel the current preview.",
   "screen.rtsbuilding.tooltip.count_storage": "Storage view: %s",
   "screen.rtsbuilding.tooltip.count_inventory": "Inventory: %s",
   "screen.rtsbuilding.tooltip.gui_empty": "Empty GUI slot",
