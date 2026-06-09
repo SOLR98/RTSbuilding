@@ -20,8 +20,9 @@ import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * Brief shrink-out overlay shown after the server confirms a remote break.
- * It follows the same visual layer settings as placement: block ghost, wireframe,
- * both, or neither.
+ * Its model and wireframe layers are controlled independently from placement
+ * preview layers so breaking feedback can stay visible without forcing preview
+ * noise, or vice versa.
  */
 public final class DestroyGhostRenderer {
     private static final long DESTROY_DURATION_MS = 220L;

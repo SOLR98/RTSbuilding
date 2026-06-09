@@ -259,15 +259,25 @@ public final class GearMenuPanel extends RtsWindowPanel {
                     this.controller.isSmoothCamera());
             rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.smooth_camera.hint");
             drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
-                    "screen.rtsbuilding.settings.block_ghost_preview",
-                    "screen.rtsbuilding.settings.block_ghost_preview.hint",
-                    Config.isBlockGhostPreviewEnabled());
-            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.block_ghost_preview.hint");
+                    "screen.rtsbuilding.settings.placement_block_ghost_preview",
+                    "screen.rtsbuilding.settings.placement_block_ghost_preview.hint",
+                    Config.isPlacementBlockGhostPreviewEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.placement_block_ghost_preview.hint");
             drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
-                    "screen.rtsbuilding.settings.wireframe_preview",
-                    "screen.rtsbuilding.settings.wireframe_preview.hint",
-                    Config.isWireframePreviewEnabled());
-            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.wireframe_preview.hint");
+                    "screen.rtsbuilding.settings.destroy_block_ghost_animation",
+                    "screen.rtsbuilding.settings.destroy_block_ghost_animation.hint",
+                    Config.isDestroyBlockGhostAnimationEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.destroy_block_ghost_animation.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.placement_wireframe_preview",
+                    "screen.rtsbuilding.settings.placement_wireframe_preview.hint",
+                    Config.isPlacementWireframePreviewEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.placement_wireframe_preview.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.destroy_wireframe_animation",
+                    "screen.rtsbuilding.settings.destroy_wireframe_animation.hint",
+                    Config.isDestroyWireframeAnimationEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.destroy_wireframe_animation.hint");
             drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
                     "screen.rtsbuilding.settings.range_destroy_skeleton",
                     "screen.rtsbuilding.settings.range_destroy_skeleton.hint",
@@ -562,25 +572,45 @@ public final class GearMenuPanel extends RtsWindowPanel {
         }
         rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.smooth_camera.hint");
         if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
-                "screen.rtsbuilding.settings.block_ghost_preview.hint")) {
+                "screen.rtsbuilding.settings.placement_block_ghost_preview.hint")) {
             return;
         }
         if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
-                hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.block_ghost_preview.hint"))) {
-            Config.setBlockGhostPreviewEnabled(!Config.isBlockGhostPreviewEnabled());
+                hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.placement_block_ghost_preview.hint"))) {
+            Config.setPlacementBlockGhostPreviewEnabled(!Config.isPlacementBlockGhostPreviewEnabled());
             return;
         }
-        rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.block_ghost_preview.hint");
+        rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.placement_block_ghost_preview.hint");
         if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
-                "screen.rtsbuilding.settings.wireframe_preview.hint")) {
+                "screen.rtsbuilding.settings.destroy_block_ghost_animation.hint")) {
             return;
         }
         if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
-                hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.wireframe_preview.hint"))) {
-            Config.setWireframePreviewEnabled(!Config.isWireframePreviewEnabled());
+                hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.destroy_block_ghost_animation.hint"))) {
+            Config.setDestroyBlockGhostAnimationEnabled(!Config.isDestroyBlockGhostAnimationEnabled());
             return;
         }
-        rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.wireframe_preview.hint");
+        rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.destroy_block_ghost_animation.hint");
+        if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                "screen.rtsbuilding.settings.placement_wireframe_preview.hint")) {
+            return;
+        }
+        if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.placement_wireframe_preview.hint"))) {
+            Config.setPlacementWireframePreviewEnabled(!Config.isPlacementWireframePreviewEnabled());
+            return;
+        }
+        rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.placement_wireframe_preview.hint");
+        if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                "screen.rtsbuilding.settings.destroy_wireframe_animation.hint")) {
+            return;
+        }
+        if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.destroy_wireframe_animation.hint"))) {
+            Config.setDestroyWireframeAnimationEnabled(!Config.isDestroyWireframeAnimationEnabled());
+            return;
+        }
+        rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.destroy_wireframe_animation.hint");
         if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
                 "screen.rtsbuilding.settings.range_destroy_skeleton.hint")) {
             return;
@@ -667,8 +697,10 @@ public final class GearMenuPanel extends RtsWindowPanel {
         height += SECTION_GAP;
         height += sectionHeight(this.animationExpanded,
                 hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.smooth_camera.hint")
-                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.block_ghost_preview.hint")
-                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.wireframe_preview.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.placement_block_ghost_preview.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.destroy_block_ghost_animation.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.placement_wireframe_preview.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.destroy_wireframe_animation.hint")
                         + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.range_destroy_skeleton.hint"));
         return height;
     }

@@ -140,8 +140,8 @@ public final class ShapeGhostRenderer {
         // ── Build mode (placement ghost) ──
         boolean usePlacementLayerSettings = shouldUsePlacementPreviewSettings(preview);
         BuildGhostRenderer.render(minecraft, preview, poseStack, lineBuffer, fillBuffer,
-                usePlacementLayerSettings ? com.rtsbuilding.rtsbuilding.Config.isBlockGhostPreviewEnabled() : true,
-                usePlacementLayerSettings ? com.rtsbuilding.rtsbuilding.Config.isWireframePreviewEnabled() : true);
+                usePlacementLayerSettings ? com.rtsbuilding.rtsbuilding.Config.isPlacementBlockGhostPreviewEnabled() : true,
+                usePlacementLayerSettings ? com.rtsbuilding.rtsbuilding.Config.isPlacementWireframePreviewEnabled() : true);
     }
 
     // ===== Range-destroy confirmed work area handling =====

@@ -57,7 +57,7 @@ public final class PlacementAnimationRenderer {
         // Clean up any lingering pending ghost that was never confirmed
         // (e.g. placement confirmation packet hadn't arrived before destruction)
         PendingGhostRenderer.remove(pos);
-        if (shouldRenderPlacementLayers()) {
+        if (shouldRenderDestroyLayers()) {
             DestroyGhostRenderer.add(pos, state);
         }
     }
@@ -65,29 +65,39 @@ public final class PlacementAnimationRenderer {
     // ===== Render =====
 
     /**
-     * Renders all ghost effects. The wireframe/translucent mode switch is
-     * controlled by the global config.
+     * Renders all ghost effects. Placement feedback and destroy feedback have
+     * separate visual layer settings so players can tune preview noise.
      */
     public static void render(Minecraft minecraft, PoseStack poseStack,
             VertexConsumer lineBuffer, VertexConsumer fillBuffer) {
         if (minecraft == null || minecraft.level == null) {
             return;
         }
-        boolean blockGhost = Config.isBlockGhostPreviewEnabled();
-        boolean wireframe = Config.isWireframePreviewEnabled();
-        if (blockGhost) {
+        boolean placementBlockGhost = Config.isPlacementBlockGhostPreviewEnabled();
+        boolean destroyBlockGhost = Config.isDestroyBlockGhostAnimationEnabled();
+        boolean placementWireframe = Config.isPlacementWireframePreviewEnabled();
+        boolean destroyWireframe = Config.isDestroyWireframeAnimationEnabled();
+        if (placementBlockGhost) {
             PendingGhostRenderer.render(minecraft, poseStack, lineBuffer, fillBuffer);
             ConfirmedPlacementRenderer.renderModels(minecraft, poseStack, fillBuffer);
+        }
+        if (destroyBlockGhost) {
             DestroyGhostRenderer.renderModels(minecraft, poseStack, fillBuffer);
         }
-        if (wireframe) {
+        if (placementWireframe) {
             PendingGhostRenderer.renderWireframes(poseStack, lineBuffer);
             ConfirmedPlacementRenderer.renderWireframes(poseStack, lineBuffer);
+        }
+        if (destroyWireframe) {
             DestroyGhostRenderer.renderWireframes(poseStack, lineBuffer);
         }
     }
 
     private static boolean shouldRenderPlacementLayers() {
-        return Config.isBlockGhostPreviewEnabled() || Config.isWireframePreviewEnabled();
+        return Config.isPlacementBlockGhostPreviewEnabled() || Config.isPlacementWireframePreviewEnabled();
+    }
+
+    private static boolean shouldRenderDestroyLayers() {
+        return Config.isDestroyBlockGhostAnimationEnabled() || Config.isDestroyWireframeAnimationEnabled();
     }
 }

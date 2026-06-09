@@ -43,14 +43,24 @@ public class Config {
     // ---- Rendering options ----
 
     public static final ModConfigSpec.BooleanValue USE_BLOCK_GHOST_PREVIEW = BUILDER
-            .comment("Render translucent block ghost models for placement previews and place/break animations.")
+            .comment("Render translucent block ghost models for placement previews and placement confirmation feedback.")
             .translation("rtsbuilding.configuration.useBlockGhostPreview")
             .define("useBlockGhostPreview", true);
 
+    public static final ModConfigSpec.BooleanValue USE_DESTROY_BLOCK_GHOST_ANIMATION = BUILDER
+            .comment("Render translucent shrink-out block ghosts after server-confirmed block destruction.")
+            .translation("rtsbuilding.configuration.useDestroyBlockGhostAnimation")
+            .define("useDestroyBlockGhostAnimation", true);
+
     public static final ModConfigSpec.BooleanValue USE_WIREFRAME_PREVIEW = BUILDER
-            .comment("Render wireframe outlines for placement previews and place/break animations.")
+            .comment("Render wireframe outlines for placement previews and placement confirmation feedback.")
             .translation("rtsbuilding.configuration.useWireframePreview")
             .define("useWireframePreview", false);
+
+    public static final ModConfigSpec.BooleanValue USE_DESTROY_WIREFRAME_ANIMATION = BUILDER
+            .comment("Render shrink-out wireframe outlines after server-confirmed block destruction.")
+            .translation("rtsbuilding.configuration.useDestroyWireframeAnimation")
+            .define("useDestroyWireframeAnimation", false);
 
     public static final ModConfigSpec.BooleanValue USE_RANGE_DESTROY_SKELETON = BUILDER
             .comment("Render merged skeleton borders for non-chain range destroy previews. Chain mining always uses the skeleton style.")
@@ -89,22 +99,27 @@ public class Config {
                 radiusBlocks,
                 blueprintsEnabled,
                 maxBlueprintBlocks,
-                isBlockGhostPreviewEnabled(),
-                isWireframePreviewEnabled(),
+                isPlacementBlockGhostPreviewEnabled(),
+                isDestroyBlockGhostAnimationEnabled(),
+                isPlacementWireframePreviewEnabled(),
+                isDestroyWireframeAnimationEnabled(),
                 isRangeDestroySkeletonEnabled(),
                 costOverrides);
     }
 
     public static void saveGeneralSettings(boolean survivalEnabled, boolean shareWithTeams, int radiusBlocks,
-            boolean blueprintsEnabled, int maxBlueprintBlocks, boolean blockGhostPreview,
-            boolean wireframePreview, boolean rangeDestroySkeleton, Map<String, String> costOverrides) {
+            boolean blueprintsEnabled, int maxBlueprintBlocks, boolean placementBlockGhostPreview,
+            boolean destroyBlockGhostAnimation, boolean placementWireframePreview, boolean destroyWireframeAnimation,
+            boolean rangeDestroySkeleton, Map<String, String> costOverrides) {
         ENABLE_SURVIVAL_PROGRESSION.set(survivalEnabled);
         SHARE_SURVIVAL_PROGRESSION_WITH_TEAMS.set(shareWithTeams);
         MAX_ACTION_RADIUS_BLOCKS.set(Math.max(48, Math.min(512, radiusBlocks)));
         ENABLE_BLUEPRINTS.set(blueprintsEnabled);
         MAX_BLUEPRINT_BLOCKS.set(Math.max(1, Math.min(200000, maxBlueprintBlocks)));
-        USE_BLOCK_GHOST_PREVIEW.set(blockGhostPreview);
-        USE_WIREFRAME_PREVIEW.set(wireframePreview);
+        USE_BLOCK_GHOST_PREVIEW.set(placementBlockGhostPreview);
+        USE_DESTROY_BLOCK_GHOST_ANIMATION.set(destroyBlockGhostAnimation);
+        USE_WIREFRAME_PREVIEW.set(placementWireframePreview);
+        USE_DESTROY_WIREFRAME_ANIMATION.set(destroyWireframeAnimation);
         USE_RANGE_DESTROY_SKELETON.set(rangeDestroySkeleton);
         setProgressionCostOverrides(costOverrides);
         SPEC.save();
@@ -129,22 +144,56 @@ public class Config {
         return out;
     }
 
-    public static boolean isBlockGhostPreviewEnabled() {
+    public static boolean isPlacementBlockGhostPreviewEnabled() {
         return USE_BLOCK_GHOST_PREVIEW.getAsBoolean();
     }
 
-    public static void setBlockGhostPreviewEnabled(boolean enabled) {
+    public static void setPlacementBlockGhostPreviewEnabled(boolean enabled) {
         USE_BLOCK_GHOST_PREVIEW.set(enabled);
         SPEC.save();
     }
 
-    public static boolean isWireframePreviewEnabled() {
+    public static boolean isDestroyBlockGhostAnimationEnabled() {
+        return USE_DESTROY_BLOCK_GHOST_ANIMATION.getAsBoolean();
+    }
+
+    public static void setDestroyBlockGhostAnimationEnabled(boolean enabled) {
+        USE_DESTROY_BLOCK_GHOST_ANIMATION.set(enabled);
+        SPEC.save();
+    }
+
+    public static boolean isPlacementWireframePreviewEnabled() {
         return USE_WIREFRAME_PREVIEW.getAsBoolean();
     }
 
-    public static void setWireframePreviewEnabled(boolean enabled) {
+    public static void setPlacementWireframePreviewEnabled(boolean enabled) {
         USE_WIREFRAME_PREVIEW.set(enabled);
         SPEC.save();
+    }
+
+    public static boolean isDestroyWireframeAnimationEnabled() {
+        return USE_DESTROY_WIREFRAME_ANIMATION.getAsBoolean();
+    }
+
+    public static void setDestroyWireframeAnimationEnabled(boolean enabled) {
+        USE_DESTROY_WIREFRAME_ANIMATION.set(enabled);
+        SPEC.save();
+    }
+
+    public static boolean isBlockGhostPreviewEnabled() {
+        return isPlacementBlockGhostPreviewEnabled();
+    }
+
+    public static void setBlockGhostPreviewEnabled(boolean enabled) {
+        setPlacementBlockGhostPreviewEnabled(enabled);
+    }
+
+    public static boolean isWireframePreviewEnabled() {
+        return isPlacementWireframePreviewEnabled();
+    }
+
+    public static void setWireframePreviewEnabled(boolean enabled) {
+        setPlacementWireframePreviewEnabled(enabled);
     }
 
     public static boolean isRangeDestroySkeletonEnabled() {
