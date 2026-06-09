@@ -2542,7 +2542,12 @@ public final class ClientRtsController {
 
     public void interactEmpty(BlockHitResult hit, Vec3 rayOrigin, Vec3 rayDir) {
         beginRemoteMenuOpenGrace();
-        RtsClientPacketGateway.sendPlace(hit, false, false, "", ItemStack.EMPTY, 0, rayOrigin, rayDir);
+        RtsClientPacketGateway.sendEmptyHandPlace(hit, rayOrigin, rayDir);
+    }
+
+    public void interactEntityEmpty(int entityId, Vec3 hitLocation, Vec3 rayOrigin, Vec3 rayDir) {
+        beginRemoteMenuOpenGrace();
+        RtsClientPacketGateway.sendInteractEntityEmptyHand(entityId, hitLocation, rayOrigin, rayDir);
     }
 
     public void interactBlockWithToolSlot(BlockHitResult hit, int toolSlot, Vec3 rayOrigin, Vec3 rayDir) {

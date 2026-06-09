@@ -49,10 +49,6 @@ public final class StorageLinkDetailHandler extends RtsWindowPanel {
      * position as a user-arranged preference.
      */
     public void updateVisibility(int mouseX, int mouseY) {
-        if (this.screen.isInteractionWheelOpen()) {
-            setOpen(false);
-            return;
-        }
         TopBarTypes.TopBarButtonLayout linkButton = findTopBarButton(TopBarTypes.TopBarButtonId.LINK);
         if (linkButton == null || !isVisible(mouseX, mouseY, linkButton)) {
             setOpen(false);

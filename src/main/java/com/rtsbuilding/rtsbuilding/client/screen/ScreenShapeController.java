@@ -44,7 +44,6 @@ public final class ScreenShapeController {
     private ShapeFillMode shapeFillMode = ShapeFillMode.FILL;
     private boolean lineConnected = false;
     private int shapeRotateDegrees = 0;
-    private boolean altShapeMenuHeld = false;
     private ShapeDataRecords.GhostPreview confirmedRangeDestroyPreview = ShapeDataRecords.GhostPreview.EMPTY;
     private long confirmedRangeDestroyPreviewUntilMs;
     private ShapeDataRecords.GhostPreview confirmedChainDestroyPreview = ShapeDataRecords.GhostPreview.EMPTY;
@@ -510,15 +509,6 @@ public final class ScreenShapeController {
         }
         boolean ready = this.shapeBuildSession != null && this.shapeBuildSession.phase() == ShapeBuildTypes.Phase.READY_CONFIRM;
         return new ShapeDataRecords.GhostPreview(blocks, ready);
-    }
-
-    // ===== Input life cycle =====
-
-    public void updateAltShapeWheelLifecycle() {
-        // The old Alt-held radial selector was a pre-refactor affordance and is now
-        // intentionally dormant. Shape selection lives in the top bar, while this
-        // controller continues to own the actual build-session geometry.
-        this.altShapeMenuHeld = false;
     }
 
     /**
@@ -1370,16 +1360,6 @@ public final class ScreenShapeController {
     }
 
 
-
-    // ===== Alt shape wheel =====
-
-    private boolean shouldOpenAltShapeWheel(double mouseY) {
-        return this.controller.isEnabled()
-                && !this.screen.isShapeWheelOpen()
-                && !this.screen.isInteractionWheelOpen()
-                && !this.screen.isMouseOverFloatingWindow(this.screen.getCurrentMouseX(), mouseY)
-                && this.screen.isWorldArea(this.screen.getCurrentMouseX(), mouseY);
-    }
 
     private boolean isAltDown() {
         Minecraft mc = this.screen.getMinecraft();

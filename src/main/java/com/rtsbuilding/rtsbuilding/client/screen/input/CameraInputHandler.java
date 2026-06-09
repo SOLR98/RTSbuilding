@@ -271,8 +271,6 @@ public final class CameraInputHandler {
                 && screen.isWorldArea(mouseX, mouseY)
                 && !screen.isMouseOverFloatingWindow(mouseX, mouseY)
                 && !screen.isDraggingInputSensitivity()
-                && !screen.isShapeWheelOpen()
-                && !screen.isInteractionWheelOpen()
                 && !screen.isSearchFocused();
     }
 

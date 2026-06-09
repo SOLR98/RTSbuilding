@@ -60,7 +60,8 @@ public final class RtsBuilderNetworkHandlers {
                         payload.rayDirX(),
                         payload.rayDirY(),
                         payload.rayDirZ(),
-                        payload.quickBuild());
+                        payload.quickBuild(),
+                        payload.forceEmptyHand());
             }
         });
     }

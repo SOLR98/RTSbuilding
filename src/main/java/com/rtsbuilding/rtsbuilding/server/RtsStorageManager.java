@@ -857,7 +857,7 @@ public final class RtsStorageManager {
     public static void placeSelected(ServerPlayer player, BlockPos clickedPos, Direction face, double hitX, double hitY,
             double hitZ, byte rotateSteps, boolean forcePlace, boolean skipIfOccupied, String itemId,
             ItemStack itemPrototype, double rayOriginX, double rayOriginY, double rayOriginZ,
-            double rayDirX, double rayDirY, double rayDirZ, boolean quickBuild) {
+            double rayDirX, double rayDirY, double rayDirZ, boolean quickBuild, boolean forceEmptyHand) {
         double hitOffsetX = clickedPos == null ? 0.5D : hitX - clickedPos.getX();
         double hitOffsetY = clickedPos == null ? 0.5D : hitY - clickedPos.getY();
         double hitOffsetZ = clickedPos == null ? 0.5D : hitZ - clickedPos.getZ();
@@ -881,6 +881,7 @@ public final class RtsStorageManager {
                 rayDirY,
                 rayDirZ,
                 quickBuild,
+                forceEmptyHand,
                 true);
     }
 
@@ -909,6 +910,7 @@ public final class RtsStorageManager {
                 rayDirY,
                 rayDirZ,
                 true,
+                false,
                 false);
     }
 
@@ -1037,6 +1039,8 @@ public final class RtsStorageManager {
             result = useItemInAirWithToolSlot(player, level, hit, toolSlot, rayContext);
         } else if (sourceType == C2SRtsInteractPayload.SOURCE_PIN_ITEM) {
             result = interactWithLinkedItem(player, level, session, targetEntity, blockHit, hit, itemId, rayContext);
+        } else if (sourceType == C2SRtsInteractPayload.SOURCE_EMPTY_HAND) {
+            result = interactWithEmptyHand(player, level, targetEntity, blockHit, hit, rayContext);
         }
         AbstractContainerMenu menuAfterInteract = player.containerMenu;
         if (menuAfterInteract != menuBeforeInteract) {
@@ -2019,6 +2023,29 @@ public final class RtsStorageManager {
             } finally {
                 player.getInventory().selected = previousSelected;
             }
+                });
+    }
+
+    private static InteractionResult interactWithEmptyHand(ServerPlayer player, ServerLevel level, Entity targetEntity,
+            BlockHitResult blockHit, Vec3 hit, RayContext rayContext) {
+        Vec3 interactionPos = resolveInteractionPosition(targetEntity, blockHit, hit);
+        return withTemporaryUseItemContext(
+                player,
+                interactionPos,
+                hit,
+                rayContext,
+                REMOTE_POV_BLOCK_REACH,
+                () -> {
+                    if (targetEntity != null) {
+                        return useItemOnEntityWithMainHand(player, level, ItemStack.EMPTY, targetEntity, hit).result();
+                    }
+                    if (blockHit != null) {
+                        UseOnOutcome primary = useItemOnWithMainHand(player, level, ItemStack.EMPTY, blockHit, false);
+                        if (primary.result().consumesAction()) {
+                            return primary.result();
+                        }
+                    }
+                    return useItemWithMainHand(player, level, ItemStack.EMPTY, false).result();
                 });
     }
 

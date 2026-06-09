@@ -63,6 +63,7 @@ public final class RtsPlacementBatch {
                 rayDirY,
                 rayDirZ,
                 quickBuild,
+                false,
                 true);
     }
 
@@ -80,7 +81,7 @@ public final class RtsPlacementBatch {
             Direction face, double hitOffsetX, double hitOffsetY, double hitOffsetZ, byte rotateSteps,
             boolean forcePlace, boolean skipIfOccupied, String itemId, ItemStack itemPrototype,
             double rayOriginX, double rayOriginY, double rayOriginZ, double rayDirX, double rayDirY,
-            double rayDirZ, boolean quickBuild, boolean sendRemoteHint) {
+            double rayDirZ, boolean quickBuild, boolean forceEmptyHand, boolean sendRemoteHint) {
         if (!RtsProgressionManager.canUse(
                 player, RtsFeature.REMOTE_PLACE)) {
             return;
@@ -125,6 +126,7 @@ public final class RtsPlacementBatch {
                 rayDirY,
                 rayDirZ,
                 quickBuild,
+                forceEmptyHand,
                 sendRemoteHint));
     }
 
@@ -179,6 +181,7 @@ public final class RtsPlacementBatch {
                             job.rayDirY(),
                             job.rayDirZ(),
                             job.quickBuild(),
+                            job.forceEmptyHand(),
                             false,
                             job.sendRemoteHint());
                 }
@@ -224,6 +227,7 @@ public final class RtsPlacementBatch {
         private final double rayDirY;
         private final double rayDirZ;
         private final boolean quickBuild;
+        private final boolean forceEmptyHand;
         private final boolean sendRemoteHint;
         private int index;
         private boolean statePlanResolved;
@@ -232,7 +236,7 @@ public final class RtsPlacementBatch {
         private PlaceBatchJob(List<BlockPos> clickedPositions, Direction face, double hitOffsetX, double hitOffsetY,
                 double hitOffsetZ, byte rotateSteps, boolean forcePlace, boolean skipIfOccupied, String itemId,
                 ItemStack itemPrototype, double rayOriginX, double rayOriginY, double rayOriginZ, double rayDirX,
-                double rayDirY, double rayDirZ, boolean quickBuild, boolean sendRemoteHint) {
+                double rayDirY, double rayDirZ, boolean quickBuild, boolean forceEmptyHand, boolean sendRemoteHint) {
             this.clickedPositions = clickedPositions;
             this.face = face;
             this.hitOffsetX = hitOffsetX;
@@ -250,6 +254,7 @@ public final class RtsPlacementBatch {
             this.rayDirY = rayDirY;
             this.rayDirZ = rayDirZ;
             this.quickBuild = quickBuild;
+            this.forceEmptyHand = forceEmptyHand;
             this.sendRemoteHint = sendRemoteHint;
         }
 
@@ -354,6 +359,10 @@ public final class RtsPlacementBatch {
 
         boolean quickBuild() {
             return this.quickBuild;
+        }
+
+        private boolean forceEmptyHand() {
+            return this.forceEmptyHand;
         }
 
         private boolean sendRemoteHint() {

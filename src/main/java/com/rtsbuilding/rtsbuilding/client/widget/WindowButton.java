@@ -118,13 +118,15 @@ public class WindowButton extends AbstractButton {
 
         // 计算文本位置（居中）
         int textColor = this.active ? TEXT_COLOR : TEXT_COLOR_DISABLED;
-        int textWidth = minecraft.font.width(this.getMessage());
+        String label = RtsClientUiUtil.trimToWidth(minecraft.font, this.getMessage().getString(),
+                Math.max(4, this.width - 8));
+        int textWidth = minecraft.font.width(label);
         int textX = this.getX() + (this.width - textWidth) / 2;
         int textY = this.getY() + (this.height - 8) / 2;
 
         // 绘制文本
-        if (!this.getMessage().getString().isEmpty()) {
-            guiGraphics.drawString(minecraft.font, this.getMessage(), textX, textY, textColor, false);
+        if (!label.isEmpty()) {
+            guiGraphics.drawString(minecraft.font, label, textX, textY, textColor, false);
         }
     }
 

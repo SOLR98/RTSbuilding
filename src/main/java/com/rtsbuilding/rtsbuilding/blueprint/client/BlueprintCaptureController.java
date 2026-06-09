@@ -26,7 +26,6 @@ import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelFiles.s
  */
 final class BlueprintCaptureController {
     private boolean active = false;
-    private boolean previewVisible = true;
     private BlockPos pointA = null;
     private BlockPos pointB = null;
     private BlockPos hoverPoint = null;
@@ -65,7 +64,7 @@ final class BlueprintCaptureController {
     }
 
     boolean shouldRenderPreviewFill() {
-        return active && previewVisible && pointB != null;
+        return active && pointB != null;
     }
 
     boolean shouldRenderBlockHighlights(int limit) {
@@ -76,8 +75,8 @@ final class BlueprintCaptureController {
         return volume > 0L && volume <= limit;
     }
 
-    List<BlockPos> includedBlocksForRender(int limit) {
-        if (!shouldRenderBlockHighlights(limit)) {
+    List<BlockPos> includedBlocksForRender(Level level, int limit) {
+        if (level == null || !shouldRenderBlockHighlights(limit)) {
             return List.of();
         }
         long volume = captureVolume(pointA, pointB);
@@ -91,12 +90,17 @@ final class BlueprintCaptureController {
         if (minY > maxY) {
             return List.of();
         }
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int y = minY; y <= maxY; y++) {
             for (int z = minZ; z <= maxZ; z++) {
                 for (int x = minX; x <= maxX; x++) {
-                    BlockPos pos = new BlockPos(x, y, z);
-                    if (!excludedBlocks.contains(pos)) {
-                        blocks.add(pos);
+                    cursor.set(x, y, z);
+                    if (excludedBlocks.contains(cursor) || !level.hasChunkAt(cursor)) {
+                        continue;
+                    }
+                    BlockState state = level.getBlockState(cursor);
+                    if (!state.isAir() && !state.is(Blocks.STRUCTURE_VOID)) {
+                        blocks.add(cursor.immutable());
                     }
                 }
             }
@@ -139,7 +143,6 @@ final class BlueprintCaptureController {
         pointB = null;
         hoverPoint = null;
         excludedBlocks.clear();
-        previewVisible = true;
         status.set(S2CBlueprintStatusPayload.INFO, "screen.rtsbuilding.blueprints.status.capture_start", "");
     }
 
@@ -309,14 +312,6 @@ final class BlueprintCaptureController {
 
     int sizeZ() {
         return pointA == null || pointB == null ? 0 : Math.abs(pointA.getZ() - pointB.getZ()) + 1;
-    }
-
-    void togglePreviewVisible() {
-        previewVisible = !previewVisible;
-    }
-
-    boolean previewVisible() {
-        return previewVisible;
     }
 
     String saveStatusLine() {

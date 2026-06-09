@@ -636,11 +636,11 @@ public final class BlueprintPanel {
                 return true;
             }
             if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_PAGE_UP) {
-                CAPTURE.expandVertical(step, BlueprintPanel::setStatus);
+                CAPTURE.moveSelection(0, step, 0, BlueprintPanel::setStatus);
                 return true;
             }
             if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_PAGE_DOWN) {
-                CAPTURE.expandVertical(-step, BlueprintPanel::setStatus);
+                CAPTURE.moveSelection(0, -step, 0, BlueprintPanel::setStatus);
                 return true;
             }
             return true;
@@ -829,12 +829,10 @@ public final class BlueprintPanel {
         return CAPTURE.previewPointB();
     }
 
-    public static boolean shouldRenderCapturePreviewFill() {
-        return Config.areBlueprintsEnabled() && CAPTURE.shouldRenderPreviewFill();
-    }
-
     public static List<BlockPos> getCaptureIncludedBlocksForRender(int limit) {
-        return Config.areBlueprintsEnabled() ? CAPTURE.includedBlocksForRender(limit) : List.of();
+        return Config.areBlueprintsEnabled()
+                ? CAPTURE.includedBlocksForRender(Minecraft.getInstance().level, limit)
+                : List.of();
     }
 
     public static boolean shouldRenderCaptureBlockHighlights(int limit) {
@@ -879,19 +877,22 @@ public final class BlueprintPanel {
         CAPTURE.resizeSelection(dx, dy, dz, BlueprintPanel::setStatus);
     }
 
+    public static boolean mouseScrolledCaptureHeight(double scrollY) {
+        if (!Config.areBlueprintsEnabled() || !CAPTURE.isActive()) {
+            return false;
+        }
+        if (CAPTURE.isSaving()) {
+            setStatus(S2CBlueprintStatusPayload.INFO, "screen.rtsbuilding.blueprints.status.save_busy", "");
+            return true;
+        }
+        return false;
+    }
+
     static void setCaptureSize(int x, int y, int z) {
         if (!Config.areBlueprintsEnabled()) {
             return;
         }
         CAPTURE.setSelectionSize(x, y, z, BlueprintPanel::setStatus);
-    }
-
-    static void toggleCapturePreview() {
-        if (!Config.areBlueprintsEnabled() || !CAPTURE.isActive()) {
-            return;
-        }
-        CAPTURE.togglePreviewVisible();
-        setStatus(S2CBlueprintStatusPayload.INFO, "screen.rtsbuilding.blueprints.status.capture_preview", "");
     }
 
     public static void renderCaptureOverlay(GuiGraphics g, Font font, int screenW, int screenH, int mouseX, int mouseY,
@@ -939,31 +940,6 @@ public final class BlueprintPanel {
                     0xFFB7CDE2, false);
         }
 
-        int leftW = 92;
-        int leftH = 90;
-        int leftX = 10;
-        int leftY = topSafeY;
-        drawFrame(g, leftX, leftY, leftW, leftH, 0xDD101820, 0xFF5B7894, 0xFF0B0F14);
-        g.drawString(font, trim(font, text("screen.rtsbuilding.blueprints.capture_controls"), leftW - 12),
-                leftX + 6, leftY + 6, 0xFFEAF2FF, false);
-
-        int buttonX = leftX + 8;
-        int buttonW = leftW - 16;
-        int rowY = leftY + 22;
-        drawButton(g, font, buttonX, rowY, buttonW, DETAIL_BUTTON_H,
-                text("screen.rtsbuilding.blueprints.capture_move_up"),
-                inside(mouseX, mouseY, buttonX, rowY, buttonW, DETAIL_BUTTON_H));
-        rowY += 18;
-        drawButton(g, font, buttonX, rowY, buttonW, DETAIL_BUTTON_H,
-                text("screen.rtsbuilding.blueprints.capture_move_down"),
-                inside(mouseX, mouseY, buttonX, rowY, buttonW, DETAIL_BUTTON_H));
-        rowY += 18;
-        drawButton(g, font, buttonX, rowY, buttonW, DETAIL_BUTTON_H,
-                text("screen.rtsbuilding.blueprints.capture_preview"),
-                inside(mouseX, mouseY, buttonX, rowY, buttonW, DETAIL_BUTTON_H),
-                CAPTURE.previewVisible());
-        g.drawString(font, trim(font, text("screen.rtsbuilding.blueprints.capture_page_hint"), leftW - 12),
-                leftX + 6, leftY + leftH - 15, 0xFFB7CDE2, false);
     }
 
     public static boolean mouseClickedCaptureOverlay(double mouseX, double mouseY, int screenW, int screenH, int topSafeY) {
@@ -990,32 +966,11 @@ public final class BlueprintPanel {
         if (inside(mouseX, mouseY, infoX, infoY, infoW, CAPTURE.isSaving() ? 58 : 46)) {
             return true;
         }
-        int leftW = 92;
-        int leftX = 10;
-        int leftY = topSafeY;
-        int buttonX = leftX + 8;
-        int buttonW = leftW - 16;
-        int rowY = leftY + 22;
         if (CAPTURE.isSaving()) {
             setStatus(S2CBlueprintStatusPayload.INFO, "screen.rtsbuilding.blueprints.status.save_busy", "");
-            return inside(mouseX, mouseY, leftX, leftY, leftW, 126);
-        }
-        if (inside(mouseX, mouseY, buttonX, rowY, buttonW, DETAIL_BUTTON_H)) {
-            CAPTURE.moveSelection(1, BlueprintPanel::setStatus);
             return true;
         }
-        rowY += 18;
-        if (inside(mouseX, mouseY, buttonX, rowY, buttonW, DETAIL_BUTTON_H)) {
-            CAPTURE.moveSelection(-1, BlueprintPanel::setStatus);
-            return true;
-        }
-        rowY += 18;
-        if (inside(mouseX, mouseY, buttonX, rowY, buttonW, DETAIL_BUTTON_H)) {
-            CAPTURE.togglePreviewVisible();
-            setStatus(S2CBlueprintStatusPayload.INFO, "screen.rtsbuilding.blueprints.status.capture_preview", "");
-            return true;
-        }
-        return inside(mouseX, mouseY, leftX, leftY, leftW, 90);
+        return false;
     }
 
     public static boolean pinSelected(BlockPos anchor) {

@@ -31,9 +31,12 @@ public final class MergedSkeletonRenderer {
 
     private static CachedMergedSkeleton cachedMergedSkeleton = CachedMergedSkeleton.EMPTY;
     private static final Set<Long> PENDING_DESTROYED_BLOCK_KEYS = new HashSet<>();
+    private static final Map<Long, Integer> PENDING_LIVENESS_RECHECK_KEYS = new HashMap<>();
 
     private static final int MAX_MERGED_NO_DEPTH_EDGES = 4096;
     private static final int MAX_MERGED_FILL_BLOCKS = 768;
+    private static final int MAX_LIVENESS_RECHECK_KEYS = 512;
+    private static final int LIVENESS_RECHECK_FRAMES = 8;
 
     private MergedSkeletonRenderer() {
     }
@@ -51,6 +54,7 @@ public final class MergedSkeletonRenderer {
     static void clearCache() {
         cachedMergedSkeleton = CachedMergedSkeleton.EMPTY;
         PENDING_DESTROYED_BLOCK_KEYS.clear();
+        PENDING_LIVENESS_RECHECK_KEYS.clear();
     }
 
     /** Returns true if the cached skeleton matches the given preview and is non-empty. */
@@ -238,7 +242,12 @@ public final class MergedSkeletonRenderer {
     // ===== Incremental update for destroyed blocks =====
 
     private static CachedMergedSkeleton applyPendingDestroyedBlocks(CachedMergedSkeleton skeleton) {
-        if (skeleton.isSourceEmpty() || PENDING_DESTROYED_BLOCK_KEYS.isEmpty()) {
+        if (skeleton.isSourceEmpty()) {
+            PENDING_LIVENESS_RECHECK_KEYS.clear();
+            PENDING_DESTROYED_BLOCK_KEYS.clear();
+            return skeleton;
+        }
+        if (PENDING_DESTROYED_BLOCK_KEYS.isEmpty() && PENDING_LIVENESS_RECHECK_KEYS.isEmpty()) {
             return skeleton;
         }
         Set<Long> remainingKeys = new HashSet<>(skeleton.remainingBlockKeys());
@@ -254,6 +263,7 @@ public final class MergedSkeletonRenderer {
             }
         }
         PENDING_DESTROYED_BLOCK_KEYS.clear();
+        changed |= removeNoLongerLiveQueuedTargets(edgeMap, removedKeys, remainingKeys);
         if (!changed) return skeleton;
 
         for (Long removedKey : removedKeys) {
@@ -273,6 +283,35 @@ public final class MergedSkeletonRenderer {
                 edgeMap,
                 List.copyOf(visibleEdgeLines(edgeMap)),
                 List.copyOf(fillBlocks));
+    }
+
+    private static boolean removeNoLongerLiveQueuedTargets(Map<EdgeKey, EdgeAccumulator> edges,
+            List<Long> removedKeys, Set<Long> remainingKeys) {
+        if (PENDING_LIVENESS_RECHECK_KEYS.isEmpty()) {
+            return false;
+        }
+        Map<Long, Integer> queued = new HashMap<>(PENDING_LIVENESS_RECHECK_KEYS);
+        PENDING_LIVENESS_RECHECK_KEYS.clear();
+        boolean changed = false;
+        for (Map.Entry<Long, Integer> entry : queued.entrySet()) {
+            Long key = entry.getKey();
+            if (key == null || !remainingKeys.contains(key)) {
+                continue;
+            }
+            BlockPos pos = BlockPos.of(key);
+            if (!isLiveDestroyTarget(pos)) {
+                removeBlockSurfaceContributions(edges, pos, remainingKeys);
+                remainingKeys.remove(key);
+                removedKeys.add(key);
+                changed = true;
+                continue;
+            }
+            int framesLeft = entry.getValue() == null ? 0 : entry.getValue() - 1;
+            if (framesLeft > 0) {
+                PENDING_LIVENESS_RECHECK_KEYS.put(key, framesLeft);
+            }
+        }
+        return changed;
     }
 
     private static void collectNoLongerLiveNeighbourTargets(Map<EdgeKey, EdgeAccumulator> edges,
@@ -300,11 +339,20 @@ public final class MergedSkeletonRenderer {
         }
         BlockPos pos = BlockPos.of(key);
         if (isLiveDestroyTarget(pos)) {
+            queueLivenessRecheck(key);
             return;
         }
         removeBlockSurfaceContributions(edges, pos, remainingKeys);
         remainingKeys.remove(key);
         removedKeys.add(key);
+    }
+
+    private static void queueLivenessRecheck(long key) {
+        if (PENDING_LIVENESS_RECHECK_KEYS.size() >= MAX_LIVENESS_RECHECK_KEYS
+                && !PENDING_LIVENESS_RECHECK_KEYS.containsKey(key)) {
+            return;
+        }
+        PENDING_LIVENESS_RECHECK_KEYS.put(key, LIVENESS_RECHECK_FRAMES);
     }
 
     private static boolean isLiveDestroyTarget(BlockPos pos) {

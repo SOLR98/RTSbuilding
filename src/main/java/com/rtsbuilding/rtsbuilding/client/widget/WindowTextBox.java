@@ -29,6 +29,7 @@ public class WindowTextBox extends EditBox {
 
     private String placeholder = "";
     private boolean autoScrollToEnd = true;
+    private boolean centeredText = false;
 
     public enum InputMode {
         ANY,
@@ -65,6 +66,11 @@ public class WindowTextBox extends EditBox {
         return this;
     }
 
+    public WindowTextBox setCenteredText(boolean centeredText) {
+        this.centeredText = centeredText;
+        return this;
+    }
+
     @Override
     public void setValue(String text) {
         super.setValue(text == null ? "" : text);
@@ -96,20 +102,39 @@ public class WindowTextBox extends EditBox {
         if (getValue().isEmpty() && !isFocused() && !this.placeholder.isEmpty()) {
             Font font = Minecraft.getInstance().font;
             int textY = y + (this.height - font.lineHeight) / 2;
-            g.drawString(font, this.placeholder, x + TEXT_PADDING_X, textY, PLACEHOLDER_COLOR, false);
+            int textX = this.centeredText
+                    ? x + Math.max(TEXT_PADDING_X, (this.width - font.width(this.placeholder)) / 2)
+                    : x + TEXT_PADDING_X;
+            g.drawString(font, this.placeholder, textX, textY, PLACEHOLDER_COLOR, false);
         }
-        renderInnerEditBox(g, mouseX, mouseY, partialTick, x);
+        renderInnerEditBox(g, mouseX, mouseY, partialTick, x, y);
     }
 
-    private void renderInnerEditBox(GuiGraphics g, int mouseX, int mouseY, float partialTick, int outerX) {
+    private void renderInnerEditBox(GuiGraphics g, int mouseX, int mouseY, float partialTick, int outerX, int outerY) {
         int oldWidth = this.width;
-        setX(outerX + TEXT_PADDING_X);
-        this.width = Math.max(1, oldWidth - TEXT_PADDING_X * 2);
+        int oldHeight = this.height;
+        int innerWidth = Math.max(1, oldWidth - TEXT_PADDING_X * 2);
+        int innerX = outerX + TEXT_PADDING_X;
+        int innerHeight = Math.max(8, Math.min(20, oldHeight - 2));
+        int innerY = outerY + Math.max(1, (oldHeight - innerHeight) / 2);
+        if (this.centeredText && !getValue().isEmpty()) {
+            Font font = Minecraft.getInstance().font;
+            int textWidth = font.width(getValue());
+            if (textWidth < innerWidth) {
+                innerX += (innerWidth - textWidth) / 2;
+            }
+        }
+        setX(innerX);
+        setY(innerY);
+        this.width = innerWidth;
+        this.height = innerHeight;
         try {
             super.renderWidget(g, mouseX, mouseY, partialTick);
         } finally {
             this.width = oldWidth;
+            this.height = oldHeight;
             setX(outerX);
+            setY(outerY);
         }
     }
 

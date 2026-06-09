@@ -19,11 +19,6 @@ public final class BlueprintCaptureRenderer {
     private static final int CAPTURE_EXCLUDED_HIGHLIGHT_LIMIT = 1024;
 
     // 优化：提取颜色常量，便于统一调整
-    private static final float CAPTURE_FILL_R = 0.12F;
-    private static final float CAPTURE_FILL_G = 0.46F;
-    private static final float CAPTURE_FILL_B = 0.95F;
-    private static final float CAPTURE_FILL_A = 0.06F;
-
     private static final float INCLUDED_BLOCK_R = 0.12F;
     private static final float INCLUDED_BLOCK_G = 0.56F;
     private static final float INCLUDED_BLOCK_B = 1.0F;
@@ -82,16 +77,6 @@ public final class BlueprintCaptureRenderer {
         List<BlockPos> includedBlocks = BlueprintPanel.getCaptureIncludedBlocksForRender(CAPTURE_BLOCK_HIGHLIGHT_LIMIT);
 
         // 如果需要渲染整体填充且不渲染单个方块高亮，则绘制半透明蓝色填充
-        if (BlueprintPanel.shouldRenderCapturePreviewFill()
-                && !BlueprintPanel.shouldRenderCaptureBlockHighlights(CAPTURE_BLOCK_HIGHLIGHT_LIMIT)) {
-            LevelRenderer.addChainedFilledBoxVertices(
-                    poseStack,
-                    fillBuffer,
-                    minX, minY, minZ,
-                    maxX, maxY, maxZ,
-                    CAPTURE_FILL_R, CAPTURE_FILL_G, CAPTURE_FILL_B, CAPTURE_FILL_A);
-        }
-
         // 渲染每个包含方块的蓝色高亮
         for (BlockPos pos : includedBlocks) {
             LevelRenderer.addChainedFilledBoxVertices(

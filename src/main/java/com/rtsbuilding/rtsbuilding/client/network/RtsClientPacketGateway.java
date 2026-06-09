@@ -304,8 +304,18 @@ public final class RtsClientPacketGateway {
         sendPlace(hit, forcePlace, skipIfOccupied, itemId, itemPrototype, rotateSteps, rayOrigin, rayDir, false);
     }
 
+    public static void sendEmptyHandPlace(BlockHitResult hit, Vec3 rayOrigin, Vec3 rayDir) {
+        sendPlace(hit, false, false, "", ItemStack.EMPTY, 0, rayOrigin, rayDir, false, true);
+    }
+
     public static void sendPlace(BlockHitResult hit, boolean forcePlace, boolean skipIfOccupied, String itemId,
             ItemStack itemPrototype, int rotateSteps, Vec3 rayOrigin, Vec3 rayDir, boolean quickBuild) {
+        sendPlace(hit, forcePlace, skipIfOccupied, itemId, itemPrototype, rotateSteps, rayOrigin, rayDir, quickBuild, false);
+    }
+
+    private static void sendPlace(BlockHitResult hit, boolean forcePlace, boolean skipIfOccupied, String itemId,
+            ItemStack itemPrototype, int rotateSteps, Vec3 rayOrigin, Vec3 rayDir, boolean quickBuild,
+            boolean forceEmptyHand) {
         ItemStack prototype = itemPrototype == null ? ItemStack.EMPTY : itemPrototype.copy();
         if (!prototype.isEmpty()) {
             prototype.setCount(1);
@@ -319,7 +329,7 @@ public final class RtsClientPacketGateway {
                 (byte) rotateSteps,
                 forcePlace,
                 skipIfOccupied,
-                itemId,
+                itemId == null ? "" : itemId,
                 prototype,
                 rayOrigin.x,
                 rayOrigin.y,
@@ -327,7 +337,8 @@ public final class RtsClientPacketGateway {
                 rayDir.x,
                 rayDir.y,
                 rayDir.z,
-                quickBuild));
+                quickBuild,
+                forceEmptyHand));
     }
 
     public static void sendPlaceBatch(List<BlockHitResult> hits, boolean forcePlace, boolean skipIfOccupied, String itemId,
@@ -473,6 +484,25 @@ public final class RtsClientPacketGateway {
                 hitLocation.z,
                 C2SRtsInteractPayload.SOURCE_TOOL_SLOT,
                 (byte) Mth.clamp(toolSlot, 0, 8),
+                "",
+                rayOrigin.x,
+                rayOrigin.y,
+                rayOrigin.z,
+                rayDir.x,
+                rayDir.y,
+                rayDir.z));
+    }
+
+    public static void sendInteractEntityEmptyHand(int entityId, Vec3 hitLocation, Vec3 rayOrigin, Vec3 rayDir) {
+        PacketDistributor.sendToServer(new C2SRtsInteractPayload(
+                entityId,
+                BlockPos.containing(hitLocation),
+                (byte) 1,
+                hitLocation.x,
+                hitLocation.y,
+                hitLocation.z,
+                C2SRtsInteractPayload.SOURCE_EMPTY_HAND,
+                (byte) 0,
                 "",
                 rayOrigin.x,
                 rayOrigin.y,

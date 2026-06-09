@@ -276,18 +276,6 @@ public final class BuilderScreen extends Screen {
     public double getCurrentMouseY() {
         return this.lastMouseY;
     }
-    /** Whether the (retired) shape-selection wheel is currently open — always false. */
-    public boolean isShapeWheelOpen() {
-        return false;
-    }
-    /** Returns whether the retired interaction wheel overlay is currently open. */
-    public boolean isInteractionWheelOpen() {
-        return false;
-    }
-    /** @deprecated Retained only for binary compatibility; the Alt shape wheel is retired. */
-    @Deprecated
-    public void handleShapeWheelAltRelease(double mouseX, double mouseY) {
-    }
     /** Returns the storage search box (for filtering items in the storage grid). */
     public EditBox getSearchBox() {
         return this.searchBox;
@@ -343,7 +331,6 @@ public final class BuilderScreen extends Screen {
      */
     @Override
     public void onClose() {
-        closeShapeWheel();
         this.shapeController.clearShapeBuildSession();
         this.controller.clearAreaMineSession();
         persistUiState();
@@ -375,7 +362,6 @@ public final class BuilderScreen extends Screen {
     @Override
     public void tick() {
         super.tick();
-        this.shapeController.updateAltShapeWheelLifecycle();
         if (this.controller.getMode() == BuilderMode.FUNNEL && this.controller.isFunnelEnabled()) {
             BlockHitResult hit = this.cursorPicker.pickBlockHit();
             if (hit != null) {
@@ -434,28 +420,22 @@ public final class BuilderScreen extends Screen {
         }
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             this.cameraInput.stopActiveMining();
-            if (BlueprintPanel.isCaptureSelectionComplete() && isWorldArea(mouseX, mouseY)) {
-                BlockHitResult hit = this.cursorPicker.pickBlockHit();
-                if (hit != null
-                        && hit.getType() == HitResult.Type.BLOCK
-                        && BlueprintPanel.toggleCaptureBlockExclusion(hit.getBlockPos())) {
-                    return true;
-                }
-            }
-            BlueprintPanel.cancelCaptureFromClick();
-            return true;
-        }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            if (!BlueprintPanel.isCaptureSelectionComplete() && isWorldArea(mouseX, mouseY)) {
+            if (isWorldArea(mouseX, mouseY)) {
                 BlockHitResult hit = this.cursorPicker.pickBlockHit();
                 if (hit != null && hit.getType() == HitResult.Type.BLOCK) {
-                    BlueprintPanel.acceptCapturePoint(hit.getBlockPos());
+                    if (!BlueprintPanel.isCaptureSelectionComplete()) {
+                        BlueprintPanel.acceptCapturePoint(hit.getBlockPos());
+                        return true;
+                    }
+                    if (BlueprintPanel.toggleCaptureBlockExclusion(hit.getBlockPos())) {
+                        return true;
+                    }
                 }
-                return true;
             }
-            if (!BlueprintPanel.isCaptureSelectionComplete()) {
-                return true;
-            }
+            return true;
+        }
+        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT || button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
+            return false;
         }
         return true;
     }
@@ -490,6 +470,9 @@ public final class BuilderScreen extends Screen {
 
     /** Blocks non-break clicks in world area during area mine selection. */
     private boolean handleAreaMineClickBlock(double mouseX, double mouseY, int button) {
+        if (BlueprintPanel.isCaptureModeActive()) {
+            return false;
+        }
         if (this.controller.getAreaMinePhase() == ClientRtsController.AREA_MINE_PHASE_NONE) {
             return false;
         }
@@ -647,7 +630,8 @@ public final class BuilderScreen extends Screen {
         }
 
         // 范围挖掘选区中，阻止所有鼠标拖拽操作
-        if (this.controller.getAreaMinePhase() != ClientRtsController.AREA_MINE_PHASE_NONE) {
+        if (!BlueprintPanel.isCaptureModeActive()
+                && this.controller.getAreaMinePhase() != ClientRtsController.AREA_MINE_PHASE_NONE) {
             return true;
         }
 
@@ -718,7 +702,9 @@ public final class BuilderScreen extends Screen {
             return true;
         }
         if (this.bottomPanel.bottomPanelTab == BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS && BlueprintPanel.isCaptureModeActive()) {
-            if (!BlueprintPanel.isCaptureSelectionComplete() && isWorldArea(mouseX, mouseY)) {
+            if (mouseButton == GLFW.GLFW_MOUSE_BUTTON_LEFT
+                    && !BlueprintPanel.isCaptureSelectionComplete()
+                    && isWorldArea(mouseX, mouseY)) {
                 BlockHitResult hit = this.cursorPicker.pickBlockHit();
                 if (hit != null && hit.getType() == HitResult.Type.BLOCK) {
                     BlueprintPanel.acceptCapturePoint(hit.getBlockPos());
@@ -834,7 +820,13 @@ public final class BuilderScreen extends Screen {
         }
         this.shapeController.clearShapeBuildSession();
         if (this.controller.isEmptyHandSelected()) {
-            if (!target.isEntityTarget() && target.blockHit() != null) {
+            if (target.isEntityTarget()) {
+                this.controller.interactEntityEmpty(
+                        target.entityId(),
+                        target.hitLocation(),
+                        target.rayOrigin(),
+                        target.rayDir());
+            } else if (target.blockHit() != null) {
                 this.controller.interactEmpty(target.blockHit(), target.rayOrigin(), target.rayDir());
             }
             return true;
@@ -906,6 +898,9 @@ public final class BuilderScreen extends Screen {
         if (handleFloatingWindowScroll(mouseX, mouseY, scrollX, scrollY)) {
             return true;
         }
+        if (BlueprintPanel.mouseScrolledCaptureHeight(scrollY)) {
+            return true;
+        }
         if (isInsideBottomPanel(mouseX, mouseY)) {
             return this.bottomPanel.handleMouseScrolled(mouseX, mouseY, scrollY);
         }
@@ -913,7 +908,8 @@ public final class BuilderScreen extends Screen {
             return true;
         }
         // 范围破坏选区中：NEED_HEIGHT阶段滚轮调整高度，其他阶段阻止
-        if (this.controller.getAreaMinePhase() != ClientRtsController.AREA_MINE_PHASE_NONE) {
+        if (!BlueprintPanel.isCaptureModeActive()
+                && this.controller.getAreaMinePhase() != ClientRtsController.AREA_MINE_PHASE_NONE) {
             if (this.controller.getAreaMinePhase() == ClientRtsController.AREA_MINE_PHASE_NEED_HEIGHT) {
                 int delta = scrollY > 0.0D ? 1 : -1;
                 if (isAltDown()) {
@@ -989,7 +985,8 @@ public final class BuilderScreen extends Screen {
      */
     private boolean handleWorldInteractionKeys(int keyCode, int scanCode, int modifiers) {
         // 范围破坏选区中，阻止除挖矿键之外的其他世界交互键盘操作
-        if (this.controller.getAreaMinePhase() != ClientRtsController.AREA_MINE_PHASE_NONE) {
+        if (!BlueprintPanel.isCaptureModeActive()
+                && this.controller.getAreaMinePhase() != ClientRtsController.AREA_MINE_PHASE_NONE) {
             if (!ClientKeyMappings.ACTION_BREAK.matches(keyCode, scanCode)) {
                 return true;
             }
@@ -1169,7 +1166,6 @@ public final class BuilderScreen extends Screen {
         }
         this.cameraInput.stopActiveMining();
         this.shapeController.clearShapeBuildSession();
-        closeShapeWheel();
         this.controller.setMode(mode);
         this.controller.setFunnelEnabled(funnelEnabled);
         this.funnelHotkeyHeld = false;
@@ -1649,7 +1645,6 @@ public final class BuilderScreen extends Screen {
     private void activateFunnelHotkey() {
         this.cameraInput.stopActiveMining();
         this.shapeController.clearShapeBuildSession();
-        closeShapeWheel();
         if (this.controller.getMode() != BuilderMode.FUNNEL) {
             this.modeBeforeFunnelHotkey = this.controller.getMode();
         }
@@ -2080,13 +2075,6 @@ public final class BuilderScreen extends Screen {
     }
     /** Retired interaction-wheel hook kept so older extracted callers remain harmless. */
     public void closeInteractionWheel() {
-    }
-    /** @deprecated Retained only for binary compatibility; the shape wheel is retired. */
-    @Deprecated
-    public void openShapeWheel(double mouseX, double mouseY) {
-    }
-    /** Retired shape-wheel hook kept so existing close paths remain harmless. */
-    private void closeShapeWheel() {
     }
     /**
      * Enables a scissor region for clipping, adjusting coordinates for the

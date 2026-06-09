@@ -75,7 +75,7 @@ public final class RtsPlacementExecutor {
                                                 Direction face, double hitX, double hitY, double hitZ, byte rotateSteps, boolean forcePlace,
                                                 boolean skipIfOccupied, String itemId, ItemStack itemPrototype, double rayOriginX, double rayOriginY,
                                                 double rayOriginZ, double rayDirX, double rayDirY, double rayDirZ, boolean quickBuild,
-                                                boolean refreshStoragePage, boolean sendRemoteHint) {
+                                                boolean forceEmptyHand, boolean refreshStoragePage, boolean sendRemoteHint) {
         if (!RtsProgressionManager.canUse(player, RtsFeature.REMOTE_PLACE)) {
             return false;
         }
@@ -97,12 +97,58 @@ public final class RtsPlacementExecutor {
         }
 
         if (!useSelectedStorageItem) {
+            if (forceEmptyHand) {
+                return placeWithForcedEmptyHand(player, session, level, clickedPos, hit, interactionPos, rayContext,
+                        forcePlace);
+            }
             return placeWithMainHand(player, session, level, clickedPos, face, hit, interactionPos, rayContext,
                     rotateSteps, skipIfOccupied, forcePlace, refreshStoragePage);
         }
 
         return placeWithStorageItem(player, session, level, clickedPos, face, hit, interactionPos, rayContext,
                 rotateSteps, skipIfOccupied, forcePlace, itemId, itemPrototype, refreshStoragePage);
+    }
+
+    private static boolean placeWithForcedEmptyHand(ServerPlayer player, RtsStorageSession session, ServerLevel level,
+            BlockPos clickedPos, BlockHitResult hit, Vec3 interactionPos, RtsStorageManager.RayContext rayContext,
+            boolean forcePlace) {
+        AbstractContainerMenu menuBeforeEmptyUse = player.containerMenu;
+        RtsStorageManager.UseOnOutcome emptyUse = RtsStorageManager.withTemporaryUseItemContext(
+                player,
+                interactionPos,
+                hit.getLocation(),
+                rayContext,
+                REMOTE_POV_BLOCK_REACH,
+                () -> RtsStorageManager.useItemOnWithMainHand(player, level, ItemStack.EMPTY, hit, forcePlace));
+        AbstractContainerMenu menuAfterEmptyUse = player.containerMenu;
+        if (menuAfterEmptyUse != menuBeforeEmptyUse) {
+            RtsStorageManager.markRemoteMenuOpen(player, session, menuAfterEmptyUse, clickedPos);
+            return false;
+        }
+
+        if (emptyUse.result().consumesAction()) {
+            RtsStorageManager.saveSessionToPlayerNbt(player, session);
+            return true;
+        }
+
+        AbstractContainerMenu menuBeforeEmptyFallback = player.containerMenu;
+        RtsStorageManager.UseOnOutcome emptyFallback = RtsStorageManager.withTemporaryUseItemContext(
+                player,
+                interactionPos,
+                hit.getLocation(),
+                rayContext,
+                REMOTE_POV_BLOCK_REACH,
+                () -> RtsStorageManager.useItemWithMainHand(player, level, ItemStack.EMPTY, forcePlace));
+        AbstractContainerMenu menuAfterEmptyFallback = player.containerMenu;
+        if (menuAfterEmptyFallback != menuBeforeEmptyFallback) {
+            RtsStorageManager.markRemoteMenuOpen(player, session, menuAfterEmptyFallback, clickedPos);
+            return false;
+        }
+        if (emptyFallback.result().consumesAction()) {
+            RtsStorageManager.saveSessionToPlayerNbt(player, session);
+            return true;
+        }
+        return false;
     }
 
     private static boolean placeWithMainHand(ServerPlayer player, RtsStorageSession session, ServerLevel level,

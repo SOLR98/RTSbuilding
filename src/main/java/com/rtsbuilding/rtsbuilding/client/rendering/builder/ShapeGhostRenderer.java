@@ -105,7 +105,7 @@ public final class ShapeGhostRenderer {
             }
             if (preview.chainDestroyPreview()) {
                 if (visual.fading()) {
-                    MergedSkeletonRenderer.renderMergedSkeletonSnapshot(preview, poseStack, lineBuffer, fillBuffer,
+                    MergedSkeletonRenderer.renderCachedSkeleton(preview, poseStack, lineBuffer, fillBuffer,
                             1.0F, 0.30F, 0.035F, visual.alpha());
                 } else {
                     MergedSkeletonRenderer.renderConfirmedDestroyWorkArea(preview, poseStack, lineBuffer,
@@ -151,7 +151,7 @@ public final class ShapeGhostRenderer {
         ClientRtsController controller = ClientRtsController.get();
 
         if (visual.fading()) {
-            MergedSkeletonRenderer.renderMergedSkeletonSnapshot(preview, poseStack, lineBuffer, fillBuffer,
+            MergedSkeletonRenderer.renderCachedSkeleton(preview, poseStack, lineBuffer, fillBuffer,
                     1.0F, 0.30F, 0.030F, visual.alpha());
             return;
         }
