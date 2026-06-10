@@ -43,6 +43,7 @@ import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsUnlinkStoragePayload;
 import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsUpdateLinkedStoragePayload;
 import com.rtsbuilding.rtsbuilding.network.camera.C2SRtsToggleCameraPayload;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsUltiminePayload;
+import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsUndoPayload;
 import com.rtsbuilding.rtsbuilding.network.progression.C2SRtsUnlockProgressionNodePayload;
 import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
 import com.rtsbuilding.rtsbuilding.util.RtsPinyinSearch;
@@ -588,6 +589,10 @@ public final class RtsClientPacketGateway {
                 (short) Mth.clamp(limit, 1, 256),
                 mode,
                 toolProtectionEnabled));
+    }
+
+    public static void sendUndo() {
+        PacketDistributor.sendToServer(new C2SRtsUndoPayload());
     }
 
     public static void sendMineAbort(BlockPos pos, int face, int toolSlot) {

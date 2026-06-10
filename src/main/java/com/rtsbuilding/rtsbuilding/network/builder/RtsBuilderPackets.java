@@ -99,5 +99,17 @@ public final class RtsBuilderPackets {
                 S2CRtsUltimineProgressPayload.TYPE,
                 S2CRtsUltimineProgressPayload.STREAM_CODEC,
                 RtsClientPayloadBridge::handleUltimineProgress);
+
+        // ===== Undo =====
+
+        registrar.playToServer(
+                C2SRtsUndoPayload.TYPE,
+                C2SRtsUndoPayload.STREAM_CODEC,
+                RtsBuilderNetworkHandlers::handleUndo);
+
+        registrar.playToClient(
+                S2CRtsHistorySyncPayload.TYPE,
+                S2CRtsHistorySyncPayload.STREAM_CODEC,
+                RtsClientPayloadBridge::handleHistorySync);
     }
 }

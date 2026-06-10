@@ -7,8 +7,11 @@ import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsMineProgressPayload;
 import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsUltimineProgressPayload;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.RtsStorageManager;
+import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
+import com.rtsbuilding.rtsbuilding.server.history.HistoryBlockRecord;
 import com.rtsbuilding.rtsbuilding.server.data.PlacedBlockTrackerData;
 import com.rtsbuilding.rtsbuilding.server.storage.placement.RtsPlacementSound;
+import java.util.ArrayList;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.LinkedHashSet;
@@ -165,6 +168,8 @@ public final class RtsStorageMining {
             }
             stopActiveMining(player, session);
             if (player.isCreative()) {
+                Direction actualFace = face == null ? Direction.DOWN : face;
+                ServerHistoryManager.recordBreak(player, List.of(pos.immutable()), actualFace);
                 destroyMinedBlock(player, session, pos, slot);
                 RtsStorageManager.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
                 return;
@@ -261,6 +266,7 @@ public final class RtsStorageMining {
         session.ultimineProgressPos = targets.peekFirst();
         session.ultimineTotalTargets = targets.size();
         session.ultimineProcessedTargets = 0;
+        session.ultimineProcessedPositions.clear();
         session.ultimineAbsorbedDrops = false;
         session.miningFace = face == null ? Direction.DOWN : face;
         session.miningToolSlot = slot;
@@ -421,6 +427,7 @@ public final class RtsStorageMining {
         session.ultimineProgressPos = targets.peekFirst();
         session.ultimineTotalTargets = targets.size();
         session.ultimineProcessedTargets = 0;
+        session.ultimineProcessedPositions.clear();
         session.ultimineAbsorbedDrops = false;
         session.miningFace = Direction.DOWN;
         session.miningToolSlot = slot;
@@ -472,6 +479,7 @@ public final class RtsStorageMining {
         session.ultimineProgressPos = targets.peekFirst();
         session.ultimineTotalTargets = targets.size();
         session.ultimineProcessedTargets = 0;
+        session.ultimineProcessedPositions.clear();
         session.ultimineAbsorbedDrops = false;
         session.miningFace = Direction.DOWN;
         session.miningToolSlot = slot;
@@ -595,6 +603,9 @@ public final class RtsStorageMining {
             return;
         }
 
+        // 破坏前预捕获方块状态（必须在 destroyMinedBlock 之前调用，否则读到空气）
+        HistoryBlockRecord preRecord = ServerHistoryManager.captureBlock(player.serverLevel(), pos);
+
         boolean broken = destroyMinedBlock(player, session, pos, session.miningToolSlot);
         level.destroyBlockProgress(player.getId(), pos, -1);
 
@@ -612,6 +623,12 @@ public final class RtsStorageMining {
         }
 
         clearMineProgress(player, pos);
+        if (broken) {
+            // 使用破坏前预捕获的记录
+            if (preRecord != null) {
+                ServerHistoryManager.recordBreakWithRecords(player, List.of(preRecord), session.miningFace);
+            }
+        }
         if (broken && canAutoStoreDrops(player, session)) {
             absorbMinedDropsImmediately(player, session, pos);
         }
@@ -819,7 +836,11 @@ public final class RtsStorageMining {
                     session.miningToolLease.stack(), session.miningSelectedToolRequested) <= 0.0F) {
                 continue;
             }
+            HistoryBlockRecord preRecord = ServerHistoryManager.captureBlock(player.serverLevel(), target);
             boolean targetBroken = destroyMinedBlock(player, session, target, session.miningToolSlot);
+            if (targetBroken && preRecord != null) {
+                session.ultimineProcessedPositions.add(preRecord);
+            }
             if (targetBroken && canAutoStoreDrops(player, session)) {
                 absorbMinedDropsImmediately(player, session, target);
             }
@@ -856,6 +877,11 @@ public final class RtsStorageMining {
      * marks the storage page dirty, and resets the mining state.
      */
     private static void finishUltimineBatch(ServerPlayer player, RtsStorageSession session) {
+        // 批量记录所有成功破坏的位置为一条历史记录
+        if (!session.ultimineProcessedPositions.isEmpty()) {
+            ServerHistoryManager.recordBreakWithRecords(player, new ArrayList<>(session.ultimineProcessedPositions), session.miningFace);
+            session.ultimineProcessedPositions.clear();
+        }
         sendUltimineProgress(player, -1, 0);
         returnMiningTool(player, session, session.miningToolLease);
         markMiningStorageDirty(player, session);
@@ -962,9 +988,23 @@ public final class RtsStorageMining {
 
     /**
      * Instantly breaks all queued ultimine targets for a creative-mode player.
+     * 所有目标在破坏前统一记录为一条历史记录。
      */
     private static void breakCreativeUltimineTargets(ServerPlayer player, RtsStorageSession session, Deque<BlockPos> targets,
             int toolSlot) {
+        // 批量记录：所有目标作为一条历史记录
+        if (!targets.isEmpty()) {
+            List<BlockPos> validTargets = new ArrayList<>();
+            for (BlockPos target : targets) {
+                if (RtsLinkedStorageResolver.canAccessWorldTarget(player, target)) {
+                    validTargets.add(target);
+                }
+            }
+            if (!validTargets.isEmpty()) {
+                Direction face = session != null && session.miningFace != null ? session.miningFace : Direction.DOWN;
+                ServerHistoryManager.recordBreak(player, validTargets, face);
+            }
+        }
         while (!targets.isEmpty()) {
             BlockPos target = targets.removeFirst();
             if (!RtsLinkedStorageResolver.canAccessWorldTarget(player, target)) {

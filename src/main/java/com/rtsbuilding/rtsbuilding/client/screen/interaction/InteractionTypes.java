@@ -8,7 +8,7 @@ import net.minecraft.world.phys.Vec3;
  *
  * <p>The old circular interaction wheel has been retired, but the screen still
  * needs a compact target record for normal block/entity interactions and a
- * placement replay kind for undo/redo.
+ * placement replay kind for undo.
  */
 public final class InteractionTypes {
 

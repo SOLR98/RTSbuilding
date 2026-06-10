@@ -116,7 +116,7 @@ public final class BuilderScreen extends Screen {
     private final TopBarPanel topBarPanel = new TopBarPanel();
     /** Bottom panel containing storage grid, crafting, blueprints, and pin slots. */
     private final BottomPanel bottomPanel = new BottomPanel();
-    /** Controller managing shape-building sessions (geometry, fill mode, rotation, undo/redo). */
+    /** Controller managing shape-building sessions (geometry, fill mode, rotation, undo). */
     private final ScreenShapeController shapeController = new ScreenShapeController();
     /** Picker for raycasting blocks, entities, and blueprint placement targets from the cursor. */
     private final ScreenCursorPicker cursorPicker = new ScreenCursorPicker();
@@ -236,7 +236,7 @@ public final class BuilderScreen extends Screen {
     public int getShapeRotateDegrees() {
         return this.shapeController.getShapeRotateDegrees();
     }
-    /** Clears the current shape build session (pending preview, undo/redo history). */
+    /** Clears the current shape build session (pending preview, undo history). */
     public void clearShapeBuildSession() {
         this.shapeController.clearShapeBuildSession();
     }
@@ -979,7 +979,7 @@ public final class BuilderScreen extends Screen {
     }
 
     /**
-     * Dispatches key to world interaction: area mine, gui bind, undo/redo, camera vertical,
+     * Dispatches key to world interaction: area mine, gui bind, undo, camera vertical,
      * mining, pick block, primary action, mode switch, funnel hotkey, quick drop,
      * shape rotation, and craft terminal.
      */
@@ -997,9 +997,6 @@ public final class BuilderScreen extends Screen {
         }
         if (hasControlDown() && keyCode == GLFW.GLFW_KEY_Z) {
             return this.shapeController.undoLastPlacementBatch();
-        }
-        if (hasControlDown() && keyCode == GLFW.GLFW_KEY_Y) {
-            return this.shapeController.redoLastPlacementBatch();
         }
         if (!isSearchFocused() && this.cameraInput.updateCameraVerticalHeldState(keyCode, scanCode, true)) {
             return true;
@@ -1539,10 +1536,6 @@ public final class BuilderScreen extends Screen {
     public int getShapeUndoSize() {
         return this.shapeController.getShapeUndoSize();
     }
-    /** Returns the number of available redo steps for shape placement. */
-    public int getShapeRedoSize() {
-        return this.shapeController.getShapeRedoSize();
-    }
     /** Returns the pending GUI bind slot index, or -1 if not binding. */
     public int getPendingGuiBindSlot() {
         return this.pendingGuiBindSlot;
@@ -1759,7 +1752,7 @@ public final class BuilderScreen extends Screen {
     }
     /**
      * Renders discoverability tooltips for various UI elements when hovered:
-     * undo/redo key hint, quick-build toggle, quick-build cancel area.
+     * undo key hint, quick-build toggle, quick-build cancel area.
      */
     private void renderDiscoverabilityTooltips(GuiGraphics g, int mouseX, int mouseY) {
         if (isMouseOverFloatingWindow(mouseX, mouseY)) {

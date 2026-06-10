@@ -10,6 +10,7 @@ import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
 import com.rtsbuilding.rtsbuilding.server.feedback.RtsDamageFeedbackManager;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.RtsStorageManager;
+import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
@@ -97,6 +98,8 @@ public class RtsbuildingMod {
                 RtsDamageFeedbackManager.forget(serverPlayer);
                 RtsStorageManager.onPlayerLogout(serverPlayer);
                 RtsProgressionManager.onPlayerLogout(serverPlayer);
+                // 清除该玩家的撤回历史，防止切换到其他存档后残留无效的 BlockPos 记录
+                ServerHistoryManager.clear(serverPlayer.getUUID());
             }
         }
 

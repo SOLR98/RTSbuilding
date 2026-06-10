@@ -3,6 +3,7 @@ package com.rtsbuilding.rtsbuilding.network;
 
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers;
 import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsBreakAnimationPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsHistorySyncPayload;
 import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsMineProgressPayload;
 import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsPlaceAnimationPayload;
 import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsUltimineProgressPayload;
@@ -107,6 +108,12 @@ public final class RtsClientPayloadBridge {
     public static void handleProgressionState(S2CRtsProgressionStatePayload payload, IPayloadContext context) {
         if (FMLEnvironment.dist == Dist.CLIENT) {
             com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleProgressionState(payload, context);
+        }
+    }
+
+    public static void handleHistorySync(S2CRtsHistorySyncPayload payload, IPayloadContext context) {
+        if (FMLEnvironment.dist == Dist.CLIENT) {
+            com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleHistorySync(payload, context);
         }
     }
 }

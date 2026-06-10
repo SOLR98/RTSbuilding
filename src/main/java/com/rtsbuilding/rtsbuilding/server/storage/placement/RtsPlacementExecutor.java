@@ -4,6 +4,7 @@ import java.util.List;
 
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
+import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import com.rtsbuilding.rtsbuilding.server.RtsStorageManager;
 import com.rtsbuilding.rtsbuilding.server.data.PlacedBlockTrackerData;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
@@ -15,8 +16,6 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.InteractionResult;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
@@ -101,8 +100,9 @@ public final class RtsPlacementExecutor {
                 return placeWithForcedEmptyHand(player, session, level, clickedPos, hit, interactionPos, rayContext,
                         forcePlace);
             }
-            return placeWithMainHand(player, session, level, clickedPos, face, hit, interactionPos, rayContext,
-                    rotateSteps, skipIfOccupied, forcePlace, refreshStoragePage);
+            // 完全改为使用储存空间的方块进行放置，快捷栏只用来看。
+            // 不再支持直接从主手放置，必须使用储存空间
+            return false;
         }
 
         return placeWithStorageItem(player, session, level, clickedPos, face, hit, interactionPos, rayContext,
@@ -151,85 +151,6 @@ public final class RtsPlacementExecutor {
         return false;
     }
 
-    private static boolean placeWithMainHand(ServerPlayer player, RtsStorageSession session, ServerLevel level,
-            BlockPos clickedPos, Direction face, BlockHitResult hit,
-            Vec3 interactionPos, RtsStorageManager.RayContext rayContext, byte rotateSteps, boolean skipIfOccupied,
-            boolean forcePlace, boolean refreshStoragePage) {
-        ItemStack sourceSnapshot = player.getMainHandItem().copy();
-        boolean sourcePlacesBlock = sourceSnapshot.getItem() instanceof BlockItem;
-        if (skipIfOccupied && player.getMainHandItem().getItem() instanceof BlockItem) {
-            if (!level.hasChunkAt(clickedPos) || !level.getBlockState(clickedPos).canBeReplaced()) {
-                RtsPlacementHelper.requestSessionPage(player, session, refreshStoragePage);
-                return true;
-            }
-        }
-
-        BlockState beforeClicked = level.getBlockState(clickedPos);
-        BlockPos adjacentPos = clickedPos.relative(face);
-        BlockState beforeAdjacent = level.hasChunkAt(adjacentPos) ? level.getBlockState(adjacentPos) : null;
-
-        AbstractContainerMenu menuBeforeMainHandUse = player.containerMenu;
-        InteractionResult mainHandUse = RtsStorageManager.withTemporaryUseItemContext(
-                player,
-                interactionPos,
-                hit.getLocation(),
-                rayContext,
-                REMOTE_POV_BLOCK_REACH,
-                () -> RtsStorageManager.withTemporaryShiftKey(player, forcePlace, () -> player.gameMode.useItemOn(
-                        player,
-                        level,
-                        player.getMainHandItem(),
-                        InteractionHand.MAIN_HAND,
-                        hit)));
-        AbstractContainerMenu menuAfterMainHandUse = player.containerMenu;
-        if (menuAfterMainHandUse != menuBeforeMainHandUse) {
-            RtsStorageManager.markRemoteMenuOpen(player, session, menuAfterMainHandUse, clickedPos);
-            return false;
-        }
-
-        if (mainHandUse.consumesAction()) {
-            recordMainHandResult(player, session, level, clickedPos, beforeClicked, adjacentPos, beforeAdjacent,
-                    sourceSnapshot, sourcePlacesBlock);
-            RtsStorageManager.saveSessionToPlayerNbt(player, session);
-            return true;
-        }
-
-        // Some items (e.g. bucket) work via "use in air" fallback instead of use-on-block.
-        AbstractContainerMenu menuBeforeUseFallback = player.containerMenu;
-        InteractionResult mainHandUseFallback = RtsStorageManager.withTemporaryUseItemContext(
-                player,
-                interactionPos,
-                hit.getLocation(),
-                rayContext,
-                REMOTE_POV_BLOCK_REACH,
-                () -> RtsStorageManager.withTemporaryShiftKey(player, forcePlace, () -> player.gameMode.useItem(
-                        player,
-                        level,
-                        player.getMainHandItem(),
-                        InteractionHand.MAIN_HAND)));
-        AbstractContainerMenu menuAfterUseFallback = player.containerMenu;
-        if (menuAfterUseFallback != menuBeforeUseFallback) {
-            RtsStorageManager.markRemoteMenuOpen(player, session, menuAfterUseFallback, clickedPos);
-            return false;
-        }
-        if (mainHandUseFallback.consumesAction()) {
-            if (!sourceSnapshot.isEmpty()) {
-                RtsStorageManager.playRemoteUseSound(player, level, null, clickedPos, sourceSnapshot);
-                ResourceLocation sourceId = BuiltInRegistries.ITEM.getKey(sourceSnapshot.getItem());
-                if (sourceId != null) {
-                    RtsStorageManager.recordRecentItem(
-                            session,
-                            sourceId.toString(),
-                            S2CRtsStoragePagePayload.RECENT_ITEM_USED,
-                            1L);
-                }
-            }
-            RtsStorageManager.saveSessionToPlayerNbt(player, session);
-            return true;
-        }
-
-        return false;
-    }
 
     private static boolean placeWithStorageItem(ServerPlayer player, RtsStorageSession session, ServerLevel level,
             BlockPos clickedPos, Direction face, BlockHitResult hit,
@@ -327,36 +248,5 @@ public final class RtsPlacementExecutor {
         return true;
     }
 
-    private static void recordMainHandResult(ServerPlayer player, RtsStorageSession session, ServerLevel level,
-            BlockPos clickedPos, BlockState beforeClicked, BlockPos adjacentPos, BlockState beforeAdjacent,
-            ItemStack sourceSnapshot, boolean sourcePlacesBlock) {
-        BlockPos placedPos = RtsPlacementHelper.detectPlacedPos(level, clickedPos, beforeClicked, adjacentPos, beforeAdjacent);
-        if (placedPos != null) {
-            PlacedBlockTrackerData.get(level).mark(placedPos);
-            if (sourcePlacesBlock) {
-                RtsPlacementSound.playRemotePlacedBlockAnimation(player, placedPos);
-                RtsPlacementSound.playRemotePlacedBlockSound(player, level, placedPos);
-            } else {
-                RtsStorageManager.playRemoteUseSound(player, level, null, placedPos, sourceSnapshot);
-            }
-            ResourceLocation sourceId = BuiltInRegistries.ITEM.getKey(sourceSnapshot.getItem());
-            if (sourceId != null) {
-                RtsStorageManager.recordRecentItem(
-                        session,
-                        sourceId.toString(),
-                        S2CRtsStoragePagePayload.RECENT_ITEM_PLACED,
-                        1L);
-            }
-        } else if (!sourceSnapshot.isEmpty()) {
-            RtsStorageManager.playRemoteUseSound(player, level, null, clickedPos, sourceSnapshot);
-            ResourceLocation sourceId = BuiltInRegistries.ITEM.getKey(sourceSnapshot.getItem());
-            if (sourceId != null) {
-                RtsStorageManager.recordRecentItem(
-                        session,
-                        sourceId.toString(),
-                        S2CRtsStoragePagePayload.RECENT_ITEM_USED,
-                        1L);
-            }
-        }
-    }
+
 }

@@ -2,6 +2,7 @@ package com.rtsbuilding.rtsbuilding.server.storage.placement;
 
 import java.util.List;
 
+import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.RtsStorageManager;
@@ -10,6 +11,7 @@ import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 
 import com.rtsbuilding.rtsbuilding.server.storage.*;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -57,26 +59,21 @@ public final class RtsPlacementQuickBuild {
             return null;
         }
 
-        boolean useSelectedStorageItem = job.itemId() != null && !job.itemId().isBlank();
-        Item item;
-        ItemStack templateStack;
-        if (useSelectedStorageItem) {
-            ResourceLocation id = ResourceLocation.tryParse(job.itemId());
-            if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
-                return null;
-            }
-            item = BuiltInRegistries.ITEM.get(id);
-            templateStack = job.itemPrototype();
-            if (templateStack.isEmpty()) {
-                templateStack = new ItemStack(item);
-            }
-        } else {
-            ItemStack mainHand = player.getMainHandItem();
-            if (mainHand.isEmpty()) {
-                return null;
-            }
-            item = mainHand.getItem();
-            templateStack = mainHand.copy();
+        // 完全改为使用储存空间的方块进行放置，快捷栏只用来看。
+        // 必须存在有效的 itemId，否则拒绝
+        String jobItemId = job.itemId();
+        if (jobItemId == null || jobItemId.isBlank()) {
+            return null;
+        }
+
+        ResourceLocation id = ResourceLocation.tryParse(jobItemId);
+        if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
+            return null;
+        }
+        Item item = BuiltInRegistries.ITEM.get(id);
+        ItemStack templateStack = job.itemPrototype();
+        if (templateStack.isEmpty()) {
+            templateStack = new ItemStack(item);
         }
 
         if (!(item instanceof BlockItem blockItem)) {
@@ -107,7 +104,7 @@ public final class RtsPlacementQuickBuild {
                 item,
                 templateStack,
                 RtsPlacementHelper.rotateState(state, job.rotateSteps()),
-                useSelectedStorageItem,
+                true,
                 sourceId.toString());
     }
 
@@ -142,7 +139,8 @@ public final class RtsPlacementQuickBuild {
         ItemStack extracted = ItemStack.EMPTY;
         boolean refundExtractedOnFailure = false;
         List<IItemHandler> insertHandlers = List.of();
-        if (plan.selectedStorageItem()) {
+        // 完全改为使用储存空间的方块进行放置
+        {
             List<LinkedHandler> activeLinked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
             boolean includePlayerMainInventory = RtsStoragePageBuilder.shouldIncludePlayerMainInventoryInStorageView(player, session);
             boolean creativeSource = player.isCreative();
@@ -161,13 +159,6 @@ public final class RtsPlacementQuickBuild {
             }
             refundExtractedOnFailure = !creativeSource;
             placementStack = extracted.copy();
-            placementStack.setCount(1);
-        } else if (!player.isCreative()) {
-            ItemStack mainHand = player.getMainHandItem();
-            if (mainHand.isEmpty() || !ItemStack.isSameItemSameComponents(mainHand, plan.templateStack())) {
-                return false;
-            }
-            placementStack = mainHand.copy();
             placementStack.setCount(1);
         }
 
@@ -189,9 +180,7 @@ public final class RtsPlacementQuickBuild {
             }
             placedState.getBlock().setPlacedBy(level, targetPos, placedState, player, placementStack);
         }
-        if (!plan.selectedStorageItem() && !player.isCreative()) {
-            player.getMainHandItem().shrink(1);
-        }
+        // 完全改为使用储存空间的方块进行放置，不再从主手扣除
         PlacedBlockTrackerData.get(level).mark(targetPos);
         RtsPlacementSound.playRemotePlacedBlockAnimation(player, targetPos);
         RtsPlacementSound.playRemotePlacedBlockSound(player, level, targetPos);

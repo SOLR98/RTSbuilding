@@ -97,7 +97,7 @@ public final class TopBarPanel {
                 : screen.text("screen.rtsbuilding.status.storage_not_linked");
         String row1 = modeText;
 
-        // ---- Status bar row 2: storage, auto-store, fill, rotation, undo/redo ----
+        // ---- Status bar row 2: storage, auto-store, fill, rotation, undo ----
         String shapeStatus = screen.isQuickBuildOpen() ? screen.pendingShapeStatusText() : "";
         String row2 = linked + (this.controller.isAutoStoreMinedDrops()
                 ? "    " + screen.text("screen.rtsbuilding.status.auto_store_on")
@@ -106,7 +106,7 @@ public final class TopBarPanel {
                 + (screen.hasProgressionNode(RtsProgressionNodes.REMOTE_PLACE) ? "    " + screen.text("screen.rtsbuilding.status.shape", screen.activeQuickBuildShapeLabel()) : "")
                 + "    " + screen.text("screen.rtsbuilding.status.fill", screen.fillModeLabel(screen.getShapeFillMode()))
                 + "    " + screen.text("screen.rtsbuilding.status.rotation", screen.getShapeRotateDegrees())
-                + "    " + screen.text("screen.rtsbuilding.status.undo_redo", screen.getShapeUndoSize(), screen.getShapeRedoSize())
+                + "    " + screen.text("screen.rtsbuilding.status.undo", screen.getShapeUndoSize())
                 + (shapeStatus.isBlank() ? "" : "    " + shapeStatus)
                 + (screen.getPendingGuiBindSlot() >= 0 ? "    " + screen.text("screen.rtsbuilding.status.gui_bind_armed", screen.getPendingGuiBindSlot() + 1) : "");
 

@@ -175,6 +175,8 @@ public class RtsStorageSession {
     public int ultimineTotalTargets;
     /** 连锁挖掘已处理完成的目标数 */
     public int ultimineProcessedTargets;
+    /** 连锁挖掘已成功破坏的位置记录（预捕获的 HistoryBlockRecord，用于批量记录历史） */
+    public final List<com.rtsbuilding.rtsbuilding.server.history.HistoryBlockRecord> ultimineProcessedPositions = new ArrayList<>();
     /** 连锁挖掘是否已吸收掉落物（防止重复收集，由管理器控制） */
     public boolean ultimineAbsorbedDrops;
     /** 挖掘方向（默认为下） */

@@ -2,6 +2,8 @@ package com.rtsbuilding.rtsbuilding.network.builder;
 
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
 import com.rtsbuilding.rtsbuilding.server.RtsStorageManager;
+import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
+import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -239,6 +241,22 @@ public final class RtsBuilderNetworkHandlers {
                         payload.toolItemId(),
                         payload.toolPrototype(),
                         payload.toolProtectionEnabled());
+            }
+        });
+    }
+
+    // ======================================================================
+    //  Undo （基于 Ultimine-Rewind 风格的服务端管理）
+    //  完整流程由 ServerHistoryManager.executeUndo 处理，
+    //  包括出栈、执行、部分恢复和状态同步。
+    // ======================================================================
+
+    public static void handleUndo(C2SRtsUndoPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                // 非 RTS 模式下忽略撤回请求
+                if (!RtsCameraManager.isActive(serverPlayer)) return;
+                ServerHistoryManager.executeUndo(serverPlayer);
             }
         });
     }

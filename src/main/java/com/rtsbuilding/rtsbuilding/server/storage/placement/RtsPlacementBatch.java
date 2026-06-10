@@ -5,6 +5,7 @@ import java.util.List;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsPlaceBatchPayload;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
+import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import com.rtsbuilding.rtsbuilding.server.RtsStorageManager;
 
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
@@ -13,6 +14,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
@@ -147,6 +149,7 @@ public final class RtsPlacementBatch {
         }
         int remaining = Math.min(BUILD_BATCH_MAX_BLOCKS_PER_TICK, Math.max(1, totalBlocks / 10));
         boolean finishedJob = false;
+        PlaceBatchJob completedJobRef = null;
         while (remaining > 0 && !session.placeBatchJobs.isEmpty()) {
             PlaceBatchJob job = session.placeBatchJobs.peekFirst();
             while (remaining > 0 && job.hasNext()) {
@@ -155,12 +158,25 @@ public final class RtsPlacementBatch {
                         ? job.statePlacementPlan(player) : null;
                 boolean keepGoing;
                 if (statePlan != null) {
+                    // 快速建造路径：记录放置前的状态，用于批撤回
+                    BlockPos trackedPos = clickedPos;
+                    BlockState beforeState = player.serverLevel().getBlockState(trackedPos);
                     keepGoing = RtsPlacementQuickBuild.placeStateBatchEntry(player, session, clickedPos, statePlan);
+                    // 如果方块状态发生了变化（空气→方块），说明放置成功
+                    if (keepGoing && (beforeState.isAir() || beforeState.canBeReplaced())
+                            && !player.serverLevel().getBlockState(trackedPos).isAir()) {
+                        job.placedPositions.add(trackedPos);
+                    }
                 } else {
                     Vec3 hitLocation = new Vec3(
                             clickedPos.getX() + job.hitOffsetX(),
                             clickedPos.getY() + job.hitOffsetY(),
                             clickedPos.getZ() + job.hitOffsetZ());
+                    // 记录放置前状态，用于检测实际放置位置
+                    BlockPos adjPos = clickedPos.relative(job.face());
+                    BlockState beforeClicked = player.serverLevel().getBlockState(clickedPos);
+                    BlockState beforeAdjacent = player.serverLevel().hasChunkAt(adjPos)
+                            ? player.serverLevel().getBlockState(adjPos) : null;
                     keepGoing = RtsPlacementExecutor.placeSelectedInternal(
                             player,
                             session,
@@ -184,20 +200,31 @@ public final class RtsPlacementBatch {
                             job.forceEmptyHand(),
                             false,
                             job.sendRemoteHint());
+                    // 检测实际放置位置（可能是 clickedPos 或 adjacentPos）
+                    if (keepGoing) {
+                        BlockPos actualPos = RtsPlacementHelper.detectPlacedPos(
+                                player.serverLevel(), clickedPos, beforeClicked, adjPos, beforeAdjacent);
+                        if (actualPos != null) {
+                            job.placedPositions.add(actualPos);
+                        }
+                    }
                 }
                 remaining--;
                 if (!keepGoing) {
+                    completedJobRef = job;
                     session.placeBatchJobs.removeFirst();
                     finishedJob = true;
                     break;
                 }
             }
             if (!session.placeBatchJobs.isEmpty() && session.placeBatchJobs.peekFirst() == job && !job.hasNext()) {
+                completedJobRef = job;
                 session.placeBatchJobs.removeFirst();
                 finishedJob = true;
             }
         }
-        if (finishedJob) {
+        if (finishedJob && completedJobRef != null && !completedJobRef.placedPositions.isEmpty()) {
+            ServerHistoryManager.recordPlacement(player, completedJobRef.placedPositions, completedJobRef.face());
             RtsStorageManager.saveSessionToPlayerNbt(player, session);
             RtsStorageManager.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
         }
@@ -232,6 +259,7 @@ public final class RtsPlacementBatch {
         private int index;
         private boolean statePlanResolved;
         private RtsPlacementQuickBuild.StatePlacementPlan statePlan;
+        final List<BlockPos> placedPositions = new ArrayList<>();
 
         private PlaceBatchJob(List<BlockPos> clickedPositions, Direction face, double hitOffsetX, double hitOffsetY,
                 double hitOffsetZ, byte rotateSteps, boolean forcePlace, boolean skipIfOccupied, String itemId,

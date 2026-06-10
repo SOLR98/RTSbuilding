@@ -17,6 +17,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
+import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import com.rtsbuilding.rtsbuilding.compat.ftb.RtsFtbCompat;
 import com.rtsbuilding.rtsbuilding.compat.remote.RtsRemoteMenuCompat;
 import com.rtsbuilding.rtsbuilding.compat.sophisticatedbackpacks.RtsBackpackCompat;
@@ -121,6 +122,8 @@ public final class RtsStorageManager {
         Session session = getOrCreateSession(player);
         sanitizeSessionDimension(player, session);
         requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+        // 进入 RTS 模式时同步历史状态，确保客户端 UI 显示正确的撤回/重做次数
+        ServerHistoryManager.sendSync(player);
     }
 
     public static void warmCreativeTabCaches(MinecraftServer server) {
@@ -1179,6 +1182,12 @@ public final class RtsStorageManager {
         if (state.isAir()) {
             tracker.clear(targetPos);
             return;
+        }
+
+        // 记录破坏操作到历史
+        // 仅在用户主动破坏时记录，不记录内部恢复流程
+        if (!allowAdjacentFallback) {
+            ServerHistoryManager.recordBreak(player, List.of(targetPos), face != null ? face : Direction.UP);
         }
 
         Set<UUID> dropIdsBeforeBreak = snapshotNearbyDropIds(level, targetPos);

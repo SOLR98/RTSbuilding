@@ -26,7 +26,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 
@@ -54,7 +53,6 @@ public final class ScreenShapeController {
         this.screen = screen;
         this.controller = controller;
         this.placementHistory.init(screen, controller);
-        this.placementHistory.loadFromDisk();
     }
 
     // ===== Public state accessors =====
@@ -81,10 +79,6 @@ public final class ScreenShapeController {
 
     public int getShapeUndoSize() {
         return this.placementHistory.getUndoSize();
-    }
-
-    public int getShapeRedoSize() {
-        return this.placementHistory.getRedoSize();
     }
 
     // ===== Shape session management =====
@@ -158,7 +152,6 @@ public final class ScreenShapeController {
                 this.controller.placeSelectedFluid(hit, forcePlace, rayOrigin, rayDir);
             } else {
                 this.controller.placeSelected(hit, forcePlace, rayOrigin, rayDir);
-                this.placementHistory.recordSinglePlacement(hit, replayKind, replayItemId, replayToolSlot);
                 // Single block pending ghost — resolve target position for accurate direction
                 BlockPos placePos = resolvePlacementTargetPos(hit.getBlockPos(), hit.getDirection());
                 BlockState pendingState = resolvePendingGhostBlockState(placePos);
@@ -183,8 +176,6 @@ public final class ScreenShapeController {
                 if (!boundsFiltered.isEmpty()) {
                     rememberConfirmedRangeDestroyPreview(new RangeDestroyPreview(new ArrayList<>(boundsFiltered)));
                     this.controller.confirmShapeAreaDestroy(boundsFiltered, this.screen.getSelectedToolSlot());
-                    // 记录破坏操作到撤回栈（等待服务端确认）
-                    this.placementHistory.recordPendingBreak(Direction.UP, this.screen.getSelectedToolSlot(), boundsFiltered);
                 }
             }
             return;
@@ -342,8 +333,6 @@ public final class ScreenShapeController {
         }
         rememberConfirmedRangeDestroyPreview(new RangeDestroyPreview(new ArrayList<>(boundsFiltered)));
         this.controller.confirmShapeAreaDestroy(boundsFiltered, this.screen.getSelectedToolSlot());
-        // 记录破坏操作到撤回栈（等待服务端确认）
-        this.placementHistory.recordPendingBreak(Direction.UP, this.screen.getSelectedToolSlot(), boundsFiltered);
         return true;
     }
 
@@ -384,18 +373,6 @@ public final class ScreenShapeController {
             // 解析放置的方块类型 — use first hit position for direction
             BlockPos firstPlacePos = hits.isEmpty() ? null : hits.get(0).getBlockPos();
             BlockState pendingState = resolvePendingGhostBlockState(firstPlacePos);
-            String blockStateId = pendingState != null
-                    ? BuiltInRegistries.BLOCK.getKey(pendingState.getBlock()).toString()
-                    : "";
-            List<String> blockStates = Collections.nCopies(positions.size(), blockStateId);
-            this.placementHistory.recordPendingBatch(
-                    usePinnedItem ? InteractionTypes.PlacementReplayKind.PIN_ITEM : InteractionTypes.PlacementReplayKind.TOOL_SLOT,
-                    usePinnedItem ? this.controller.getSelectedItemId() : "",
-                    usePinnedItem ? -1 : this.screen.getSelectedToolSlot(),
-                    input.placementFace(),
-                    positions,
-                    blockStates);
-        
             // Register pending ghosts for visual feedback while waiting for server confirmation
             PlacementAnimationRenderer.addPendingBatch(positions, pendingState);
         }
@@ -557,49 +534,28 @@ public final class ScreenShapeController {
                 || confirmedChainDestroyPreviewOrEmpty() != ShapeDataRecords.GhostPreview.EMPTY;
     }
 
-    // ===== Undo / Redo =====
+    // ===== Undo =====
 
     public boolean undoLastPlacementBatch() {
         return this.placementHistory.undo();
     }
 
-    public boolean redoLastPlacementBatch() {
-        return this.placementHistory.redo();
-    }
-
     /**
-     * 记录单次方块放置到撤回栈。
+     * 记录单次方块放置到撤回栈（已在服务端记录，客户端不再参与）。
      */
     public void recordSinglePlacementForUndo(BlockHitResult hit, InteractionTypes.PlacementReplayKind replayKind, String itemId, int toolSlot) {
-        this.placementHistory.recordSinglePlacement(hit, replayKind, itemId, toolSlot);
     }
 
     /**
-     * 记录方块破坏操作到撤回栈（即时记录）。
-     * <p>
-     * 用于普通挖掘和连锁破坏等渐进式破坏操作。
-     * 撤回时将使用当前选中物品重新放置方块，重做时将再次破坏方块。
-     *
-     * @param positions 被破坏的方块位置列表
-     * @param face      点击的面
-     * @param toolSlot  当前选中的快捷栏槽位
+     * 记录方块破坏操作到撤回栈（已在服务端记录，客户端不再参与）。
      */
     public void recordBreakForUndo(List<BlockPos> positions, Direction face, int toolSlot) {
-        this.placementHistory.recordBreak(positions, face, toolSlot);
     }
 
     /**
-     * 记录待服务端确认的破坏批次到撤回栈。
-     * <p>
-     * 用于普通挖掘和连锁破坏等渐进式破坏操作。
-     * 等待服务端确认所有方块被破坏后才移入撤回栈。
-     *
-     * @param positions 被破坏的方块位置列表
-     * @param face      点击的面
-     * @param toolSlot  当前选中的快捷栏槽位
+     * 记录待服务端确认的破坏批次到撤回栈（已在服务端记录，客户端不再参与）。
      */
     public void recordPendingBreakForUndo(List<BlockPos> positions, Direction face, int toolSlot) {
-        this.placementHistory.recordPendingBreak(face, toolSlot, positions);
     }
 
     // ===== Dimension / Nudge adjustments =====
@@ -1381,4 +1337,7 @@ public final class ScreenShapeController {
     private double currentMouseY() {
         return this.screen.getCurrentMouseY();
     }
+
+    // ===== BlockState 序列化工具 =====
+
 }
