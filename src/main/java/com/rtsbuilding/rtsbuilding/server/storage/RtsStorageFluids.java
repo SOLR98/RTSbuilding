@@ -287,11 +287,14 @@ public final class RtsStorageFluids {
         }
 
         if (remaining <= 0) {
+            // Bump page data version so the storage browser cache invalidates.
+            if (execute) session.pageDataVersion.incrementAndGet();
             return fluidStack.getAmount();
         }
 
         ResourceLocation id = BuiltInRegistries.FLUID.getKey(fluidStack.getFluid());
         if (id == null) {
+            if (execute && remaining < fluidStack.getAmount()) session.pageDataVersion.incrementAndGet();
             return fluidStack.getAmount() - remaining;
         }
         String fluidId = id.toString();
@@ -304,6 +307,7 @@ public final class RtsStorageFluids {
             }
             remaining -= toInternal;
         }
+        if (execute && remaining < fluidStack.getAmount()) session.pageDataVersion.incrementAndGet();
         return fluidStack.getAmount() - remaining;
     }
 
@@ -368,6 +372,7 @@ public final class RtsStorageFluids {
             }
         }
 
+        if (execute && remaining < amount) session.pageDataVersion.incrementAndGet();
         return amount - remaining;
     }
 

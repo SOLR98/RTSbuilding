@@ -97,6 +97,13 @@ final class LinkedItemHandlerView implements IItemHandler, ReportedCountItemHand
         return this.allowStore && this.delegate instanceof AnySlotInsertItemHandler;
     }
 
+    /**
+     * Returns the raw underlying handler (used by cache registration).
+     */
+    IItemHandler getRawHandler() {
+        return this.delegate;
+    }
+
     ItemStack insertItemAnywhere(ItemStack stack, boolean simulate) {
         if (!this.allowStore) {
             return stack == null ? ItemStack.EMPTY : stack.copy();

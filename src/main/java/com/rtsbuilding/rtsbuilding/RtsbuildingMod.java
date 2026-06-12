@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding;
 
 
+import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
@@ -30,6 +31,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.registries.DeferredHolder;
@@ -110,6 +112,8 @@ public class RtsbuildingMod {
         static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
             if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
                 RtsCameraManager.stopIfActive(serverPlayer);
+                // Clear stale storage cache entries from the old dimension
+                RtsStorageTickService.INSTANCE.unregisterPlayer(serverPlayer);
             }
         }
 
@@ -127,6 +131,11 @@ public class RtsbuildingMod {
                 RtsDamageFeedbackManager.tick(serverPlayer);
                 BlueprintPlacementService.tick(serverPlayer);
             }
+        }
+
+        @SubscribeEvent
+        static void onRegisterCommands(RegisterCommandsEvent event) {
+            com.rtsbuilding.rtsbuilding.server.service.RtsBenchmarkCommand.register(event.getDispatcher());
         }
 
         @SubscribeEvent

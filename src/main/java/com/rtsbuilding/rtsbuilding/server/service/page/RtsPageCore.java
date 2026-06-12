@@ -2,8 +2,10 @@ package com.rtsbuilding.rtsbuilding.server.service.page;
 
 import com.rtsbuilding.rtsbuilding.compat.ae2.RtsAe2Compat;
 import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsLinkStoragePayload;
+import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
 import com.rtsbuilding.rtsbuilding.server.RtsStorageUiPayloads;
+import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import com.rtsbuilding.rtsbuilding.server.storage.*;
 import com.rtsbuilding.rtsbuilding.util.RtsCountUtil;
 import net.minecraft.core.BlockPos;
@@ -29,6 +31,40 @@ public final class RtsPageCore {
     private RtsPageCore() {
     }
 
+    // ======================================================================
+    //  Page cache: avoids O(n log n) sort + filter rebuild on pure pagination
+    // ======================================================================
+
+    /** Per-player page build cache, keyed by (params + data version). */
+    private static final java.util.Map<java.util.UUID, CachedPage> pageCache = new java.util.HashMap<>();
+
+    /**
+     * Removes a player's cached page data so the GC can reclaim memory
+     * when they disable RTS or log out.
+     */
+    public static void clearCache(java.util.UUID playerUuid) {
+        if (playerUuid != null) {
+            pageCache.remove(playerUuid);
+        }
+    }
+
+    /** Key that determines cache validity. */
+    private record CachedPageKey(
+            String search, RtsStorageSort sort, String category, boolean ascending,
+            int pageSize, boolean pinyinSearchEnabled, boolean includePlayerInventory
+    ) {}
+
+    /** Cached result of the expensive sort + filter + categories build phase. */
+    private record CachedPage(
+            CachedPageKey key,
+            long dataVersion,
+            List<Entry> sortedEntries,
+            List<FluidEntry> sortedFluidEntries,
+            Map<String, Long> counts,
+            Map<String, Long> namespaceTotals,
+            List<String> categories
+    ) {}
+
     public static PageResult build(
             ServerPlayer player,
             RtsStorageSession session,
@@ -49,133 +85,191 @@ public final class RtsPageCore {
             return new PageResult(buildEmptyPayload(player, session), 0);
         }
 
-        Map<String, Long> counts = new HashMap<>();
-        List<Entry> exactEntries = new ArrayList<>();
-        Map<String, Long> namespaceTotals = new HashMap<>();
-        for (LinkedHandler linked : itemHandlers) {
-            IItemHandler handler = linked.handler();
-            for (int i = 0; i < handler.getSlots(); i++) {
-                ItemStack stack = handler.getStackInSlot(i);
-                if (stack.isEmpty()) {
+        // ── Page cache check: avoid O(n log n) sort + filter rebuild on pure pagination ──
+        CachedPageKey cacheKey = new CachedPageKey(
+                session.search, session.sort, session.category, session.ascending,
+                requestedPageSize, session.pinyinSearchEnabled, includePlayerMainInventory);
+        CachedPage cached = pageCache.get(player.getUUID());
+
+        final Map<String, Long> counts;
+        final Map<String, Long> namespaceTotals;
+        final List<String> categories;
+        final List<Entry> sortedEntries;
+        final List<FluidEntry> sortedFluidEntries;
+        final int totalEntries;
+
+        boolean cacheHit = cached != null
+                && cached.key().equals(cacheKey)
+                && cached.dataVersion() == session.pageDataVersion.get();
+
+        if (cacheHit) {
+            counts = cached.counts();
+            namespaceTotals = cached.namespaceTotals();
+            categories = cached.categories();
+            sortedEntries = cached.sortedEntries();
+            sortedFluidEntries = cached.sortedFluidEntries();
+            totalEntries = sortedEntries.size();
+        } else {
+            // ── Full build: counts → exactEntries → fluid → categories → sort → filter ──
+            Map<String, Long> localCounts = new HashMap<>();
+            List<Entry> exactEntries = new ArrayList<>();
+            Map<String, Long> localNamespaceTotals = new HashMap<>();
+
+            // Fast path: build from slot cache
+            RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+            boolean usedCache = false;
+            if (aggregate != null && !aggregate.isEmpty()) {
+                aggregate.getAvailableItems(localCounts);
+                if (!localCounts.isEmpty()) {
+                    for (var entry : localCounts.entrySet()) {
+                        String itemId = entry.getKey();
+                        long count = entry.getValue();
+                        ResourceLocation id = ResourceLocation.tryParse(itemId);
+                        if (id == null) continue;
+                        ItemStack prototype = aggregate.getPrototype(itemId);
+                        if (prototype.isEmpty()) {
+                            var item = BuiltInRegistries.ITEM.get(id);
+                            prototype = new ItemStack(item);
+                        }
+                        mergeExactEntry(exactEntries, prototype, count);
+                        mergeCount(localNamespaceTotals, id.getNamespace(), count);
+                    }
+                    usedCache = true;
+                }
+            }
+
+            if (!usedCache) {
+                for (LinkedHandler linked : itemHandlers) {
+                    IItemHandler handler = linked.handler();
+                    for (int i = 0; i < handler.getSlots(); i++) {
+                        ItemStack stack = handler.getStackInSlot(i);
+                        if (stack.isEmpty()) continue;
+                        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+                        if (id == null) continue;
+                        long reportedCount = getHandlerReportedCount(handler, i, stack);
+                        mergeCount(localCounts, id.toString(), reportedCount);
+                        mergeExactEntry(exactEntries, stack, reportedCount);
+                        mergeCount(localNamespaceTotals, id.getNamespace(), reportedCount);
+                    }
+                }
+            }
+            if (includePlayerMainInventory) {
+                accumulatePlayerMainInventoryCounts(player, localCounts, localNamespaceTotals);
+                accumulatePlayerMainInventoryEntries(player, exactEntries);
+            }
+
+            // Build fluid entries
+            Map<String, Long> fluidAmounts = new HashMap<>();
+            Map<String, Long> fluidCapacities = new HashMap<>();
+            for (var entry : session.internalFluidMb.entrySet()) {
+                if (entry.getValue() == null || entry.getValue() <= 0L) continue;
+                mergeCount(fluidAmounts, entry.getKey(), entry.getValue());
+            }
+            for (LinkedFluidHandler linked : fluidHandlers) {
+                IFluidHandler handler = linked.handler();
+                for (int tank = 0; tank < handler.getTanks(); tank++) {
+                    FluidStack fluid = handler.getFluidInTank(tank);
+                    if (fluid.isEmpty()) continue;
+                    ResourceLocation id = BuiltInRegistries.FLUID.getKey(fluid.getFluid());
+                    if (id == null) continue;
+                    String fluidId = id.toString();
+                    mergeCount(fluidAmounts, fluidId, fluid.getAmount());
+                    mergeCount(fluidCapacities, fluidId, Math.max(0, handler.getTankCapacity(tank)));
+                }
+            }
+
+            long internalFluidCapacityMb = RtsStorageFluids.internalFluidCapacityMb(player);
+            for (String fluidId : fluidAmounts.keySet()) {
+                mergeCount(fluidCapacities, fluidId, internalFluidCapacityMb);
+                ResourceLocation rl = ResourceLocation.tryParse(fluidId);
+                if (rl != null) {
+                    mergeCount(localNamespaceTotals, rl.getNamespace(), fluidAmounts.getOrDefault(fluidId, 0L));
+                }
+            }
+
+            // Build categories
+            Map<String, Set<String>> itemTabKeys = new HashMap<>();
+            Map<String, Set<String>> modTabKeys = new HashMap<>();
+            if (!localCounts.isEmpty()) {
+                boolean operatorTabs = player.canUseGameMasterBlocks();
+                if (RtsPageCreativeTabIndexer.ensureCreativeTabContents(player)) {
+                    RtsPageCreativeTabIndexer.buildItemTabMapping(localCounts, itemTabKeys, modTabKeys, operatorTabs);
+                }
+            }
+
+            List<String> nsList = new ArrayList<>(localNamespaceTotals.keySet());
+            nsList.sort(RtsPageSharedHelpers::compareNamespace);
+
+            List<String> localCategories = new ArrayList<>();
+            localCategories.add(RtsPageSharedHelpers.CATEGORY_ALL);
+            for (String ns : nsList) {
+                localCategories.add(RtsPageSharedHelpers.encodeModCategory(ns));
+                List<String> tabs = new ArrayList<>(modTabKeys.getOrDefault(ns, Set.of()));
+                tabs.sort(RtsPageSharedHelpers::compareTabKey);
+                for (String tabKey : tabs) {
+                    localCategories.add(RtsPageSharedHelpers.encodeTabCategory(ns, tabKey));
+                }
+            }
+
+            // Filter and sort entries
+            CategorySelection selectedCategory = RtsPageSharedHelpers.parseCategorySelection(session.category);
+            if (!RtsPageSharedHelpers.isValidCategorySelection(selectedCategory, localCategories)) {
+                session.category = RtsPageSharedHelpers.CATEGORY_ALL;
+                selectedCategory = CategorySelection.all();
+            }
+
+            String query = session.search.toLowerCase(Locale.ROOT).trim();
+            List<Entry> entries = new ArrayList<>();
+            for (Entry exactEntry : exactEntries) {
+                String id = exactEntry.itemId();
+                ResourceLocation rl = ResourceLocation.tryParse(id);
+                if (!RtsPageSharedHelpers.matchesSearchQuery(
+                        rl, id, exactEntry.label(), query,
+                        session.pinyinSearchEnabled, session.localizedSearchMatches)) {
                     continue;
                 }
-                ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
-                if (id == null) {
+                Set<String> tabs = itemTabKeys.getOrDefault(id, Set.of());
+                if (!selectedCategory.matches(exactEntry.namespace(), tabs)) {
                     continue;
                 }
-                long reportedCount = getHandlerReportedCount(handler, i, stack);
-                mergeCount(counts, id.toString(), reportedCount);
-                mergeExactEntry(exactEntries, stack, reportedCount);
-                mergeCount(namespaceTotals, id.getNamespace(), reportedCount);
+                entries.add(exactEntry);
             }
-        }
-        if (includePlayerMainInventory) {
-            accumulatePlayerMainInventoryCounts(player, counts, namespaceTotals);
-            accumulatePlayerMainInventoryEntries(player, exactEntries);
-        }
 
-        Map<String, Long> fluidAmounts = new HashMap<>();
-        Map<String, Long> fluidCapacities = new HashMap<>();
-        for (var entry : session.internalFluidMb.entrySet()) {
-            if (entry.getValue() == null || entry.getValue() <= 0L) {
-                continue;
-            }
-            mergeCount(fluidAmounts, entry.getKey(), entry.getValue());
-        }
-        for (LinkedFluidHandler linked : fluidHandlers) {
-            IFluidHandler handler = linked.handler();
-            for (int tank = 0; tank < handler.getTanks(); tank++) {
-                FluidStack fluid = handler.getFluidInTank(tank);
-                if (fluid.isEmpty()) {
+            List<FluidEntry> fluidEntries = new ArrayList<>();
+            for (var e : fluidAmounts.entrySet()) {
+                String id = e.getKey();
+                ResourceLocation rl = ResourceLocation.tryParse(id);
+                if (!RtsPageSharedHelpers.matchesSearchQuery(
+                        rl, id, null, query, session.pinyinSearchEnabled, session.localizedSearchMatches)) {
                     continue;
                 }
-                ResourceLocation id = BuiltInRegistries.FLUID.getKey(fluid.getFluid());
-                if (id == null) {
+                String namespace = rl == null ? "unknown" : rl.getNamespace();
+                if (selectedCategory.isCreativeTab() || !selectedCategory.matches(namespace, Set.of())) {
                     continue;
                 }
-                String fluidId = id.toString();
-                mergeCount(fluidAmounts, fluidId, fluid.getAmount());
-                mergeCount(fluidCapacities, fluidId, Math.max(0, handler.getTankCapacity(tank)));
+                long amount = Math.max(0L, e.getValue());
+                long capacity = Math.max(amount, fluidCapacities.getOrDefault(id, internalFluidCapacityMb));
+                fluidEntries.add(new FluidEntry(id, namespace, rl == null ? id : rl.getPath(), amount, capacity));
             }
+
+            entries.sort(RtsPageSharedHelpers.entryComparator(session.sort, session.ascending));
+            fluidEntries.sort(RtsPageSharedHelpers.fluidComparator(session.sort, session.ascending));
+
+            counts = localCounts;
+            namespaceTotals = localNamespaceTotals;
+            categories = localCategories;
+            sortedEntries = entries;
+            sortedFluidEntries = fluidEntries;
+            totalEntries = entries.size();
+
+            // Update page cache
+            pageCache.put(player.getUUID(), new CachedPage(
+                    cacheKey, session.pageDataVersion.get(),
+                    sortedEntries, sortedFluidEntries,
+                    counts, namespaceTotals, categories));
         }
-
-        long internalFluidCapacityMb = RtsStorageFluids.internalFluidCapacityMb(player);
-        for (String fluidId : fluidAmounts.keySet()) {
-            mergeCount(fluidCapacities, fluidId, internalFluidCapacityMb);
-            ResourceLocation rl = ResourceLocation.tryParse(fluidId);
-            if (rl != null) {
-                mergeCount(namespaceTotals, rl.getNamespace(), fluidAmounts.getOrDefault(fluidId, 0L));
-            }
-        }
-
-        Map<String, Set<String>> itemTabKeys = new HashMap<>();
-        Map<String, Set<String>> modTabKeys = new HashMap<>();
-        if (!counts.isEmpty()) {
-            boolean operatorTabs = player.canUseGameMasterBlocks();
-            if (RtsPageCreativeTabIndexer.ensureCreativeTabContents(player)) {
-                RtsPageCreativeTabIndexer.buildItemTabMapping(counts, itemTabKeys, modTabKeys, operatorTabs);
-            }
-        }
-
-        List<String> namespaces = new ArrayList<>(namespaceTotals.keySet());
-        namespaces.sort(RtsPageSharedHelpers::compareNamespace);
-
-        List<String> categories = new ArrayList<>();
-        categories.add(RtsPageSharedHelpers.CATEGORY_ALL);
-        for (String namespace : namespaces) {
-            categories.add(RtsPageSharedHelpers.encodeModCategory(namespace));
-            List<String> tabs = new ArrayList<>(modTabKeys.getOrDefault(namespace, Set.of()));
-            tabs.sort(RtsPageSharedHelpers::compareTabKey);
-            for (String tabKey : tabs) {
-                categories.add(RtsPageSharedHelpers.encodeTabCategory(namespace, tabKey));
-            }
-        }
-
-        CategorySelection selectedCategory = RtsPageSharedHelpers.parseCategorySelection(session.category);
-        if (!RtsPageSharedHelpers.isValidCategorySelection(selectedCategory, categories)) {
-            session.category = RtsPageSharedHelpers.CATEGORY_ALL;
-            selectedCategory = CategorySelection.all();
-        }
-
-        String query = session.search.toLowerCase(Locale.ROOT).trim();
-        List<Entry> entries = new ArrayList<>();
-        for (Entry exactEntry : exactEntries) {
-            String id = exactEntry.itemId();
-            ResourceLocation rl = ResourceLocation.tryParse(id);
-            if (!RtsPageSharedHelpers.matchesSearchQuery(
-                    rl, id, exactEntry.label(), query,
-                    session.pinyinSearchEnabled, session.localizedSearchMatches)) {
-                continue;
-            }
-            Set<String> tabs = itemTabKeys.getOrDefault(id, Set.of());
-            if (!selectedCategory.matches(exactEntry.namespace(), tabs)) {
-                continue;
-            }
-            entries.add(exactEntry);
-        }
-
-        List<FluidEntry> fluidEntries = new ArrayList<>();
-        for (var e : fluidAmounts.entrySet()) {
-            String id = e.getKey();
-            ResourceLocation rl = ResourceLocation.tryParse(id);
-            if (!RtsPageSharedHelpers.matchesSearchQuery(
-                    rl, id, null, query, session.pinyinSearchEnabled, session.localizedSearchMatches)) {
-                continue;
-            }
-            String namespace = rl == null ? "unknown" : rl.getNamespace();
-            if (selectedCategory.isCreativeTab() || !selectedCategory.matches(namespace, Set.of())) {
-                continue;
-            }
-            long amount = Math.max(0L, e.getValue());
-            long capacity = Math.max(amount, fluidCapacities.getOrDefault(id, internalFluidCapacityMb));
-            fluidEntries.add(new FluidEntry(id, namespace, rl == null ? id : rl.getPath(), amount, capacity));
-        }
-
-        entries.sort(RtsPageSharedHelpers.entryComparator(session.sort, session.ascending));
-        fluidEntries.sort(RtsPageSharedHelpers.fluidComparator(session.sort, session.ascending));
 
         int pageSize = RtsPageSharedHelpers.sanitizePageSize(requestedPageSize);
-        int totalEntries = entries.size();
         int totalPages = Math.max(1, (totalEntries + pageSize - 1) / pageSize);
         int safePage = Math.max(0, Math.min(requestedPage, totalPages - 1));
         int from = safePage * pageSize;
@@ -184,7 +278,7 @@ public final class RtsPageCore {
         List<ItemStack> itemStacks = new ArrayList<>();
         List<Long> itemCounts = new ArrayList<>();
         for (int i = from; i < to; i++) {
-            Entry e = entries.get(i);
+            Entry e = sortedEntries.get(i);
             itemStacks.add(e.stack().copy());
             itemCounts.add(e.count());
         }
@@ -196,10 +290,10 @@ public final class RtsPageCore {
             totalItemCounts.add(entry.getValue());
         }
 
-        List<String> fluidIds = new ArrayList<>(fluidEntries.size());
-        List<Long> fluidAmountList = new ArrayList<>(fluidEntries.size());
-        List<Long> fluidCapacityList = new ArrayList<>(fluidEntries.size());
-        for (FluidEntry entry : fluidEntries) {
+        List<String> fluidIds = new ArrayList<>(sortedFluidEntries.size());
+        List<Long> fluidAmountList = new ArrayList<>(sortedFluidEntries.size());
+        List<Long> fluidCapacityList = new ArrayList<>(sortedFluidEntries.size());
+        for (FluidEntry entry : sortedFluidEntries) {
             fluidIds.add(entry.fluidId());
             fluidAmountList.add(entry.amount());
             fluidCapacityList.add(entry.capacity());

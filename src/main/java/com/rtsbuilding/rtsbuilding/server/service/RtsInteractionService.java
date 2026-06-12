@@ -9,6 +9,7 @@ import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageRecentEntries;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
+import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import com.rtsbuilding.rtsbuilding.server.service.mining.RtsMiningValidator;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementHelper;
 import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
@@ -336,6 +337,9 @@ public final class RtsInteractionService {
         if (!outcome.remainder().isEmpty()) {
             RtsTransferInserter.refundToLinked(insertHandlers, player, outcome.remainder());
         }
+        // Force-refresh slot cache and invalidate page cache after linked-item interaction
+        RtsStorageTickService.INSTANCE.forceRefresh(player);
+        session.pageDataVersion.incrementAndGet();
         return outcome.result();
     }
 }

@@ -1,6 +1,8 @@
 package com.rtsbuilding.rtsbuilding.server.service.transfer;
 
 import com.rtsbuilding.rtsbuilding.compat.bd.RtsBdCompat;
+import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsAggregateStorage;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -375,6 +377,64 @@ public final class RtsTransferExtractor {
             }
         }
         return ItemStack.EMPTY;
+    }
+
+    // ---- cache integration (fast path via aggregate storage) -------------------
+
+    /**
+     * Attempts a fast extraction of a single item directly from the player's
+     * aggregate storage cache. Falls back to scanning the provided handlers
+     * if the cache is unavailable or empty.
+     *
+     * <p>This is safe because {@code LinkedItemHandlerView.extractItem}
+     * delegates to the same raw handler that the cache operates on — no
+     * permission check is bypassed for extractions.
+     *
+     * @return the extracted stack, or {@link ItemStack#EMPTY}
+     */
+    public static ItemStack extractOneCached(ServerPlayer player, List<IItemHandler> fallbackHandlers, Item targetItem) {
+        if (player == null || targetItem == null) return ItemStack.EMPTY;
+        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+        if (aggregate != null && !aggregate.isEmpty()) {
+            ItemStack extracted = aggregate.extract(targetItem, 1);
+            if (!extracted.isEmpty()) {
+                RtsStorageTickService.INSTANCE.alert(player.getUUID());
+                return extracted;
+            }
+        }
+        return fallbackHandlers == null ? ItemStack.EMPTY : extractOneFromLinked(fallbackHandlers, targetItem);
+    }
+
+    /**
+     * Attempts a fast multi-item extraction from the aggregate storage cache.
+     * Falls back to scanning the provided handlers if the cache is unavailable.
+     */
+    public static ItemStack extractMatchingCached(
+            ServerPlayer player, List<IItemHandler> fallbackHandlers,
+            Item targetItem, ItemStack preferred, int limit) {
+        if (player == null || targetItem == null || limit <= 0) return ItemStack.EMPTY;
+        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+        if (aggregate != null && !aggregate.isEmpty()) {
+            ItemStack extracted = aggregate.extractMatching(targetItem, preferred, limit);
+            if (!extracted.isEmpty()) {
+                RtsStorageTickService.INSTANCE.alert(player.getUUID());
+                return extracted;
+            }
+        }
+        return fallbackHandlers == null
+                ? ItemStack.EMPTY
+                : extractMatchingFromLinked(fallbackHandlers, targetItem, preferred, limit);
+    }
+
+    /**
+     * Forces an immediate refresh of the player's storage slot cache so
+     * subsequent cached reads and fast-path extractions reflect the latest
+     * handler state.
+     */
+    public static void refreshCache(ServerPlayer player) {
+        if (player != null) {
+            RtsStorageTickService.INSTANCE.forceRefresh(player);
+        }
     }
 
     // ---- helpers ----------------------------------------------------------------

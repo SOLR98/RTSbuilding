@@ -20,7 +20,6 @@ import java.util.List;
  * {@link AreaShapeInput}.
  * <p>
  * Generators produce <b>relative</b> offsets from the anchor position and
- * apply shared validation via {@link #validatePosition} — all without touching
  * items, tools, energy, or network state.  The executor layer
  * ({@link com.rtsbuilding.rtsbuilding.common.AreaOperationExecutor}) owns
  * the actual block-state manipulation and item extraction.

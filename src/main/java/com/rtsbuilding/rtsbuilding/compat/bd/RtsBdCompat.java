@@ -60,6 +60,31 @@ public final class RtsBdCompat {
         return new FluidUnifiedStorageHandler(net.getUnifiedStorage());
     }
 
+    /**
+     * Releases the internal caches held by a BD network handler so the GC
+     * can reclaim memory immediately. Safe to call on non-BD handlers —
+     * the instanceof check will simply skip them.
+     */
+    public static void releaseNetworkHandler(IItemHandler handler) {
+        if (handler instanceof BdDirectItemHandler bd) {
+            bd.release();
+        }
+    }
+
+    /**
+     * Refreshes the internal cache of a BD network handler, re-reading the
+     * current BD network state without creating a new handler object.
+     * <p>
+     * This avoids the unmount/mount cycle that would happen if the handler
+     * were replaced entirely, letting the tick service reuse its existing
+     * slot cache.
+     */
+    public static void refreshNetworkHandler(IItemHandler handler) {
+        if (handler instanceof BdDirectItemHandler bd) {
+            bd.refreshCache();
+        }
+    }
+
     public static String getNetworkDisplayName(ServerPlayer player) {
         if (!isAvailable() || player == null || player.getServer() == null) {
             return "Beyond Dimensions Network";
@@ -100,6 +125,10 @@ public final class RtsBdCompat {
         }
 
         private void rebuildCache() {
+            this.itemToKey.clear();
+            this.keys.clear();
+            this.displayStacks.clear();
+            this.counts.clear();
             var bucket = storage.<AbstractUnorderedStackHandler.TypeBucket>getBucket(ItemStackKey.ID);
             if (bucket.isEmpty()) {
                 return;
@@ -227,6 +256,27 @@ public final class RtsBdCompat {
                 return 0L;
             }
             return Math.max(0L, this.counts.get(slot));
+        }
+
+        /**
+         * Refreshes the internal cache by clearing and re-reading the
+         * current BD network state. Can be called on an existing handler
+         * to update its slot list without changing object identity.
+         */
+        void refreshCache() {
+            rebuildCache();
+        }
+
+        /**
+         * Clears internal caches and drops the storage reference so the GC
+         * can reclaim memory immediately. After this call the handler must
+         * NOT be used again.
+         */
+        void release() {
+            this.itemToKey.clear();
+            this.keys.clear();
+            this.displayStacks.clear();
+            this.counts.clear();
         }
     }
 }

@@ -6,6 +6,7 @@ import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsSessionService;
+import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
 import net.minecraft.core.BlockPos;
@@ -226,6 +227,8 @@ public final class RtsPlacementBatch {
         }
         if (finishedJob && completedJobRef != null && !completedJobRef.placedPositions.isEmpty()) {
             ServerHistoryManager.recordPlacement(player, completedJobRef.placedPositions, completedJobRef.face());
+            RtsStorageTickService.INSTANCE.forceRefresh(player);
+            session.pageDataVersion.incrementAndGet();
             RtsSessionService.saveToPlayerNbt(player, session);
             RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
         }

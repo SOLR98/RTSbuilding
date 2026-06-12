@@ -9,10 +9,12 @@ import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.service.mining.RtsMiningStateMachine;
+import com.rtsbuilding.rtsbuilding.server.service.page.RtsPageCore;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSessionCodec;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch;
+import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -117,7 +119,15 @@ public final class RtsSessionService {
         RtsFunnelService.disableAndFlush(player, session);
         RtsMenuRemoteService.closeTracked(player, session);
         RtsMenuRemoteService.clearValidation(player, session);
+        // Clear runtime BD network caches so their internal data can be
+        // GC'd before the session object is dropped.
+        session.cachedBdHandler = null;
+        session.cachedBdFluidHandler = null;
         saveToPlayerNbt(player, session);
+        // Free storage cache memory immediately instead of holding it
+        // until the player logs out.
+        RtsStorageTickService.INSTANCE.unregisterPlayer(player);
+        RtsPageCore.clearCache(player.getUUID());
     }
 
     public static void onPlayerLogout(ServerPlayer player) {
@@ -127,9 +137,16 @@ public final class RtsSessionService {
             RtsFunnelService.disableAndFlush(player, session);
             RtsMenuRemoteService.closeTracked(player, session);
             RtsMenuRemoteService.clearValidation(player, session);
+            // Clear runtime BD network caches so their internal data can be
+            // GC'd before the session object is dropped.
+            session.cachedBdHandler = null;
+            session.cachedBdFluidHandler = null;
             saveToPlayerNbt(player, session);
         }
         SESSIONS.remove(player.getUUID());
+        // Clean up storage cache
+        RtsStorageTickService.INSTANCE.unregisterPlayer(player);
+        RtsPageCore.clearCache(player.getUUID());
     }
 
     public static void onPlayerTickPost(ServerPlayer player) {
@@ -168,6 +185,25 @@ public final class RtsSessionService {
     }
 
     public static void tickMining(MinecraftServer server) {
+        // Tick storage cache refresh (every N ticks per player)
+        var changes = RtsStorageTickService.INSTANCE.tick();
+
+        // When cache detects item changes, push updated page to the client
+        if (!changes.isEmpty()) {
+            for (var entry : changes.entrySet()) {
+                ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
+                if (player == null) continue;
+                RtsStorageSession session = SESSIONS.get(entry.getKey());
+                if (session == null) continue;
+                // Increment data version so the page cache in RtsPageCore
+                // knows the storage data has changed and should rebuild.
+                session.pageDataVersion.incrementAndGet();
+                if (!RtsProgressionManager.canUse(player, RtsFeature.STORAGE_BROWSER)) continue;
+                RtsPageService.requestPage(player, session.page, session.search,
+                        session.category, session.sort, session.ascending);
+            }
+        }
+
         for (var entry : SESSIONS.entrySet()) {
             ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
             if (player == null) {

@@ -91,11 +91,13 @@ public final class RtsPageService {
         session.localizedSearchMatches.addAll(RtsStoragePageBuilder.sanitizeLocalizedSearchMatches(localizedSearchMatches));
 
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
-        session.cachedBdHandler = null;
-        session.cachedBdFluidHandler = null;
+        session.bdHandlerStale = true;
+        session.bdFluidHandlerStale = true;
 
         List<LinkedHandler> activeHandlers = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
         List<LinkedFluidHandler> activeFluidHandlers = RtsLinkedStorageResolver.resolveLinkedFluidHandlers(player, session);
+        // Seed the slot cache for the resolved handlers
+        RtsLinkedStorageResolver.registerStorageCaches(player, activeHandlers);
         var result = RtsStoragePageBuilder.build(
                 player,
                 session,

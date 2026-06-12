@@ -61,6 +61,8 @@ public final class RtsBindingService {
         if (player == null || pos == null) return;
         RtsStorageSession session = RtsSessionService.getOrCreate(player);
         if (removeLinkedRef(session, player.serverLevel().dimension(), pos)) {
+            RtsStorageTickService.INSTANCE.forceRefresh(player);
+            session.pageDataVersion.incrementAndGet();
             RtsSessionService.saveToPlayerNbt(player, session);
             RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
         }
@@ -127,6 +129,8 @@ public final class RtsBindingService {
         session.cachedBdHandler = null;
         session.cachedBdFluidHandler = null;
         RtsSessionService.saveToPlayerNbt(player, session);
+        RtsStorageTickService.INSTANCE.forceRefresh(player);
+        session.pageDataVersion.incrementAndGet();
         RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
     }
 
@@ -181,6 +185,8 @@ public final class RtsBindingService {
 
         player.getInventory().setItem(slot, remaining.isEmpty() ? ItemStack.EMPTY : remaining);
         player.containerMenu.broadcastChanges();
+        RtsStorageTickService.INSTANCE.forceRefresh(player);
+        session.pageDataVersion.incrementAndGet();
         RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
         QuestService.runQuestDetect(player, session, false);
     }
@@ -202,6 +208,8 @@ public final class RtsBindingService {
             RtsSessionService.saveToPlayerNbt(player, session);
         }
         if (update.refreshPage()) {
+            RtsStorageTickService.INSTANCE.forceRefresh(player);
+            session.pageDataVersion.incrementAndGet();
             RtsPageService.requestPage(player, update.page(), session.search, session.category, session.sort, session.ascending);
         }
     }

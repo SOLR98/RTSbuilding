@@ -7,6 +7,7 @@ import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsSessionService;
+import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
@@ -94,9 +95,23 @@ public final class RtsLinkedStorageResolver {
             }
         }
 
-        if (session.cachedBdHandler == null && session.useBdNetwork && RtsBdCompat.hasPrimaryNetwork(player)) {
-            session.cachedBdHandler = RtsBdCompat.createNetworkItemHandler(player);
-            session.cachedBdName = RtsBdCompat.getNetworkDisplayName(player);
+        if (session.useBdNetwork) {
+            if (session.bdHandlerStale || session.cachedBdHandler == null) {
+                if (RtsBdCompat.hasPrimaryNetwork(player)) {
+                    if (session.cachedBdHandler == null) {
+                        session.cachedBdHandler = RtsBdCompat.createNetworkItemHandler(player);
+                    } else {
+                        // Handler exists but stale — refresh its internal cache
+                        // in-place to avoid an unmount/mount cycle.
+                        RtsBdCompat.refreshNetworkHandler(session.cachedBdHandler);
+                    }
+                    session.cachedBdName = RtsBdCompat.getNetworkDisplayName(player);
+                } else {
+                    session.cachedBdHandler = null;
+                    session.cachedBdFluidHandler = null;
+                }
+                session.bdHandlerStale = false;
+            }
         }
         if (session.cachedBdHandler != null) {
             LinkedStorageRef bdRef = new LinkedStorageRef(
@@ -106,6 +121,32 @@ public final class RtsLinkedStorageResolver {
         }
 
         return out;
+    }
+
+    /**
+     * Registers the raw (unwrapped) item handlers from resolved linked handlers
+     * with the {@link RtsStorageTickService} cache system, so that subsequent
+     * page builds and transfer operations can read from the slot cache instead
+     * of calling {@code getStackInSlot()} on every handler on every operation.
+     *
+     * <p>Call this after {@link #resolveLinkedHandlers(ServerPlayer, RtsStorageSession)}
+     * to seed the per-player aggregate storage.
+     */
+    public static void registerStorageCaches(ServerPlayer player, List<LinkedHandler> handlers) {
+        if (player == null || handlers == null || handlers.isEmpty()) {
+            RtsStorageTickService.INSTANCE.unregisterPlayer(player);
+            return;
+        }
+        List<IItemHandler> rawHandlers = new ArrayList<>(handlers.size());
+        for (LinkedHandler lh : handlers) {
+            IItemHandler h = lh.handler();
+            if (h instanceof LinkedItemHandlerView view) {
+                rawHandlers.add(view.getRawHandler());
+            } else {
+                rawHandlers.add(h);
+            }
+        }
+        RtsStorageTickService.INSTANCE.registerPlayer(player, rawHandlers);
     }
 
     /**
@@ -140,8 +181,15 @@ public final class RtsLinkedStorageResolver {
             }
         }
 
-        if (session.cachedBdFluidHandler == null && session.useBdNetwork && RtsBdCompat.hasPrimaryNetwork(player)) {
-            session.cachedBdFluidHandler = RtsBdCompat.createNetworkFluidHandler(player);
+        if (session.useBdNetwork) {
+            if (session.bdFluidHandlerStale || session.cachedBdFluidHandler == null) {
+                if (RtsBdCompat.hasPrimaryNetwork(player)) {
+                    session.cachedBdFluidHandler = RtsBdCompat.createNetworkFluidHandler(player);
+                } else {
+                    session.cachedBdFluidHandler = null;
+                }
+                session.bdFluidHandlerStale = false;
+            }
         }
         if (session.cachedBdFluidHandler != null) {
             String bdName = session.cachedBdName != null ? session.cachedBdName : RtsBdCompat.getNetworkDisplayName(player);
@@ -216,12 +264,7 @@ public final class RtsLinkedStorageResolver {
             return;
         }
         session.linkedStorages.removeIf(ref -> ref == null || ref.dimension() == null || ref.pos() == null);
-        session.linkedNames.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
-        session.linkedModes.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
-        session.linkedPriorities.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
-        session.linkedBackpackUuids.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
-        session.linkedBackpackItemIds.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
-        session.detachedBackpackRefs.removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
+        cleanupOrphanRefs(session);
     }
 
     public static boolean isLinkedRefWorldVisible(ServerPlayer player, RtsStorageSession session, LinkedStorageRef ref) {
@@ -327,6 +370,8 @@ public final class RtsLinkedStorageResolver {
             RtsStorageSession session = entry.getValue();
             if (markOrRemoveBrokenLinkedStorageRef(session, level, dimension, pos)) {
                 RtsSessionService.saveToPlayerNbt(player, session);
+                RtsStorageTickService.INSTANCE.forceRefresh(player);
+                session.pageDataVersion.incrementAndGet();
                 RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
             }
         }
@@ -356,6 +401,8 @@ public final class RtsLinkedStorageResolver {
             RtsStorageSession session = entry.getValue();
             if (moveBackpackLinkedStorageRef(session, backpackUuid, backpackItemId, newRef, displayName)) {
                 RtsSessionService.saveToPlayerNbt(player, session);
+                RtsStorageTickService.INSTANCE.forceRefresh(player);
+                session.pageDataVersion.incrementAndGet();
                 RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
             }
         }
@@ -441,12 +488,7 @@ public final class RtsLinkedStorageResolver {
         boolean removed = session.linkedStorages.removeIf(ref ->
                 ref != null && dimension.equals(ref.dimension()) && pos.equals(ref.pos()));
         if (removed) {
-            session.linkedNames.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
-            session.linkedModes.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
-            session.linkedPriorities.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
-            session.linkedBackpackUuids.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
-            session.linkedBackpackItemIds.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
-            session.detachedBackpackRefs.removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
+            cleanupOrphanRefs(session);
         }
         return removed;
     }
@@ -500,5 +542,19 @@ public final class RtsLinkedStorageResolver {
         List<LinkedFluidHandler> ordered = new ArrayList<>(handlers);
         ordered.sort(comparator);
         return ordered;
+    }
+
+    /**
+     * Removes orphaned metadata entries whose {@link LinkedStorageRef} is no
+     * longer present in {@code session.linkedStorages}. Called after any
+     * operation that removes refs from the list.
+     */
+    private static void cleanupOrphanRefs(RtsStorageSession session) {
+        session.linkedNames.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
+        session.linkedModes.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
+        session.linkedPriorities.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
+        session.linkedBackpackUuids.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
+        session.linkedBackpackItemIds.keySet().removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
+        session.detachedBackpackRefs.removeIf(ref -> ref == null || !session.linkedStorages.contains(ref));
     }
 }

@@ -1,5 +1,6 @@
 package com.rtsbuilding.rtsbuilding.server.service.transfer;
 
+import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import com.rtsbuilding.rtsbuilding.server.storage.OverflowOutcome;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedHandlerViews;
 import net.minecraft.server.level.ServerPlayer;
@@ -97,6 +98,8 @@ public final class RtsTransferInserter {
             dropped = remain.getCount();
             player.drop(remain, false);
         }
+        // Refresh cache so subsequent page builds see the updated state immediately
+        refreshCache(player);
         return new OverflowOutcome(movedToInventory, dropped);
     }
 
@@ -122,6 +125,8 @@ public final class RtsTransferInserter {
             dropped = remain.getCount();
             player.drop(remain, false);
         }
+        // Refresh cache so subsequent page builds see the updated state immediately
+        refreshCache(player);
         return new OverflowOutcome(movedToInventory, dropped);
     }
 
@@ -195,6 +200,25 @@ public final class RtsTransferInserter {
             }
         }
         return remain;
+    }
+
+    // ---- cache integration -----------------------------------------------------
+
+    /**
+     * Alerts the player's storage tick service of a change, so the next
+     * adaptive tick cycle (50ms at worst) will refresh the cache and push
+     * an updated page to the client.
+     * <p>
+     * Previously this called {@code forceRefresh()} which synchronously
+     * rebuilt every handler's slot cache — an O(slots × handlers) operation
+     * that caused visible lag with AE2 networks containing 10000+ item types.
+     * Now the refresh is deferred to the next tick, which is imperceptible
+     * and allows the adaptive scheduler to batch updates efficiently.
+     */
+    public static void refreshCache(ServerPlayer player) {
+        if (player != null) {
+            RtsStorageTickService.INSTANCE.alert(player.getUUID());
+        }
     }
 
     // ---- feedback ---------------------------------------------------------------

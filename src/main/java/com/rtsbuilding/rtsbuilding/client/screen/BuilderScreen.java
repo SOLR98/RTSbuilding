@@ -538,10 +538,6 @@ public final class BuilderScreen extends Screen {
                 return true;
             }
             if (primaryMouse && !rotateMouse && isWorldArea(mouseX, mouseY) && this.controller.getMode() == BuilderMode.LINK_STORAGE) {
-                BlockHitResult hit = this.cursorPicker.pickBlockHit();
-                if (hit != null) {
-                    this.controller.linkStorage(hit.getBlockPos(), false);
-                }
                 return true;
             }
             if (primaryMouse && isInsideBottomPanel(mouseX, mouseY)) {

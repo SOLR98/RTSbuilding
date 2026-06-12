@@ -5,6 +5,7 @@ import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.service.QuestService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsCraftingService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
+import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
@@ -74,6 +75,8 @@ public final class RtsTransferPlayerIntegration {
             RtsTransferInserter.sendStorageOverflowHint(player, "Import", overflow);
         }
         player.containerMenu.broadcastChanges();
+        RtsStorageTickService.INSTANCE.forceRefresh(player);
+        session.pageDataVersion.incrementAndGet();
         RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
         QuestService.runQuestDetect(player, session, false);
     }
@@ -113,6 +116,8 @@ public final class RtsTransferPlayerIntegration {
                 || !RtsCameraManager.isWithinActionRadius(player, dropBlock)
                 || !RtsProgressionManager.canAccessHomeRadius(player, dropBlock)) {
             RtsTransferInserter.refundToLinked(insertHandlers, player, extracted);
+            RtsStorageTickService.INSTANCE.forceRefresh(player);
+            session.pageDataVersion.incrementAndGet();
             RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
             return;
         }
@@ -120,6 +125,8 @@ public final class RtsTransferPlayerIntegration {
         dropped.setDeltaMovement(Vec3.ZERO);
         dropped.setPickUpDelay(10);
         player.serverLevel().addFreshEntity(dropped);
+        RtsStorageTickService.INSTANCE.forceRefresh(player);
+        session.pageDataVersion.incrementAndGet();
         RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
     }
 
@@ -214,6 +221,8 @@ public final class RtsTransferPlayerIntegration {
             RtsTransferInserter.sendStorageOverflowHint(player, "Import", overflow);
         }
         menu.broadcastChanges();
+        RtsStorageTickService.INSTANCE.forceRefresh(player);
+        session.pageDataVersion.incrementAndGet();
         RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
         QuestService.runQuestDetect(player, session, false);
     }
@@ -262,6 +271,8 @@ public final class RtsTransferPlayerIntegration {
             player.containerMenu.setCarried(carried);
         }
         player.containerMenu.broadcastChanges();
+        RtsStorageTickService.INSTANCE.forceRefresh(player);
+        session.pageDataVersion.incrementAndGet();
         RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
     }
 
@@ -301,6 +312,8 @@ public final class RtsTransferPlayerIntegration {
             RtsTransferInserter.refundToLinked(insertHandlers, player, remain);
         }
         player.containerMenu.broadcastChanges();
+        RtsStorageTickService.INSTANCE.forceRefresh(player);
+        session.pageDataVersion.incrementAndGet();
         RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
         QuestService.runQuestDetect(player, session, false);
     }
@@ -349,6 +362,8 @@ public final class RtsTransferPlayerIntegration {
         }
         if (movedCount > 0) {
             player.containerMenu.broadcastChanges();
+            RtsStorageTickService.INSTANCE.forceRefresh(player);
+            session.pageDataVersion.incrementAndGet();
             RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
             player.displayClientMessage(
                     Component.literal(inventoryFull

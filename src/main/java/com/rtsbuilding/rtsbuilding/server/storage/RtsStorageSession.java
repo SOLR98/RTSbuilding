@@ -20,7 +20,6 @@ import java.util.*;
  * <h3>设计约束</h3>
  * <ul>
  *   <li><b>纯数据容器</b>——不查询方块实体/解析能力/序列化 NBT/变更物品栏/发包</li>
- *   <li><b>职责单一</b>——所有游戏逻辑归 {@link RtsStorageManager} 及委托服务</li>
  *   <li><b>保持兼容</b>——字段名称和类型已定型，外部引用依赖它们精确匹配</li>
  * </ul>
  *
@@ -47,6 +46,21 @@ public class RtsStorageSession {
     public IFluidHandler cachedBdFluidHandler;
     /** BD 网络显示名称 */
     public String cachedBdName;
+
+    /**
+     * Stale flag for BD network caches. Set to {@code true} by the page
+     * service before resolving handlers so the resolver refreshes the
+     * handler's internal cache instead of re-creating it (which would
+     * trigger an unnecessary unmount/mount cycle).
+     */
+    public boolean bdHandlerStale;
+
+    /**
+     * Stale flag for BD network fluid cache. Set to {@code true} by the page
+     * service before resolving handlers so the resolver re-creates the fluid
+     * handler instead of skipping a stale reference.
+     */
+    public boolean bdFluidHandlerStale;
 
     // ======================================================================
     // §2  玩家模式与存储链接
@@ -189,6 +203,15 @@ public class RtsStorageSession {
     public long nextQuestDetectTick;
     /** True when the client's storage browser page no longer matches storage contents. */
     public boolean storageViewDirty;
+
+    /**
+     * 存储数据版本号——缓存数据变更时递增。
+     * <p>用于 {@code RtsPageCore} 的页面缓存过期检测。
+     * 纯翻页操作（search/sort/category 不变）时，
+     * 若版本号未变则跳过 O(n log n) 的排序过滤重构。
+     */
+    public final java.util.concurrent.atomic.AtomicLong pageDataVersion =
+            new java.util.concurrent.atomic.AtomicLong();
 
     // ======================================================================
     // §8  放置队列

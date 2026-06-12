@@ -11,7 +11,7 @@ import java.util.List;
 /**
  * Wall (vertical extruded line) shape generator.
  * <p>
- * Generates positions along a base line (XZ plane) extruded vertically by the
+ * Generates positions along a baseline (XZ plane) extruded vertically by the
  * height offset.  Supports FILL (solid wall) and HOLLOW (edge frame) modes.
  */
 public class WallShapeGenerator extends AreaShapeGenerator {

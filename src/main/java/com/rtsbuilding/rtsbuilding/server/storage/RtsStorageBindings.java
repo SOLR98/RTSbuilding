@@ -22,7 +22,6 @@ import net.minecraft.world.level.block.state.properties.ChestType;
  * item ids, and builder mode values are stored on the player's RTS session. It
  * deliberately does not read or build the full storage page, aggregate storage
  * contents, move items, transfer fluids, craft, mine, place blocks, or persist
- * NBT. {@link RtsStorageManager} keeps packet/page refresh and persistence
  * wrappers so existing network handlers do not need to know about this split.
  *
  * <p>Linked storage capability probing and access checks still come from
@@ -33,6 +32,9 @@ import net.minecraft.world.level.block.state.properties.ChestType;
 public final class RtsStorageBindings {
     public static final int QUICK_SLOT_COUNT = 27;
     public static final int GUI_BINDING_SLOT_COUNT = 8;
+
+    /** 绑定存储上限——防止玩家无限添加导致页面构建性能退化。 */
+    public static final int MAX_LINKED_STORAGES = 50;
 
     private RtsStorageBindings() {
     }
@@ -93,6 +95,9 @@ public final class RtsStorageBindings {
             if (existingRef != null) {
                 removeLinkedRef(session, existingRef);
             } else {
+                if (session.linkedStorages.size() >= MAX_LINKED_STORAGES) {
+                    return UpdateResult.none();
+                }
                 session.linkedStorages.add(ref);
                 session.linkedNames.put(ref, RtsLinkedStorageResolver.resolveDisplayName(player.serverLevel(), ref.pos()));
                 session.linkedModes.put(ref, normalizedMode);
@@ -100,6 +105,11 @@ public final class RtsStorageBindings {
                 applyBackpackMetadata(session, ref, backpackLinkData);
             }
         }
+        // Mark BD network caches as stale so the resolver re-resolves them
+        // instead of using the old cached handler (which may reference blocks
+        // that were unlinked or changed).
+        session.bdHandlerStale = true;
+        session.bdFluidHandlerStale = true;
         return UpdateResult.refreshFirst(true);
     }
 

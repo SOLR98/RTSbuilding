@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.service.placement;
 
 import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
+import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -95,6 +96,8 @@ public final class RtsPlacementHelper {
      */
     public static void requestSessionPage(ServerPlayer player, RtsStorageSession session, boolean refreshStoragePage) {
         if (refreshStoragePage) {
+            RtsStorageTickService.INSTANCE.forceRefresh(player);
+            session.pageDataVersion.incrementAndGet();
             RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
         }
     }

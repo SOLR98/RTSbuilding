@@ -1,5 +1,12 @@
 package com.rtsbuilding.rtsbuilding.server.history;
 
+import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
+import com.rtsbuilding.rtsbuilding.server.service.RtsSessionService;
+import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
+import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
+import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
@@ -10,6 +17,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.neoforged.neoforge.items.IItemHandler;
 
 import java.util.List;
 
@@ -136,16 +144,18 @@ public final class HistoryExecutor {
     }
 
     /**
-     * 破坏方块，并将物品返还到玩家背包（而非掉落物实体）。
+     * 破坏方块，并将物品退还到链接储存（而非玩家背包或掉落物实体）。
      * <p>
      * 只破坏与记录中类型相同的方块（防止误破坏玩家后来放置的其他方块）。
+     * <p>
+     * 退还优先级：链接储存空间 → 玩家背包 → 原地掉落物。
      * <p>
      * <b>为什么不用 {@link net.minecraft.server.level.ServerLevel#destroyBlock}：</b>
      * <ul>
      *   <li>{@code destroyBlock(pos, true, player)} 会以掉落物实体形式丢出物品</li>
-     *   <li>这些物品不会进入 RTS 链接储存空间，玩家需要手动捡起</li>
-     *   <li>替代方案：移除方块后通过 {@link ServerPlayer#addItem} 直接放入背包</li>
-     *   <li>RTS 模式开启 auto-store 时，背包内的物品会被自动吸入储存</li>
+     *   <li>取而代之：移除方块后优先尝试放入链接储存空间</li>
+     *   <li>链接储存空间装满后回退到玩家背包</li>
+     *   <li>背包也满时生成掉落物作为最终回退</li>
      * </ul>
      */
     private static int breakBlocks(ServerPlayer player, List<HistoryBlockRecord> blocks) {
@@ -167,19 +177,40 @@ public final class HistoryExecutor {
             // 移除方块（不生成掉落物实体）
             level.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL | Block.UPDATE_CLIENTS);
 
-            // 生存模式：将对应物品返还到玩家背包
-            // RTS 模式开启 auto-store 时，物品会自动吸入链接储存空间
+            // 生存模式：优先返还到链接储存空间，然后玩家背包，最后掉落物
             if (!isCreative) {
-                ItemStack refund = new ItemStack(expectedState.getBlock().asItem());
-                if (!refund.isEmpty()) {
-                    if (!player.addItem(refund)) {
-                        // 背包已满，原地生成掉落物作为最终回退
-                        Block.popResource(level, pos, refund);
+                ItemStack stack = new ItemStack(expectedState.getBlock().asItem());
+                if (!stack.isEmpty()) {
+                    boolean refunded = false;
+                    RtsStorageSession session = RtsSessionService.getIfPresent(player);
+                    if (session != null) {
+                        List<LinkedHandler> activeLinked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
+                        List<IItemHandler> handlers = RtsLinkedStorageResolver.itemHandlersForInsert(activeLinked);
+                        if (!handlers.isEmpty()) {
+                            RtsTransferInserter.refundToLinked(handlers, player, stack);
+                            refunded = true;
+                        }
+                    }
+                    if (!refunded) {
+                        // 没有链接储存时，回退到玩家背包
+                        if (!player.addItem(stack)) {
+                            Block.popResource(level, pos, stack);
+                        }
                     }
                 }
             }
 
             brokenCount++;
+        }
+
+        // 撤回后强制刷新 RTS 页面，确保退还到链接储存后的数量正确显示
+        if (!isCreative) {
+            RtsStorageSession session = RtsSessionService.getIfPresent(player);
+            if (session != null) {
+                RtsStorageTickService.INSTANCE.forceRefresh(player);
+                session.pageDataVersion.incrementAndGet();
+                RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+            }
         }
 
         return brokenCount;
