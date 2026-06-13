@@ -78,7 +78,7 @@ public final class RtsCraftingExecutor {
                         }),
                 Component.literal("RTS Craft Terminal")));
         RtsRemoteMenuService.relaxOpenedMenuValidation(player.containerMenu);
-        RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
     }
 
     /**
@@ -148,7 +148,7 @@ public final class RtsCraftingExecutor {
             RtsCraftingUtils.mergeConsumedCounts(consumedCounts, result.consumedCounts());
         }
 
-        RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
         RtsCraftingSearch.refreshCraftables(player, session);
         if (completedCrafts <= 0) {
             if (storageFull) {

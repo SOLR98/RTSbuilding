@@ -9,10 +9,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 蓝图虚影边界过滤器。
+ * Blueprint ghost bounds filter.
  * <p>
- * 用于将蓝图虚影方块裁剪到 RTS 边界范围内，
- * 只渲染玩家基地范围内的预览方块。
+ * Clips blueprint ghost blocks to the RTS boundary, so only preview blocks
+ * within the player's base area are rendered.
  */
 public final class BlueprintGhostBoundsFilter {
 
@@ -20,10 +20,10 @@ public final class BlueprintGhostBoundsFilter {
     }
 
     /**
-     * 过滤蓝图方块列表，仅保留在 RTS 边界范围内的方块。
+     * Filters the blueprint block list, keeping only blocks within RTS bounds.
      *
-     * @param blocks 待过滤的蓝图方块列表
-     * @return 仅包含边界内方块的新列表；如果控制器没有边界约束，返回原列表
+     * @param blocks the blueprint block list to filter
+     * @return a new list containing only in-bounds blocks; returns the original list if the controller has no bounds
      */
     public static List<BlueprintPanel.BlueprintGhostBlock> filter(
             List<BlueprintPanel.BlueprintGhostBlock> blocks) {

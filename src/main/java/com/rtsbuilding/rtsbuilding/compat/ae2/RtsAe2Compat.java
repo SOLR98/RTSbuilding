@@ -7,6 +7,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.neoforged.fml.ModList;
@@ -204,6 +205,32 @@ public final class RtsAe2Compat {
             }
 
             return this.reflection.toStack(view.key(), (int) Math.min(Integer.MAX_VALUE, extracted));
+        }
+
+        @Override
+        public ItemStack extractItemAnywhere(Item targetItem, int amount, boolean simulate) {
+            if (targetItem == null || amount <= 0) {
+                return ItemStack.EMPTY;
+            }
+            // Scan internal slots directly (avoids getStackInSlot() copy overhead)
+            // and perform a single bulk extract via AE2's MEStorage.extract().
+            for (int i = 0; i < this.slots.size(); i++) {
+                SlotView view = this.slots.get(i);
+                if (view.amount() <= 0L || view.displayStack().getItem() != targetItem) {
+                    continue;
+                }
+                long extracted = this.reflection.extract(
+                        this.storageService, view.key(), amount, this.player, simulate);
+                if (extracted <= 0L) {
+                    return ItemStack.EMPTY;
+                }
+                if (!simulate) {
+                    long nextAmount = Math.max(0L, view.amount() - extracted);
+                    this.slots.set(i, new SlotView(view.key(), view.displayStack(), nextAmount));
+                }
+                return this.reflection.toStack(view.key(), (int) Math.min(Integer.MAX_VALUE, extracted));
+            }
+            return ItemStack.EMPTY;
         }
 
         @Override

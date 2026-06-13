@@ -26,57 +26,59 @@ import java.util.List;
 import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.MIDDLE_CLICK_DRAG_THRESHOLD;
 
 /**
- * 处理 RTS 镜头和输入交互的状态管理。
+ * Handles RTS camera and input interaction state management.
  * <p>
- * 包含鼠标拖拽(右键旋转、中键平移/拾取)、挖矿动作、键盘镜头控制和键盘拖拽平移的状态。
- * 所有状态在 BuilderScreen 的事件方法中被使用，本类负责存储和管理这些状态，
- * 并提供辅助方法进行输入判断和动作执行。
+ * Manages mouse dragging (right-click rotation, middle-click pan/pick),
+ * mining actions, keyboard camera control, and keyboard pan-drag states.
+ * All state is used in BuilderScreen event methods; this class stores and
+ * manages these states and provides helper methods for input detection
+ * and action execution.
  */
 public final class CameraInputHandler {
     private BuilderScreen screen;
     private ClientRtsController controller;
 
-    // ======================== 鼠标/镜头状态 ========================
+    // ======================== Mouse/Camera state ========================
 
-    /** 右键拖拽是否激活 */
+    /** Whether right-click drag is active */
     private boolean rightPressActive = false;
-    /** 触发右键拖拽的鼠标按钮 */
+    /** Mouse button that triggered right-click drag */
     private int rightPressButton = -1;
-    /** 当前右键是否可触发主要动作 */
+    /** Whether current right press can trigger primary action */
     private boolean rightPressCanPrimary = false;
-    /** 当前右键是否可触发旋转 */
+    /** Whether current right press can trigger rotation */
     private boolean rightPressCanRotate = false;
-    /** 是否已发生旋转拖拽（用于区分点击和拖拽） */
+    /** Whether rotation drag has occurred (distinguishes click vs drag) */
     private boolean rightDragRotated = false;
-    /** 右键拖拽累积距离 */
+    /** Accumulated right-click drag distance */
     private double rightDragDistance = 0.0D;
 
-    /** 中键拖拽是否激活 */
+    /** Whether middle-click drag is active */
     private boolean middlePressActive = false;
-    /** 触发中键拖拽的鼠标按钮 */
+    /** Mouse button that triggered middle-click drag */
     private int middlePressButton = -1;
-    /** 当前中键是否可平移 */
+    /** Whether current middle press can pan */
     private boolean middlePressCanPan = false;
-    /** 当前中键是否可拾取方块 */
+    /** Whether current middle press can pick blocks */
     private boolean middlePressCanPick = false;
-    /** 中键拖拽累积距离 */
+    /** Accumulated middle-click drag distance */
     private double middleDragDistance = 0.0D;
 
-    /** 键盘拖拽平移 - 上次鼠标 X (用于计算增量) */
+    /** Keyboard pan-drag - last mouse X (for delta calculation) */
     private double keyboardPanLastMouseX = Double.NaN;
-    /** 键盘拖拽平移 - 上次鼠标 Y */
+    /** Keyboard pan-drag - last mouse Y */
     private double keyboardPanLastMouseY = Double.NaN;
 
-    /** 左键挖矿是否激活 */
+    /** Whether left-click mining is active */
     private boolean leftMiningActive = false;
-    /** 挖矿激活时的鼠标按钮（键盘触发时为 -1） */
+    /** Mouse button that activated mining (-1 for keyboard-triggered) */
     private int activeMiningMouseButton = -1;
-    /** 挖矿是否由键盘触发 */
+    /** Whether mining was triggered by keyboard */
     private boolean activeMiningKeyboard = false;
 
-    /** 镜头向上动作是否正在按住 */
+    /** Camera up action held state */
     private boolean cameraUpActionHeld = false;
-    /** 镜头向下动作是否正在按住 */
+    /** Camera down action held state */
     private boolean cameraDownActionHeld = false;
 
     public void init(BuilderScreen screen, ClientRtsController controller) {

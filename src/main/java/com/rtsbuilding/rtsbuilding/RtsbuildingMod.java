@@ -4,7 +4,7 @@ package com.rtsbuilding.rtsbuilding;
 import com.mojang.logging.LogUtils;
 import com.rtsbuilding.rtsbuilding.blueprint.server.BlueprintPlacementService;
 import com.rtsbuilding.rtsbuilding.entity.RtsCameraEntity;
-import com.rtsbuilding.rtsbuilding.server.RtsAPIImpl;
+import com.rtsbuilding.rtsbuilding.server.api.impl.RtsAPIImpl;
 import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
 import com.rtsbuilding.rtsbuilding.server.feedback.RtsDamageFeedbackManager;
 import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
@@ -66,7 +66,7 @@ public class RtsbuildingMod {
     }
 
     private void commonSetup(FMLCommonSetupEvent event) {
-        // 初始化 RTS API，使附属模组可通过 RtsAPI.get() 访问
+        // Initialise the RTS API so addons can access it via RtsAPI.get()
         RtsAPIImpl.init();
         LOGGER.info("RTSBuilding common setup complete");
     }
@@ -101,7 +101,7 @@ public class RtsbuildingMod {
                 RtsDamageFeedbackManager.forget(serverPlayer);
                 RtsSessionService.onPlayerLogout(serverPlayer);
                 RtsProgressionManager.onPlayerLogout(serverPlayer);
-                // 清除该玩家的撤回历史，防止切换到其他存档后残留无效的 BlockPos 记录
+                // Clear this player's undo history to prevent stale BlockPos entries when switching worlds
                 ServerHistoryManager.clear(serverPlayer.getUUID());
             }
         }

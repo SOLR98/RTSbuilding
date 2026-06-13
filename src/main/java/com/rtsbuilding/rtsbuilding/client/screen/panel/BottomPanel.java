@@ -33,13 +33,13 @@ import java.util.*;
 import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.*;
 
 /**
- * 底部面板 — 储存网格、分类、合成、流体、蓝图的集中 UI。
+ * Bottom panel — centralised UI for storage grids, categories, crafting, fluids, and blueprints.
  * <p>
- * 由 {@link BuilderScreen} 统一调度生命周期。
+ * Lifecycle is orchestrated by {@link BuilderScreen}.
  */
 public final class BottomPanel {
 
-    // ── 状态 ──
+    // ── State ──
     private BuilderScreen screen;
     private ClientRtsController controller;
 
@@ -71,7 +71,7 @@ public final class BottomPanel {
         this.controller = controller;
     }
 
-    // ── 渲染 ──
+    // ── Rendering ──
 
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         BottomPanelLayoutTypes.BottomPanelLayout layout = resolveBottomPanelLayout();
@@ -189,7 +189,7 @@ public final class BottomPanel {
         RtsCraftFeedbackPopup.render(g, screen.font(), screen.width, this.controller);
     }
 
-    // ── 标签页渲染 ──
+    // ── Tab rendering ──
 
     private void renderBottomPanelTabs(GuiGraphics g, BottomPanelLayoutTypes.BottomPanelLayout layout, int mouseX, int mouseY) {
         int labelX = layout.panelX() + 8;
@@ -327,7 +327,7 @@ public final class BottomPanel {
         return Component.translatable("screen.rtsbuilding.storage.tab").getString();
     }
 
-    // ── 工具栏 ├── 热键栏/固定位 ──
+    // ── Toolbar ── hotbar / pinned slots ──
 
     private void renderToolArea(GuiGraphics g, int mouseX, int mouseY, int storageX, int rowY, int storageW) {
         if (Minecraft.getInstance() == null || Minecraft.getInstance().player == null) {
@@ -437,7 +437,7 @@ public final class BottomPanel {
         g.fill(left, top, left + size, top + size, 0xFFFFC3A3);
     }
 
-    // ── 排序 / 分页 / 搜索 ──
+    // ── Sort / paging / search ──
 
     private void drawSortButton(GuiGraphics g, int x, int y, String label) {
         g.fill(x, y, x + SORT_BUTTON_SIZE, y + SORT_BUTTON_SIZE, 0xAA29323D);
@@ -482,7 +482,7 @@ public final class BottomPanel {
         g.drawCenteredString(screen.font(), "x", x + SEARCH_CLEAR_SIZE / 2, y + 3, textColor);
     }
 
-    // ── 分类面板 ──
+    // ── Category panel ──
 
     private void drawCategoryPanel(GuiGraphics g, int mouseX, int mouseY, int x, int y, int width, int height) {
         g.fill(x, y, x + width, y + height, 0x8820222A);
@@ -551,7 +551,7 @@ public final class BottomPanel {
         g.pose().popPose();
     }
 
-    // ── 储存网格 ──
+    // ── Storage grid ──
 
     private void drawStorageGrid(GuiGraphics g, int mouseX, int mouseY, int x, int y, int width, int height) {
         int cols = Math.max(1, width / SLOT);
@@ -704,7 +704,7 @@ public final class BottomPanel {
         RtsClientUiUtil.drawSlotCountOverlay(g, screen.font(), slotX, slotY, box, countText, color);
     }
 
-    // ── 流体网格 ──
+    // ── Fluid grid ──
 
     private void drawFluidGrid(GuiGraphics g, int mouseX, int mouseY, int x, int y, int width, int height) {
         int cols = 2;
@@ -743,7 +743,7 @@ public final class BottomPanel {
         }
     }
 
-    // ── 合成面板 ──
+    // ── Crafting panel ──
 
     private void renderCraftablesPanel(GuiGraphics g, int mouseX, int mouseY, int x, int y, int width, int height, float partialTick) {
         syncCraftSearchValueFromController();
@@ -853,7 +853,7 @@ public final class BottomPanel {
         screen.submitCraftQuantityWindowIfReady();
     }
 
-    // ── 合成底座 ──
+    // ── Craft dock ──
 
     private void drawCraftDock(GuiGraphics g, int mouseX, int mouseY, int x, int y) {
         PanelLayouts.CraftDockLayout dock = resolveCraftDockLayout(x, y);
@@ -889,7 +889,7 @@ public final class BottomPanel {
         }
     }
 
-    // ── 点击处理 ──
+    // ── Click handling ──
 
     public boolean handleClick(double mouseX, double mouseY) {
         BottomPanelLayoutTypes.BottomPanelLayout layout = resolveBottomPanelLayout();
@@ -1194,7 +1194,7 @@ public final class BottomPanel {
         return mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom;
     }
 
-    // ── 内部点击处理 ──
+    // ── Internal click handling ──
 
     private boolean handleCraftDockClick(double mouseX, double mouseY, int button, int x, int y) {
         PanelLayouts.CraftDockLayout dock = resolveCraftDockLayout(x, y);
@@ -1504,7 +1504,7 @@ public final class BottomPanel {
         return index < entries.size() ? index : -1;
     }
 
-    // ── 布局与解析 ──
+    // ── Layout & resolution ──
 
     public BottomPanelLayoutTypes.BottomPanelLayout resolveBottomPanelLayout() {
         int dynamicMaxH = Math.max(MIN_BOTTOM_H, Math.min(MAX_BOTTOM_H, screen.height - TOP_H - 16));
@@ -1622,7 +1622,7 @@ public final class BottomPanel {
         return layout.panelY() + 3;
     }
 
-    // ── 分类构建 ──
+    // ── Category building ──
 
     private List<CategoryTypes.CategoryRow> buildCategoryRows() {
         if (activeBottomPanelTab() == BottomPanelLayoutTypes.BottomPanelTab.CREATIVE) {
@@ -1856,7 +1856,7 @@ public final class BottomPanel {
         return sb.toString();
     }
 
-    // ── 点击坐标解析 ──
+    // ── Click coordinate resolution ──
 
     private int resolveClickedCreativeEntry(double mouseX, double mouseY, int x, int y, int width, int height) {
         int cols = Math.max(1, width / SLOT);
@@ -1941,7 +1941,7 @@ public final class BottomPanel {
         return new CategoryTypes.CategoryClick(clicked.token(), clicked.modNamespace(), false);
     }
 
-    // ── Pin / 工具栏辅助 ──
+    // ── Pin / toolbar helpers ──
 
     private long resolvePinnedItemCount(String itemId) {
         return this.controller.getStorageTotalCount(itemId);
@@ -2000,7 +2000,7 @@ public final class BottomPanel {
         return visibleCells;
     }
 
-    // ── 排序标签 ──
+    // ── Sort label ──
 
     private static String sortLabel(RtsStorageSort sort) {
         return switch (sort) {
@@ -2010,7 +2010,7 @@ public final class BottomPanel {
         };
     }
 
-    // ── 工具 ──
+    // ── Utilities ──
 
     private static boolean inside(double mouseX, double mouseY, int x, int y, int w, int h) {
         return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;

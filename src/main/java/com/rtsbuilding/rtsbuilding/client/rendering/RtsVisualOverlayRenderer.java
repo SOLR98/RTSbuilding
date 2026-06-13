@@ -22,19 +22,19 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
 /**
- * 所有 RTS 视觉叠加效果的统一调度入口。
- * 在 AFTER_TRANSLUCENT_BLOCKS 阶段按固定顺序委托给各子渲染器。
+ * Central dispatch point for all RTS visual overlay effects.
+ * Renders during the AFTER_TRANSLUCENT_BLOCKS stage, delegating to
+ * sub-renderers in a fixed order.
  */
 @EventBusSubscriber(modid = RtsbuildingMod.MODID, value = Dist.CLIENT)
 public final class RtsVisualOverlayRenderer {
     private static final int GL_LEQUAL = 515;
 
-    // ===== 自定义 RenderType =====
+    // ===== Custom RenderTypes =====
 
     private static final RenderType CHUNK_XRAY_FILL = RenderType.create(
             "rtsbuilding_chunk_xray_fill",
-            DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.TRIANGLE_STRIP,
-            2 * 1024 * 1024, false, true,
+            DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS, 512, false, false,
             RenderType.CompositeState.builder()
                     .setShaderState(RenderStateShard.POSITION_COLOR_SHADER)
                     .setTransparencyState(RenderStateShard.TRANSLUCENT_TRANSPARENCY)
@@ -46,11 +46,9 @@ public final class RtsVisualOverlayRenderer {
 
     private static final RenderType CHUNK_XRAY_LINES = RenderType.create(
             "rtsbuilding_chunk_xray_lines",
-            DefaultVertexFormat.POSITION_COLOR_NORMAL, VertexFormat.Mode.LINES,
-            2 * 1024 * 1024,
+            DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.LINES, 512, false, false,
             RenderType.CompositeState.builder()
-                    .setShaderState(RenderStateShard.RENDERTYPE_LINES_SHADER)
-                    .setLineState(RenderStateShard.DEFAULT_LINE)
+                    .setShaderState(RenderStateShard.POSITION_COLOR_SHADER)
                     .setTransparencyState(RenderStateShard.TRANSLUCENT_TRANSPARENCY)
                     .setDepthTestState(RenderStateShard.NO_DEPTH_TEST)
                     .setOutputState(RenderStateShard.MAIN_TARGET)
@@ -58,7 +56,7 @@ public final class RtsVisualOverlayRenderer {
                     .setCullState(RenderStateShard.NO_CULL)
                     .createCompositeState(false));
 
-    /** 包围盒线框矩形 — QUADS 模式确保从任意视角可见 */
+    /** Bounding box bracket quads — QUADS mode ensures visibility from any angle */
     private static final RenderType BRACKET_QUADS = RenderType.create(
             "rtsbuilding_bracket_quads",
             DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS, 512, false, false,
@@ -86,7 +84,7 @@ public final class RtsVisualOverlayRenderer {
     private static final RenderType LINES = RenderType.lines();
     private static final RenderType FILLED_BOX = RenderType.debugFilledBox();
 
-    // ===== 后备缓冲区 =====
+    // ===== Backing buffers =====
 
     private static final ByteBufferBuilder CHUNK_FILL_BACKING = new ByteBufferBuilder(CHUNK_XRAY_FILL.bufferSize());
     private static final ByteBufferBuilder CHUNK_LINE_BACKING = new ByteBufferBuilder(CHUNK_XRAY_LINES.bufferSize());
@@ -113,12 +111,12 @@ public final class RtsVisualOverlayRenderer {
         try {
             poseStack.translate(-camPos.x, -camPos.y, -camPos.z);
 
-            // 1. 区块引导网格（X 射线透视）
+            // 1. Chunk guide grid (X-ray)
             if (controller.isChunkCurtainVisible()) {
                 renderChunkGuides(minecraft, camPos, poseStack);
             }
 
-            // 2. 通用渲染管线 (lines + filledBox + brackets)
+            // 2. General render pipeline (lines + filledBox + brackets)
             double ax = controller.getAnchorX(), ay = controller.getAnchorY(), az = controller.getAnchorZ();
             double r = controller.getMaxRadius();
             double minX = ax - r, maxX = ax + r, minZ = az - r, maxZ = az + r;
@@ -153,7 +151,7 @@ public final class RtsVisualOverlayRenderer {
         drawNoDepth(CHUNK_XRAY_LINES, lineBuffer);
     }
 
-    // ===== 工具方法 =====
+    // ===== Utility methods =====
 
     private static BufferBuilder bufferFor(RenderType type, ByteBufferBuilder backing) {
         return new BufferBuilder(backing, type.mode, type.format);
@@ -164,7 +162,7 @@ public final class RtsVisualOverlayRenderer {
         if (data != null) type.draw(data);
     }
 
-    /** 绘制交互目标包围盒（启用 polygon offset 消除 Z-fighting） */
+    /** Draws interaction target bounding boxes (uses polygon offset to prevent Z-fighting) */
     private static void drawBrackets(BufferBuilder buffer) {
         MeshData data = buffer.build();
         if (data != null) {
@@ -176,7 +174,7 @@ public final class RtsVisualOverlayRenderer {
         }
     }
 
-    /** 禁用深度测试绘制（X 射线透视效果） */
+    /** Draws with depth test disabled (X-ray see-through effect) */
     private static void drawNoDepth(RenderType type, BufferBuilder buffer) {
         MeshData data = buffer.build();
         if (data != null) {

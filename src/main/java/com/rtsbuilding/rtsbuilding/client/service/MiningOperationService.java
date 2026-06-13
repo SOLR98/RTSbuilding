@@ -18,69 +18,69 @@ import java.util.List;
 public final class MiningOperationService {
 
     // =========================================================================
-    //  常量
+    //  Constants
     // =========================================================================
 
     private static final int RTS_MINE_RENDER_ID = 0x525453;
 
-    /** 范围挖掘阶段：未激活 */
+    /** Area mine phase: inactive */
     public static final int AREA_MINE_PHASE_NONE = 0;
-    /** 范围挖掘阶段：等待第二次点击确定底面矩形 */
+    /** Area mine phase: waiting for second click to define the base rectangle */
     public static final int AREA_MINE_PHASE_NEED_SECOND = 1;
-    /** 范围挖掘阶段：等待滚轮调整高度后确认 */
+    /** Area mine phase: waiting for scroll-wheel height adjustment then confirm */
     public static final int AREA_MINE_PHASE_NEED_HEIGHT = 2;
-    /** 范围挖掘每个维度的最大方块数（12 = 单个方向最多延伸 11 格） */
+    /** Max blocks per dimension for area mine (12 = at most 11 blocks in one direction) */
     public static final int AREA_MINE_MAX_SIZE = 12;
 
     // =========================================================================
-    //  挖掘状态字段
+    //  Mining state fields
     // =========================================================================
 
-    /** 当前正在挖掘的方块位置 */
+    /** Currently active mining block position */
     private BlockPos activeMinePos;
-    /** 当前挖掘的方块面 */
+    /** Face of the block currently being mined */
     private int activeMineFace = -1;
-    /** 当前挖掘使用的工具快捷栏槽位 */
+    /** Tool hotbar slot used for the current mining operation */
     private int activeMineToolSlot;
 
-    /** 挖掘破坏进度渲染位置 */
+    /** Block break render progress position */
     private BlockPos mineRenderPos;
-    /** 挖掘破坏进度渲染阶段 */
+    /** Block break render progress stage */
     private int mineRenderStage = -1;
 
-    /** 最近完成的挖掘进度位置（用于完成动画） */
+    /** Most recently completed mine progress position (for completion animation) */
     private BlockPos mineProgressCompletedPos;
-    /** 最近完成挖掘进度的系统时间戳 */
+    /** System timestamp of the most recent mine progress completion */
     private long mineProgressCompletedAtMs;
 
-    /** Ultimine 整体进度已处理方块数。负值表示未激活。 */
+    /** Ultimine overall progress: processed blocks. Negative means inactive. */
     private int ultimineProgressProcessed = -1;
-    /** Ultimine 整体进度总目标方块数。 */
+    /** Ultimine overall progress: total target blocks. */
     private int ultimineProgressTotal = 0;
 
     // =========================================================================
-    //  范围挖掘（Area Mine）状态
+    //  Area mine state
     // =========================================================================
 
-    /** 当前范围挖掘阶段 */
+    /** Current area mine phase */
     private int areaMinePhase = AREA_MINE_PHASE_NONE;
-    /** 锚点 A：第一次点击的位置（也是 Y 方向的基准面） */
+    /** Anchor point A: first click position (also the Y reference plane) */
     private BlockPos areaMinePointA;
-    /** 锚点 B：第二次点击的位置，与 A 共同确定底面矩形范围 */
+    /** Anchor point B: second click position, together with A defines the base rectangle */
     private BlockPos areaMinePointB;
-    /** 高度偏移量：基于 A 点 Y 坐标上下延伸（滚轮调节，正=向上，负=向下） */
+    /** Height offset: extends up/down from point A Y (scroll wheel, positive=up, negative=down) */
     private int areaMineHeightOffset;
 
-    /** 当前范围挖掘形状 */
+    /** Current area mine shape */
     private AreaMineShape areaMineShape = AreaMineShape.CHAIN;
 
     // =========================================================================
-    //  网络回调
+    //  Network callbacks
     // =========================================================================
 
     /**
-     * 应用来自服务端的方块挖掘进度更新。
-     * 更新渲染破坏进度，负 stage 表示清除渲染。
+     * Applies a block mine progress update from the server.
+     * Updates the render destroy progress; a negative stage clears rendering.
      */
     public void applyMineProgress(BlockPos pos, int stage) {
         Minecraft minecraft = Minecraft.getInstance();
@@ -108,7 +108,7 @@ public final class MiningOperationService {
     }
 
     /**
-     * 应用来自服务端的 ultimine 整体进度更新。
+     * Applies an ultimine overall progress update from the server.
      */
     public void applyUltimineProgress(int processed, int total) {
         if (total > 0 && processed >= total && this.mineRenderPos != null) {
@@ -124,11 +124,11 @@ public final class MiningOperationService {
     }
 
     // =========================================================================
-    //  挖掘操作方法
+    //  Mining operation methods
     // =========================================================================
 
     /**
-     * 开始单个方块挖掘。
+     * Starts mining a single block.
      */
     public void startMining(BlockPos pos, int face, int toolSlot,
                             String selectedItemId, ItemStack selectedItemPreview,
@@ -152,7 +152,7 @@ public final class MiningOperationService {
     }
 
     /**
-     * 开始连锁（ultimine）挖掘。
+     * Starts a chain (ultimine) mining operation.
      */
     public void startUltimine(BlockPos pos, int face, int toolSlot, int limit, byte mode,
                               String selectedItemId, ItemStack selectedItemPreview,
@@ -176,13 +176,13 @@ public final class MiningOperationService {
                 toolProtectionEnabled);
     }
 
-    /** 挖掘进度由服务端维护，客户端无需每 tick 发包。 */
+    /** Mining progress is maintained server-side; the client does not need to send packets every tick. */
     public void continueMining(int toolSlot) {
         // no-op
     }
 
     /**
-     * 中止当前挖掘操作。
+     * Aborts the current mining operation.
      */
     public void abortMining(int toolSlot) {
         if (this.activeMinePos == null || this.activeMineFace < 0) {
@@ -195,10 +195,10 @@ public final class MiningOperationService {
     }
 
     // =========================================================================
-    //  范围挖掘（Area Mine）— 操作方法
+    //  Area mine operation methods
     // =========================================================================
 
-    // ---------- 状态查询 ----------
+    // ---------- State queries ----------
 
     public int getAreaMinePhase() {
         return this.areaMinePhase;
@@ -216,20 +216,20 @@ public final class MiningOperationService {
         return this.areaMineHeightOffset;
     }
 
-    // ---------- 边界计算 ----------
+    // ---------- Bounds computation ----------
 
     /**
-     * 根据两个对角点和高度偏移，计算范围挖掘的完整三维边界。
-     * <p>以 pointA 为锚点：
+     * Computes the full 3D bounding box for an area mine based on two diagonal points and height offset.
+     * <p>Uses pointA as the anchor:
      * <ul>
-     *   <li>X/Z 方向：以 pointB 决定延伸方向，差值 clamp 到 [0, AREA_MINE_MAX_SIZE-1]</li>
-     *   <li>Y 方向：baseY + heightOffset，再 clamp 到 [baseY-(MAX-1), baseY+(MAX-1)]</li>
+     *   <li>X/Z direction: determined by pointB, clamped to [0, AREA_MINE_MAX_SIZE-1]</li>
+     *   <li>Y direction: baseY + heightOffset, then clamped to [baseY-(MAX-1), baseY+(MAX-1)]</li>
      * </ul>
      *
-     * @param pointA       锚点 A
-     * @param pointB       对角点 B
-     * @param heightOffset 高度偏移（正=向上延伸，负=向下延伸，0=仅单层底面）
-     * @return 裁剪后的边界结果
+     * @param pointA       anchor point A
+     * @param pointB       diagonal point B
+     * @param heightOffset height offset (positive=upward, negative=downward, 0=single base layer)
+     * @return the clamped boundary result
      */
     public static AreaMineBounds computeAreaMineBounds(BlockPos pointA, BlockPos pointB, int heightOffset) {
         int dx = Math.min(Math.abs(pointB.getX() - pointA.getX()), AREA_MINE_MAX_SIZE - 1);
@@ -247,7 +247,7 @@ public final class MiningOperationService {
         return new AreaMineBounds(minX, maxX, minY, maxY, minZ, maxZ);
     }
 
-    // ---------- 高度设置 ----------
+    // ---------- Height setting ----------
 
     public void setAreaMineHeightOffset(int offset) {
         this.areaMineHeightOffset = Math.max(-(AREA_MINE_MAX_SIZE - 1), Math.min(AREA_MINE_MAX_SIZE - 1, offset));
@@ -257,7 +257,7 @@ public final class MiningOperationService {
         setAreaMineHeightOffset(this.areaMineHeightOffset + delta);
     }
 
-    // ---------- 选区管理 ----------
+    // ---------- Selection management ----------
 
     public void setAreaMinePointA(BlockPos pos, double anchorX, double anchorZ, double maxRadius, boolean hasBounds) {
         this.areaMinePointA = pos == null ? null : clampToBounds(pos.immutable(), anchorX, anchorZ, maxRadius, hasBounds);
@@ -348,7 +348,7 @@ public final class MiningOperationService {
     }
 
     // =========================================================================
-    //  工具方法
+    //  Utility methods
     // =========================================================================
 
     private String selectedMiningToolItemId(String selectedItemId, ItemStack selectedItemPreview) {
@@ -373,7 +373,7 @@ public final class MiningOperationService {
     }
 
     // =========================================================================
-    //  进度查询
+    //  Progress queries
     // =========================================================================
 
     public int getMineProgressStage() {
@@ -401,7 +401,7 @@ public final class MiningOperationService {
     }
 
     // =========================================================================
-    //  形状访问
+    //  Shape access
     // =========================================================================
 
     public AreaMineShape getAreaMineShape() {
@@ -413,10 +413,10 @@ public final class MiningOperationService {
     }
 
     // =========================================================================
-    //  状态重置（供 Controller 在启用/禁用/死亡时调用）
+    //  State reset (called by Controller on enable/disable/death)
     // =========================================================================
 
-    /** 清除所有挖掘状态（不处理渲染清除）。 */
+    /** Clears all mining state (does not handle render cleanup). */
     public void clearMiningState() {
         this.activeMinePos = null;
         this.activeMineFace = -1;
@@ -426,7 +426,7 @@ public final class MiningOperationService {
         this.ultimineProgressTotal = 0;
     }
 
-    /** 清除挖掘渲染（包含 destroyBlockProgress 清理）并重置所有挖掘状态。 */
+    /** Clears mining render (including destroyBlockProgress) and resets all mining state. */
     public void clearMiningRenderState() {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level != null && this.mineRenderPos != null) {

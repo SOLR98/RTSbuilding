@@ -109,10 +109,10 @@ public final class RtsPlacementBatch {
         }
         // Quick-build jobs (shape builds) are limited to BUILD_BATCH_MAX_QUEUED_JOBS;
         // reject when full. Single-block placements bypass this limit.
-        if (quickBuild && session.placeBatchJobs.size() >= BUILD_BATCH_MAX_QUEUED_JOBS) {
+        if (quickBuild && session.placement.placeBatchJobs.size() >= BUILD_BATCH_MAX_QUEUED_JOBS) {
             return;
         }
-        session.placeBatchJobs.addLast(new PlaceBatchJob(
+        session.placement.placeBatchJobs.addLast(new PlaceBatchJob(
                 positions,
                 face,
                 RtsPlacementHelper.sanitizeHitOffset(hitOffsetX, face, Direction.Axis.X),
@@ -146,14 +146,14 @@ public final class RtsPlacementBatch {
             return;
         }
         int totalBlocks = 0;
-        for (PlaceBatchJob j : session.placeBatchJobs) {
+        for (PlaceBatchJob j : session.placement.placeBatchJobs) {
             totalBlocks += j.totalCount();
         }
         int remaining = Math.min(BUILD_BATCH_MAX_BLOCKS_PER_TICK, Math.max(1, totalBlocks / 10));
         boolean finishedJob = false;
         PlaceBatchJob completedJobRef = null;
-        while (remaining > 0 && !session.placeBatchJobs.isEmpty()) {
-            PlaceBatchJob job = session.placeBatchJobs.peekFirst();
+        while (remaining > 0 && !session.placement.placeBatchJobs.isEmpty()) {
+            PlaceBatchJob job = session.placement.placeBatchJobs.peekFirst();
             while (remaining > 0 && job.hasNext()) {
                 BlockPos clickedPos = job.next();
                 RtsPlacementQuickBuild.StatePlacementPlan statePlan = job.quickBuild()
@@ -214,23 +214,23 @@ public final class RtsPlacementBatch {
                 remaining--;
                 if (!keepGoing) {
                     completedJobRef = job;
-                    session.placeBatchJobs.removeFirst();
+                    session.placement.placeBatchJobs.removeFirst();
                     finishedJob = true;
                     break;
                 }
             }
-            if (!session.placeBatchJobs.isEmpty() && session.placeBatchJobs.peekFirst() == job && !job.hasNext()) {
+            if (!session.placement.placeBatchJobs.isEmpty() && session.placement.placeBatchJobs.peekFirst() == job && !job.hasNext()) {
                 completedJobRef = job;
-                session.placeBatchJobs.removeFirst();
+                session.placement.placeBatchJobs.removeFirst();
                 finishedJob = true;
             }
         }
         if (finishedJob && completedJobRef != null && !completedJobRef.placedPositions.isEmpty()) {
             ServerHistoryManager.recordPlacement(player, completedJobRef.placedPositions, completedJobRef.face());
             RtsStorageTickService.INSTANCE.forceRefresh(player);
-            session.pageDataVersion.incrementAndGet();
+            session.transfer.pageDataVersion.incrementAndGet();
             RtsSessionService.saveToPlayerNbt(player, session);
-            RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+            RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
         }
     }
 

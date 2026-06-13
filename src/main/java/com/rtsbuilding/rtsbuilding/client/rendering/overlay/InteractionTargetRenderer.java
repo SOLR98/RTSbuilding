@@ -239,7 +239,7 @@ public final class InteractionTargetRenderer {
             return true;
         }
 
-        // Blocked when Quick Build panel has an active box selection in progress (框选进行中)
+        // Blocked when Quick Build panel has an active box selection in progress
         var qbSession = builderScreen.getShapeController().getShapeBuildSession();
         if (builderScreen.isQuickBuildOpen() && qbSession != null
                 && (qbSession.phase() == ShapeBuildTypes.Phase.NEED_SECOND_POINT

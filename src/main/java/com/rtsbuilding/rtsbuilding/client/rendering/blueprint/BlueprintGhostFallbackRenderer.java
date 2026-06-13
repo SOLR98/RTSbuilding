@@ -11,38 +11,39 @@ import net.minecraft.world.level.block.state.BlockState;
 import java.util.List;
 
 /**
- * 蓝图虚影回退框线渲染器。
+ * Blueprint ghost fallback wireframe renderer.
  * <p>
- * 负责渲染那些无法以方块模型方式呈现的虚影方块占位框线，
- * 包括：
+ * Renders placeholder wireframes for ghost blocks that cannot be rendered
+ * as block models, including:
  * <ul>
- *   <li>缺失方块（missing block）</li>
- *   <li>空气方块</li>
- *   <li>无 {@link RenderShape#MODEL} 渲染形状的方块</li>
+ *   <li>Missing blocks</li>
+ *   <li>Air blocks</li>
+ *   <li>Blocks without {@link RenderShape#MODEL} render shape</li>
  * </ul>
  * <p>
- * 缺失方块以红色框线标记，其他情况使用传入的颜色。
+ * Missing blocks are marked with red wireframes; other cases use the
+ * provided colour.
  */
 public final class BlueprintGhostFallbackRenderer {
 
-    /** 框线与方块边缘的间距 */
+    /** Padding between wireframe lines and block edges */
     private static final double CELL_PADDING = 0.04D;
 
     private BlueprintGhostFallbackRenderer() {
     }
 
     /**
-     * 渲染所有需要回退框线的虚影方块。
+     * Renders all ghost blocks that need fallback wireframes.
      * <p>
-     * 此方法会跳过已经由 {@link BlueprintGhostBlockModelRenderer} 渲染的模型方块，
-     * 只处理缺失或无模型的方块。
+     * Skips model-renderable blocks (handled by {@link BlueprintGhostBlockModelRenderer})
+     * and only processes missing or non-model blocks.
      *
-     * @param blocks    过滤后的蓝图方块列表
-     * @param poseStack 姿势栈
-     * @param lineBuffer 线条缓冲区
-     * @param lineR     正常方块的框线红色分量
-     * @param lineG     正常方块的框线绿色分量
-     * @param lineB     正常方块的框线蓝色分量
+     * @param blocks     Filtered blueprint block list
+     * @param poseStack  Pose stack
+     * @param lineBuffer Line vertex buffer
+     * @param lineR      Red component for normal block wireframes
+     * @param lineG      Green component for normal block wireframes
+     * @param lineB      Blue component for normal block wireframes
      */
     public static void renderFallbacks(
             List<BlueprintPanel.BlueprintGhostBlock> blocks,
@@ -60,7 +61,7 @@ public final class BlueprintGhostFallbackRenderer {
                 double cellMaxY = pos.getY() + 1.0D - CELL_PADDING;
                 double cellMaxZ = pos.getZ() + 1.0D - CELL_PADDING;
 
-                // 缺失方块使用红色，其他使用状态色
+                // Missing blocks use red, others use the state colour
                 float fallbackR = block.missing() ? 1.00F : lineR;
                 float fallbackG = block.missing() ? 0.25F : lineG;
                 float fallbackB = block.missing() ? 0.25F : lineB;
@@ -76,7 +77,7 @@ public final class BlueprintGhostFallbackRenderer {
     }
 
     /**
-     * 判断给定方块是否需要回退框线渲染。
+     * Determines whether the given block requires a fallback wireframe.
      */
     private static boolean shouldRenderFallback(BlueprintPanel.BlueprintGhostBlock block) {
         if (block == null) return false;

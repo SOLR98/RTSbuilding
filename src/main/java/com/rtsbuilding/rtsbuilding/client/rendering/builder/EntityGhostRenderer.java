@@ -18,11 +18,11 @@ import net.minecraft.world.phys.Vec3;
 import java.util.List;
 
 /**
- * 生物实体放置虚影渲染器。
+ * Ghost entity renderer for spawn eggs and end crystals in quick-build mode.
  * <p>
- * 当玩家手持刷怪蛋(Spawn Egg)或末地水晶(End Crystal)在快速建筑模式下预览放置位置时，
- * 以半透明方式在目标方块位置渲染对应的生物实体模型，
- * 提供即时视觉反馈。
+ * When the player holds a Spawn Egg or End Crystal while previewing a
+ * quick-build placement, renders translucent entity models at the target
+ * block positions for instant visual feedback.
  */
 public final class EntityGhostRenderer {
 
@@ -33,12 +33,12 @@ public final class EntityGhostRenderer {
     }
 
     /**
-     * 渲染刷怪蛋生物实体虚影。
+     * Renders spawn egg entity ghosts at the target positions.
      *
-     * @param minecraft Minecraft 客户端实例
-     * @param blocks    目标方块位置列表
-     * @param poseStack 姿势栈
-     * @param itemStack 刷怪蛋物品栈
+     * @param minecraft Minecraft client instance
+     * @param blocks    Target block positions
+     * @param poseStack Pose stack for coordinate transforms
+     * @param itemStack Spawn egg item stack
      */
     public static void renderEntities(Minecraft minecraft, List<BlockPos> blocks,
             PoseStack poseStack, ItemStack itemStack) {
@@ -61,11 +61,11 @@ public final class EntityGhostRenderer {
     }
 
     /**
-     * 渲染末地水晶虚影。
+     * Renders end crystal entity ghosts at the target positions.
      *
-     * @param minecraft Minecraft 客户端实例
-     * @param blocks    目标方块位置列表
-     * @param poseStack 姿势栈
+     * @param minecraft Minecraft client instance
+     * @param blocks    Target block positions
+     * @param poseStack Pose stack for coordinate transforms
      */
     public static void renderEndCrystals(Minecraft minecraft, List<BlockPos> blocks,
             PoseStack poseStack) {
@@ -80,20 +80,20 @@ public final class EntityGhostRenderer {
     }
 
     /**
-     * 通用实体虚影渲染逻辑。
+     * Shared entity ghost rendering logic.
      */
     private static void renderEntityGhost(Minecraft minecraft, List<BlockPos> blocks,
             PoseStack poseStack, Entity entity) {
-        // 禁用重力，防止实体在渲染时产生位置偏移
+        // Disable gravity to prevent position drift during rendering
         entity.setNoGravity(true);
 
-        // yOffset = 0：实体脚底对齐方块 Y 坐标（点击位置）
+        // yOffset = 0: entity feet align with block Y coordinate (click position)
         double yOffset = 0.0;
 
         EntityRenderDispatcher dispatcher = minecraft.getEntityRenderDispatcher();
         MultiBufferSource.BufferSource bufferSource = minecraft.renderBuffers().bufferSource();
 
-        // 保留原始 RenderType 只修改 alpha，确保实体纹理正确渲染
+        // Preserve original RenderType, only modify alpha to keep entity textures correct
         MultiBufferSource alphaBuffer = renderType ->
                 new GhostAlphaBufferSource.GhostAlphaVertexConsumer(
                         bufferSource.getBuffer(renderType), GHOST_ALPHA);
@@ -102,12 +102,12 @@ public final class EntityGhostRenderer {
         Vec3 cameraPos = minecraft.gameRenderer.getMainCamera().getPosition();
 
         for (BlockPos pos : blocks) {
-            // 计算面向玩家的偏航角
+            // Calculate yaw facing the player
             double dx = pos.getX() + 0.5 - cameraPos.x;
             double dz = pos.getZ() + 0.5 - cameraPos.z;
             float yaw = (float) Math.toDegrees(Mth.atan2(-dx, dz));
 
-            // 重置插值用旋转旧值，防止跨帧渲染错乱
+            // Reset interpolation rotation old values to prevent cross-frame glitches
             entity.setPos(pos.getX() + 0.5, pos.getY() + yOffset, pos.getZ() + 0.5);
             entity.setYRot(yaw);
             entity.setXRot(0);

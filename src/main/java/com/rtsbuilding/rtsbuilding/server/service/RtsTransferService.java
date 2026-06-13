@@ -29,8 +29,6 @@ import java.util.function.Predicate;
  */
 public final class RtsTransferService {
 
-    public static final RtsTransferService INSTANCE = new RtsTransferService();
-
     private RtsTransferService() {
     }
 

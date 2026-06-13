@@ -8,7 +8,7 @@ import com.rtsbuilding.rtsbuilding.server.service.mining.RtsMiningValidator;
 import com.rtsbuilding.rtsbuilding.server.service.mining.RtsUltimineProcessor;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsToolLeaseManager;
+import com.rtsbuilding.rtsbuilding.server.service.mining.RtsToolLeaseManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
@@ -30,8 +30,6 @@ import java.util.function.Supplier;
  * </ul>
  */
 public final class RtsMiningService {
-
-    public static final RtsMiningService INSTANCE = new RtsMiningService();
 
     private RtsMiningService() {
     }
@@ -77,18 +75,18 @@ public final class RtsMiningService {
                         player, List.of(pos.immutable()), actualFace);
                 RtsMiningStateMachine.destroyMinedBlock(player, session, pos, slot);
                 RtsPageService.requestPage(
-                        player, session.page, session.search, session.category, session.sort, session.ascending);
+                        player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
                 return;
             }
 
-            session.miningSelectedToolRequested = RtsMiningValidator.isSelectedMiningToolRequested(toolItemId, toolPrototype);
-            session.miningToolLease = RtsToolLeaseManager.borrowMiningTool(
+            session.mining.miningSelectedToolRequested = RtsMiningValidator.isSelectedMiningToolRequested(toolItemId, toolPrototype);
+            session.mining.miningToolLease = RtsToolLeaseManager.borrowMiningTool(
                     player, session, toolItemId, toolPrototype, slot);
-            if (session.miningSelectedToolRequested && session.miningToolLease.isEmpty()) {
+            if (session.mining.miningSelectedToolRequested && session.mining.miningToolLease.isEmpty()) {
                 RtsMiningStateMachine.resetMiningState(session);
                 return;
             }
-            session.miningToolProtectionEnabled = toolProtectionEnabled;
+            session.mining.miningToolProtectionEnabled = toolProtectionEnabled;
             RtsMiningStateMachine.beginRemoteMining(player, session, pos, face, slot);
             return;
         }

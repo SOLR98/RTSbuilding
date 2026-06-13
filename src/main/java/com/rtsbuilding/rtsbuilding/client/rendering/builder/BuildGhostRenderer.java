@@ -12,17 +12,18 @@ import net.minecraft.world.level.block.state.BlockState;
 import java.util.List;
 
 /**
- * Build 模式虚影渲染器（门面类）。
+ * Build-mode ghost renderer (facade class).
  * <p>
- * 负责编排单方块放置虚影的完整渲染管道，将各子任务委托给专用的子渲染器：
+ * Orchestrates the complete rendering pipeline for single-block ghost previews,
+ * delegating sub-tasks to dedicated sub-renderers:
  * <ul>
- *   <li>{@link BuildGhostBlockStateResolver} — 方块状态解析</li>
- *   <li>{@link BuildGhostModelRenderer} — 半透明方块模型渲染</li>
- *   <li>{@link BuildGhostFillRenderer} — 回退填充色块渲染</li>
- *   <li>{@link BuildGhostWireframeRenderer} — 线框轮廓渲染</li>
+ *   <li>{@link BuildGhostBlockStateResolver} — block state resolution</li>
+ *   <li>{@link BuildGhostModelRenderer} — translucent block model rendering</li>
+ *   <li>{@link BuildGhostFillRenderer} — fallback fill box rendering</li>
+ *   <li>{@link BuildGhostWireframeRenderer} — wireframe outline rendering</li>
  * </ul>
  * <p>
- * 公开 API 保持向后兼容。
+ * Public API is kept for backward compatibility.
  */
 public final class BuildGhostRenderer {
     static final float BUILD_GHOST_ALPHA = 0.8F;
@@ -31,7 +32,8 @@ public final class BuildGhostRenderer {
     }
 
     /**
-     * 渲染 build 模式的虚影预览。模型层和线框层独立受开关控制。
+     * Renders the build-mode ghost preview. Model layer and wireframe layer
+     * are independently toggleable.
      */
     static void render(Minecraft minecraft, ShapeDataRecords.GhostPreview preview,
             PoseStack poseStack, VertexConsumer lineBuffer, VertexConsumer fillBuffer,
@@ -43,10 +45,10 @@ public final class BuildGhostRenderer {
         BlockPos targetPos = blocks.isEmpty() ? null : blocks.get(0);
         boolean readyConfirm = preview.readyConfirm();
 
-        // 1. 解析放置方向的 BlockState
+        // 1. Resolve placement-direction BlockState
         BlockState blockState = BuildGhostBlockStateResolver.resolve(minecraft, targetPos);
 
-        // 2. 渲染半透明方块模型、实体虚影或回退填充
+        // 2. Render translucent block model, entity ghost, or fallback fill
         if (renderBlockGhost) {
             if (blockState != null && !blockState.isAir() && blockState.getRenderShape() == RenderShape.MODEL) {
                 BuildGhostModelRenderer.renderModels(minecraft, blocks, poseStack, blockState);
@@ -62,7 +64,7 @@ public final class BuildGhostRenderer {
             }
         }
 
-        // 3. 渲染线框轮廓
+        // 3. Render wireframe outlines
         if (renderWireframe) {
             BuildGhostWireframeRenderer.renderWireframes(blocks, poseStack, lineBuffer, readyConfirm);
         }

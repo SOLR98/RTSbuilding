@@ -1,13 +1,13 @@
-package com.rtsbuilding.rtsbuilding.server;
+package com.rtsbuilding.rtsbuilding.server.api.impl;
 
 import com.rtsbuilding.rtsbuilding.server.api.*;
-import com.rtsbuilding.rtsbuilding.server.api.impl.*;
 
 /**
- * RtsAPI 的默认实现——将所有调用委托给领域服务层。
+ * Default implementation of {@link RtsAPI} — delegates all calls to the
+ * domain service layer.
  *
- * <p>第三方模组不应直接引用此类。
- * <p>各子 API 的实现分散在 {@code api/impl/} 包中各自独立的文件里。
+ * <p>Third-party addons should NOT reference this class directly.
+ * <p>Each sub-API implementation lives in its own file under {@code api/impl/}.
  */
 public final class RtsAPIImpl implements RtsAPI {
 
@@ -22,13 +22,12 @@ public final class RtsAPIImpl implements RtsAPI {
     private final RtsCraftingAPIImpl craftingApi = new RtsCraftingAPIImpl();
     private final RtsFluidAPIImpl fluidApi = new RtsFluidAPIImpl();
     private final RtsBindingsAPIImpl bindingsApi = new RtsBindingsAPIImpl();
-    private final RtsLifecycleAPIImpl lifecycleApi = new RtsLifecycleAPIImpl();
     private final RtsSessionQueryAPIImpl sessionApi = new RtsSessionQueryAPIImpl();
 
     private RtsAPIImpl() {
     }
 
-    /** 初始化 API 并注册到 {@link RtsAPI}。 */
+    /** Initialises the API and registers it via {@link RtsAPI#setImplementation(RtsAPI)}. */
     public static void init() {
         RtsAPI.setImplementation(INSTANCE);
     }
@@ -59,9 +58,6 @@ public final class RtsAPIImpl implements RtsAPI {
 
     @Override
     public RtsBindingsAPI bindings() { return bindingsApi; }
-
-    @Override
-    public RtsLifecycleAPI lifecycle() { return lifecycleApi; }
 
     @Override
     public RtsSessionQueryAPI sessions() { return sessionApi; }

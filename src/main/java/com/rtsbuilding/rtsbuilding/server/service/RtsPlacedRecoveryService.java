@@ -6,8 +6,9 @@ import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementSound;
 import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
+import com.rtsbuilding.rtsbuilding.server.service.resolver.RtsLinkedHandlerResolutionService;
 import com.rtsbuilding.rtsbuilding.server.storage.*;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession.PlacedRecoveryJob;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsPlacementState.PlacedRecoveryJob;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
@@ -35,11 +36,6 @@ import java.util.*;
  * </ul>
  */
 public final class RtsPlacedRecoveryService {
-
-    public static final RtsPlacedRecoveryService INSTANCE = new RtsPlacedRecoveryService();
-
-    private static final int PLACED_RECOVERY_MAX_JOBS_PER_TICK = 4;
-    private static final int PLACED_RECOVERY_MAX_STACKS_PER_TICK = 8;
 
     private RtsPlacedRecoveryService() {
     }
@@ -116,12 +112,12 @@ public final class RtsPlacedRecoveryService {
         if (player == null || session == null) {
             return;
         }
-        Deque<PlacedRecoveryJob> jobs = session.recoveryJobs;
+        Deque<PlacedRecoveryJob> jobs = session.placement.recoveryJobs;
         if (jobs == null || jobs.isEmpty()) {
             return;
         }
 
-        List<LinkedHandler> orderedLinked = RtsLinkedStorageResolver.orderHandlersForInsert(
+        List<LinkedHandler> orderedLinked = RtsLinkedHandlerResolutionService.orderHandlersForInsert(
                 RtsLinkedStorageResolver.resolveLinkedHandlers(player, session));
         OverflowOutcome overflow = OverflowOutcome.EMPTY;
         boolean hasLinkedRecoveryTarget = false;
@@ -130,8 +126,8 @@ public final class RtsPlacedRecoveryService {
         int processedStacks = 0;
 
         while (!jobs.isEmpty()
-                && processedJobs < PLACED_RECOVERY_MAX_JOBS_PER_TICK
-                && processedStacks < PLACED_RECOVERY_MAX_STACKS_PER_TICK) {
+                && processedJobs < RtsServiceConstants.PLACED_RECOVERY_MAX_JOBS_PER_TICK
+                && processedStacks < RtsServiceConstants.PLACED_RECOVERY_MAX_STACKS_PER_TICK) {
             PlacedRecoveryJob job = jobs.peekFirst();
             if (job == null || job.stacks().isEmpty()) {
                 jobs.removeFirst();
@@ -141,7 +137,7 @@ public final class RtsPlacedRecoveryService {
 
             List<IItemHandler> handlers = recoveryHandlersExcluding(orderedLinked, job.targetPos());
             hasLinkedRecoveryTarget |= !handlers.isEmpty();
-            while (!job.stacks().isEmpty() && processedStacks < PLACED_RECOVERY_MAX_STACKS_PER_TICK) {
+            while (!job.stacks().isEmpty() && processedStacks < RtsServiceConstants.PLACED_RECOVERY_MAX_STACKS_PER_TICK) {
                 ItemStack droppedStack = job.stacks().removeFirst();
                 if (droppedStack == null || droppedStack.isEmpty()) {
                     continue;
@@ -239,7 +235,7 @@ public final class RtsPlacedRecoveryService {
             droppedEntity.discard();
         }
         if (!stacks.isEmpty()) {
-            session.recoveryJobs.addLast(new PlacedRecoveryJob(targetPos.immutable(), stacks));
+            session.placement.recoveryJobs.addLast(new PlacedRecoveryJob(targetPos.immutable(), stacks));
         }
     }
 

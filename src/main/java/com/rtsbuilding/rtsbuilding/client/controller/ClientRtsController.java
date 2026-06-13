@@ -690,7 +690,7 @@ public final class ClientRtsController {
 
             if (freshEnable) {
                 this.cameraOrbitService.capturePreviousView(minecraft);
-                // 清除残留的玩家输入，防止进入 RTS 前按着的 WASD 让实体继续走
+                // Clear stale player input to prevent WASD presses from before entering RTS mode from affecting movement
                 if (minecraft.player instanceof LocalPlayer localPlayer) {
                     localPlayer.input.forwardImpulse = 0.0F;
                     localPlayer.input.leftImpulse = 0.0F;
@@ -868,12 +868,16 @@ public final class ClientRtsController {
         this.cameraOrbitService.tick(minecraft, this.anchorX, this.anchorY, this.anchorZ, this.maxRadius);
         this.storageStateManager.tickStorageAutoRefresh(this.storageStateManager.isStorageViewDirty());
 
-        // RTS 模式下不覆写 player.input，让玩家实体能正常响应击退和物理效果。        // BuilderScreen 拦截按键导致 KeyMapping 不更新，但实体自身的物理（击退、重力）
-        // 不受影响，因为在 ServerPlayer 上 input 始终为 null。
+        // Don't override player.input in RTS mode so the player entity can
+        // properly respond to knockback and physics effects.
+        // BuilderScreen intercepts input events preventing KeyMapping updates, but
+        // the entity's own physics (knockback, gravity) are unaffected since
+        // ServerPlayer's input is always null.
+        // In RTS mode, prevent keyboard from controlling the player entity
+        // (including jumping and sneaking).
+        // isControlledCamera() is overridden by LocalPlayerMixin to return true,
+        // so Minecraft's native sync mechanism handles position/rotation packets automatically.
         if (minecraft.player instanceof LocalPlayer localPlayer) {
-            // RTS 模式下阻止所有键盘控制玩家实体（包括跳跃和下蹲）。
-            // isControlledCamera() 已被 LocalPlayerMixin 覆写为返回 true，
-            // 所以 Minecraft 原生同步机制会自动处理位置、旋转等数据包的发送。
             localPlayer.input.jumping = false;
             localPlayer.input.shiftKeyDown = false;
             localPlayer.input.forwardImpulse = 0.0F;

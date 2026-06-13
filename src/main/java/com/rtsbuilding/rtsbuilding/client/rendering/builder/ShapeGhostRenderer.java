@@ -86,7 +86,7 @@ public final class ShapeGhostRenderer {
             VertexConsumer lineBuffer, VertexConsumer fillBuffer) {
         if (preview == null) return;
 
-        // 将预览方块裁剪到 RTS 边界范围内，超出边界的方块不渲染
+        // Clip preview blocks to the RTS boundary; blocks outside the boundary are not rendered
         preview = clampPreviewToBounds(preview);
         if (preview == null) return;
 
@@ -322,9 +322,9 @@ public final class ShapeGhostRenderer {
     }
 
     /**
-     * 将 GhostPreview 中的方块位置裁剪到 RTS 边界范围内。
+     * Clips block positions in a GhostPreview to the RTS boundary range.
      * <p>
-     * 如果所有方块都在边界外，返回 {@code null} 以跳过渲染。
+     * Returns {@code null} to skip rendering if all blocks lie outside the boundary.
      */
     private static ShapeDataRecords.GhostPreview clampPreviewToBounds(ShapeDataRecords.GhostPreview preview) {
         if (preview == null) return null;
@@ -338,12 +338,12 @@ public final class ShapeGhostRenderer {
         List<BlockPos> filteredBlocks = RenderingUtil.filterBlocksWithinBounds(preview.blocks(), ax, az, r);
         List<BlockPos> filteredEmptyBlocks = RenderingUtil.filterBlocksWithinBounds(preview.emptyBlocks(), ax, az, r);
 
-        // 如果两个列表都是原对象，说明没有方块被过滤掉
+        // If both lists are the original objects, no blocks were filtered out
         if (filteredBlocks == preview.blocks() && filteredEmptyBlocks == preview.emptyBlocks()) {
             return preview;
         }
 
-        // 如果所有方块都不在边界内，返回 null 跳过渲染
+        // If all blocks are outside the boundary, return null to skip rendering
         if (filteredBlocks.isEmpty() && filteredEmptyBlocks.isEmpty()) {
             return null;
         }

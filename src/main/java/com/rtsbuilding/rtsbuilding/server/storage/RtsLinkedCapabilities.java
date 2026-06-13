@@ -62,7 +62,7 @@ public final class RtsLinkedCapabilities {
      * Probes a block position for a fluid handler, checking direct and then all
      * sided capabilities.
      */
-    static IFluidHandler findFluidHandler(ServerPlayer player, BlockPos pos) {
+    public static IFluidHandler findFluidHandler(ServerPlayer player, BlockPos pos) {
         if (!player.serverLevel().hasChunkAt(pos)) {
             return null;
         }

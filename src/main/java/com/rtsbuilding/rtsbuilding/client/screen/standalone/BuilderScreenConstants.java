@@ -4,208 +4,208 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 
 /**
- * BuilderScreen 使用的布局常量定义。
+ * Layout constants used by BuilderScreen.
  * <p>
- * 所有与屏幕布局、面板尺寸、间距相关的常量集中在此，
- * 便于统一调整 UI 布局参数。
+ * All constants related to screen layout, panel sizes, and spacing are
+ * centralised here to facilitate unified UI layout adjustments.
  */
 public final class BuilderScreenConstants {
 
-    // ======================== 顶部栏 ========================
-    /** 顶部栏高度 */
+    // ======================== Top bar ========================
+    /** Top bar height */
     public static final int TOP_H = 52;
-    /** 顶部按钮间距 */
+    /** Top bar button gap */
     public static final int TOP_BUTTON_GAP = 5;
-    /** 顶部按钮高度 */
+    /** Top bar button height */
     public static final int TOP_BUTTON_H = 24;
-    /** 顶部按钮最小宽度 */
+    /** Top button minimum width */
     public static final int MIN_TOP_BUTTON_W = 28;
-    /** 模式按钮宽度 */
+    /** Mode button width */
     public static final int TOP_MODE_BUTTON_W = 32;
-    /** 图标按钮宽度 */
+    /** Icon button width */
     public static final int TOP_ICON_BUTTON_W = 32;
 
-    // ======================== 底部面板 ========================
-    /** 默认底部面板高度 */
+    // ======================== Bottom panel ========================
+    /** Default bottom panel height */
     public static final int DEFAULT_BOTTOM_H = 110;
-    /** 底部面板最小高度 */
+    /** Bottom panel minimum height */
     public static final int MIN_BOTTOM_H = 72;
-    /** 底部面板最大高度 */
+    /** Bottom panel maximum height */
     public static final int MAX_BOTTOM_H = 320;
-    /** 底部面板内边距 */
+    /** Bottom panel padding */
     public static final int BOTTOM_PANEL_PADDING = 8;
-    /** 底部面板标题栏高度 */
+    /** Bottom panel header height */
     public static final int BOTTOM_PANEL_HEADER_H = 18;
-    /** 存储网格最小行数 */
+    /** Minimum storage grid rows */
     public static final int MIN_STORAGE_GRID_ROWS = 2;
-    /** 网格底部内边距 */
+    /** Grid bottom padding */
     public static final int GRID_BOTTOM_PADDING = 4;
 
-    // ======================== 槽位/格子 ========================
-    /** 存储网格单个格子大小 */
+    // ======================== Slots / Grid ========================
+    /** Storage grid single slot size */
     public static final int SLOT = 22;
-    /** 快捷栏单个格子大小 */
+    /** Hotbar single slot size */
     public static final int HOTBAR_SLOT = 18;
-    /** 快捷栏格子间距 */
+    /** Hotbar slot pitch */
     public static final int HOTBAR_PITCH = 20;
-    /** 工具快捷栏物品槽位数 */
+    /** Tool hotbar item slots count */
     public static final int TOOL_HOTBAR_ITEM_SLOTS = 9;
-    /** 空手按钮索引（位于原版 9 格 hotbar 之后） */
+    /** Empty hand button index (after vanilla 9-slot hotbar) */
     public static final int EMPTY_HAND_BUTTON_INDEX = TOOL_HOTBAR_ITEM_SLOTS;
-    /** 工具区域高度 */
+    /** Tool area height */
     public static final int TOOL_AREA_H = HOTBAR_SLOT;
 
-    // ======================== 搜索/排序 ========================
-    /** 搜索清除按钮大小 */
+    // ======================== Search / Sort ========================
+    /** Search clear button size */
     public static final int SEARCH_CLEAR_SIZE = 12;
-    /** 排序按钮大小 */
+    /** Sort button size */
     public static final int SORT_BUTTON_SIZE = 16;
 
-    // ======================== 合成面板 ========================
-    /** 合成面板宽度 */
+    // ======================== Crafting panel ========================
+    /** Crafting panel width */
     public static final int CRAFT_PANEL_W = 126;
-    /** 合成面板与存储网格的间距 */
+    /** Gap between crafting panel and storage grid */
     public static final int CRAFT_PANEL_GAP = 6;
-    /** 合成面板列数 */
+    /** Crafting panel columns */
     public static final int CRAFT_PANEL_COLS = 4;
-    /** 合成面板槽位大小 */
+    /** Crafting panel slot size */
     public static final int CRAFT_PANEL_SLOT = 18;
-    /** 合成面板行间距 */
+    /** Crafting panel row pitch */
     public static final int CRAFT_PANEL_PITCH = 20;
-    /** 合成搜索框高度 */
+    /** Crafting search box height */
     public static final int CRAFT_PANEL_SEARCH_H = 12;
-    /** 合成应用按钮宽度 */
+    /** Crafting apply button width */
     public static final int CRAFT_PANEL_APPLY_W = 18;
-    /** 合成切换按钮宽度 */
+    /** Crafting toggle button width */
     public static final int CRAFT_PANEL_TOGGLE_W = 38;
-    /** 合成底座中央按钮大小 */
+    /** Craft dock centre button size */
     public static final int CRAFT_DOCK_C_SIZE = 18;
-    /** 合成底座槽位大小 */
+    /** Craft dock slot size */
     public static final int CRAFT_DOCK_SLOT_SIZE = 10;
-    /** 合成底座间距 */
+    /** Craft dock gap */
     public static final int CRAFT_DOCK_GAP = 2;
-    /** 存储与最近物品间距 */
+    /** Gap between storage and recent items */
     public static final int STORAGE_RECENT_GAP = 6;
 
-    // ======================== 分类面板 ========================
-    /** 分类面板宽度 */
+    // ======================== Category panel ========================
+    /** Category panel width */
     public static final int CATEGORY_W = 124;
-    /** 分类行高 */
+    /** Category row height */
     public static final int CATEGORY_ROW_H = 11;
-    /** 分类文字缩放比例 */
+    /** Category text scale */
     public static final float CATEGORY_TEXT_SCALE = 0.84F;
 
-    // ======================== 快速建造面板 ========================
-    /** 快速建造面板宽度 */
+    // ======================== Quick-build panel ========================
+    /** Quick-build panel width */
     public static final int QUICK_BUILD_PANEL_W = 188;
-    /** 快速建造面板高度 */
+    /** Quick-build panel height */
     public static final int QUICK_BUILD_PANEL_H = 216;
-    /** 快速建造面板最小高度 */
+    /** Quick-build panel minimum height */
     public static final int QUICK_BUILD_PANEL_MIN_H = 156;
-    /** 快速建造形状槽位大小 */
+    /** Quick-build shape slot size */
     public static final int QUICK_BUILD_SHAPE_SLOT = 32;
-    /** 快速建造形状间距 */
+    /** Quick-build shape gap */
     public static final int QUICK_BUILD_SHAPE_GAP = 8;
-    /** 快速建造齿轮菜单宽度 */
+    /** Quick-build gear menu width */
     public static final int QUICK_BUILD_GEAR_MENU_W = 148;
-    /** 快速建造齿轮行高 */
+    /** Quick-build gear row height */
     public static final int QUICK_BUILD_GEAR_ROW_H = 18;
 
     // ======================== Chain Destroy Limits ========================
     public static final int ULTIMINE_MIN_LIMIT = 1;
     public static final int ULTIMINE_MAX_LIMIT = 256;
 
-    // ======================== 形状轮盘 ========================
-    /** 形状轮盘半径 */
+    // ======================== Shape wheel ========================
+    /** Shape wheel radius */
     public static final int SHAPE_WHEEL_RADIUS = 52;
-    /** 形状轮盘槽位大小 */
+    /** Shape wheel slot size */
     public static final int SHAPE_WHEEL_SLOT = 22;
-    /** 形状最大尺寸 */
+    /** Shape maximum dimension */
     public static final int SHAPE_MAX_DIMENSION = 32;
-    /** 形状最大偏移 */
+    /** Shape maximum offset */
     public static final int SHAPE_MAX_OFFSET = SHAPE_MAX_DIMENSION - 1;
-    /** 形状最大半径 */
+    /** Shape maximum radius */
     public static final int SHAPE_MAX_RADIUS = 32;
-    /** 形状旋转步进角度 */
+    /** Shape rotation step degrees */
     public static final int SHAPE_ROTATE_STEP_DEGREES = 15;
-    /** 形状历史记录上限 */
+    /** Shape history limit */
     public static final int SHAPE_HISTORY_LIMIT = 1000;
 
-    // ======================== 形状上下文面板 ========================
-    /** 形状上下文面板宽度 */
+    // ======================== Shape context panel ========================
+    /** Shape context panel width */
     public static final int SHAPE_CONTEXT_PANEL_W = 148;
-    /** 形状上下文面板 X 边距 */
+    /** Shape context panel X margin */
     public static final int SHAPE_CONTEXT_PANEL_X_MARGIN = 10;
-    /** 形状上下文面板 Y 坐标 */
+    /** Shape context panel Y coordinate */
     public static final int SHAPE_CONTEXT_PANEL_Y = TOP_H + 10;
-    /** 形状上下文行高 */
+    /** Shape context row height */
     public static final int SHAPE_CONTEXT_ROW_H = 14;
 
-    // ======================== 漏斗缓冲面板 ========================
-    /** 漏斗缓冲面板宽度 */
+    // ======================== Funnel buffer panel ========================
+    /** Funnel buffer panel width */
     public static final int FUNNEL_BUFFER_PANEL_W = 132;
-    /** 漏斗缓冲行高 */
+    /** Funnel buffer row height */
     public static final int FUNNEL_BUFFER_ROW_H = 22;
-    /** 漏斗缓冲切换按钮宽度 */
+    /** Funnel buffer toggle width */
     public static final int FUNNEL_BUFFER_TOGGLE_W = 60;
-    /** 漏斗缓冲切换按钮高度 */
+    /** Funnel buffer toggle height */
     public static final int FUNNEL_BUFFER_TOGGLE_H = 16;
 
-    // ======================== 齿轮菜单（设置） ========================
-    /** 齿轮菜单高度 */
+    // ======================== Gear menu (settings) ========================
+    /** Gear menu height */
     public static final int GEAR_MENU_H = 520;
-    /** 齿轮菜单最小高度 */
+    /** Gear menu minimum height */
     public static final int GEAR_MENU_MIN_H = 220;
-    /** 齿轮菜单内容高度 */
+    /** Gear menu content height */
     public static final int GEAR_MENU_CONTENT_H = 724;
 
-    // ======================== 任务检测弹窗 ========================
-    /** 任务检测弹窗宽度 */
+    // ======================== Quest detect popup ========================
+    /** Quest detect popup width */
     public static final int QUEST_DETECT_POPUP_W = 178;
-    /** 任务检测弹窗高度 */
+    /** Quest detect popup height */
     public static final int QUEST_DETECT_POPUP_H = 48;
 
-    // ======================== 存储扫描弹窗 ========================
-    /** 存储扫描弹窗宽度 */
+    // ======================== Storage scan popup ========================
+    /** Storage scan popup width */
     public static final int STORAGE_SCAN_POPUP_W = 150;
-    /** 存储扫描弹窗高度 */
+    /** Storage scan popup height */
     public static final int STORAGE_SCAN_POPUP_H = 30;
 
-    // ======================== 输入 / 渲染控制 ========================
-    /** 中键拖拽阈值（像素） */
+    // ======================== Input / Render control ========================
+    /** Middle-click drag threshold (pixels) */
     public static final double MIDDLE_CLICK_DRAG_THRESHOLD = 1.5D;
-    /** 默认 RTS UI 缩放 */
+    /** Default RTS GUI scale */
     public static final double DEFAULT_RTS_GUI_SCALE = 2.0D;
-    /** 最小 RTS UI 缩放 */
+    /** Minimum RTS GUI scale */
     public static final double MIN_RTS_GUI_SCALE = 1.0D;
-    /** 最大 RTS UI 缩放 */
+    /** Maximum RTS GUI scale */
     public static final double MAX_RTS_GUI_SCALE = 4.0D;
-    /** RTS UI 缩放步进 */
+    /** RTS GUI scale step */
     public static final double RTS_GUI_SCALE_STEP = 0.5D;
-    /** 模态层 Z 轴向深度 */
+    /** Modal layer Z depth */
     public static final float RTS_MODAL_LAYER_Z = 400.0F;
-    /** 受伤闪光持续时间（毫秒） */
+    /** Damage flash duration (ms) */
     public static final long DAMAGE_FLASH_DURATION_MS = 300L;
 
-    // ======================== 杂项 ========================
-    /** 漏斗光标使用的物品图标（漏斗） */
+    // ======================== Miscellaneous ========================
+    /** Funnel cursor item stack (hopper) */
     public static final ItemStack FUNNEL_CURSOR_STACK = new ItemStack(net.minecraft.world.item.Items.HOPPER);
-    /** 左侧 Tooltip X 偏移 */
+    /** Left tooltip X offset */
     public static final int LEFT_TOOLTIP_X_OFFSET = 8;
-    /** 左侧 Tooltip Y 偏移 */
+    /** Left tooltip Y offset */
     public static final int LEFT_TOOLTIP_Y_OFFSET = 24;
-    /** 左侧 Tooltip 详情 Y 偏移 */
+    /** Left tooltip detail Y offset */
     public static final int LEFT_TOOLTIP_DETAIL_Y_OFFSET = 18;
-    /** 存储链接详情操作按钮高度 */
+    /** Storage link detail action button height */
     public static final int STORAGE_LINK_DETAIL_ACTION_H = 16;
-    /** "全部"分类标记 */
+    /** "All" category token */
     public static final String CATEGORY_ALL = "all";
-    /** Mod 分类前缀 */
+    /** Mod category prefix */
     public static final String CATEGORY_MOD_PREFIX = "mod|";
-    /** Tab 分类前缀 */
+    /** Tab category prefix */
     public static final String CATEGORY_TAB_PREFIX = "tab|";
 
-    // ======================== 纹理资源 ========================
+    // ======================== Texture assets ========================
     /** PR #71 QuickBuild shape sheet: single block. */
     public static final ResourceLocation QUICK_BUILD_SINGLE_BLOCK = quickBuildTexture("single_block");
     /** PR #71 QuickBuild shape sheet: line. */
@@ -221,103 +221,103 @@ public final class BuilderScreenConstants {
 
     public static final ResourceLocation QUICK_BUILD_CHAIN_BLOCK = quickBuildTexture("chain_block");
 
-    // ======================== 顶部栏模式纹理 ========================
-    /** 交互模式（非活跃） */
+    // ======================== Top-bar mode textures ========================
+    /** Interact mode (inactive) */
     public static final ResourceLocation TOPBAR_INTERACT_INACTIVE = topbarTexture("mode_interact_inactive");
-    /** 交互模式（悬停） */
+    /** Interact mode (hover) */
     public static final ResourceLocation TOPBAR_INTERACT_HOVER = topbarTexture("mode_interact_hover");
-    /** 交互模式（活跃） */
+    /** Interact mode (active) */
     public static final ResourceLocation TOPBAR_INTERACT_ACTIVE = topbarTexture("mode_interact_active");
-    /** 交互模式（按下） */
+    /** Interact mode (pressed) */
     public static final ResourceLocation TOPBAR_INTERACT_PRESSED = topbarTexture("mode_interact_pressed");
 
-    /** 链接模式（非活跃） */
+    /** Link mode (inactive) */
     public static final ResourceLocation TOPBAR_LINK_INACTIVE = topbarTexture("mode_link_inactive");
-    /** 链接模式（悬停） */
+    /** Link mode (hover) */
     public static final ResourceLocation TOPBAR_LINK_HOVER = topbarTexture("mode_link_hover");
-    /** 链接模式（活跃） */
+    /** Link mode (active) */
     public static final ResourceLocation TOPBAR_LINK_ACTIVE = topbarTexture("mode_link_active");
-    /** 链接模式（按下） */
+    /** Link mode (pressed) */
     public static final ResourceLocation TOPBAR_LINK_PRESSED = topbarTexture("mode_link_pressed");
 
-    /** 漏斗模式（非活跃） */
+    /** Funnel mode (inactive) */
     public static final ResourceLocation TOPBAR_FUNNEL_INACTIVE = topbarTexture("mode_funnel_inactive");
-    /** 漏斗模式（悬停） */
+    /** Funnel mode (hover) */
     public static final ResourceLocation TOPBAR_FUNNEL_HOVER = topbarTexture("mode_funnel_hover");
-    /** 漏斗模式（活跃） */
+    /** Funnel mode (active) */
     public static final ResourceLocation TOPBAR_FUNNEL_ACTIVE = topbarTexture("mode_funnel_active");
-    /** 漏斗模式（按下） */
+    /** Funnel mode (pressed) */
     public static final ResourceLocation TOPBAR_FUNNEL_PRESSED = topbarTexture("mode_funnel_pressed");
 
-    /** 旋转模式（非活跃） */
+    /** Rotate mode (inactive) */
     public static final ResourceLocation TOPBAR_ROTATE_INACTIVE = topbarTexture("mode_rotate_inactive");
-    /** 旋转模式（悬停） */
+    /** Rotate mode (hover) */
     public static final ResourceLocation TOPBAR_ROTATE_HOVER = topbarTexture("mode_rotate_hover");
-    /** 旋转模式（活跃） */
+    /** Rotate mode (active) */
     public static final ResourceLocation TOPBAR_ROTATE_ACTIVE = topbarTexture("mode_rotate_active");
-    /** 旋转模式（按下） */
+    /** Rotate mode (pressed) */
     public static final ResourceLocation TOPBAR_ROTATE_PRESSED = topbarTexture("mode_rotate_pressed");
 
-    /** 快速建造（非活跃） */
+    /** Quick build (inactive) */
     public static final ResourceLocation TOPBAR_QUICK_BUILD_INACTIVE = topbarTexture("quick_build_inactive");
-    /** 快速建造（悬停） */
+    /** Quick build (hover) */
     public static final ResourceLocation TOPBAR_QUICK_BUILD_HOVER = topbarTexture("quick_build_hover");
-    /** 快速建造（活跃） */
+    /** Quick build (active) */
     public static final ResourceLocation TOPBAR_QUICK_BUILD_ACTIVE = topbarTexture("quick_build_active");
-    /** 快速建造（按下） */
+    /** Quick build (pressed) */
     public static final ResourceLocation TOPBAR_QUICK_BUILD_PRESSED = topbarTexture("quick_build_pressed");
 
-    /** 连锁挖掘（非活跃） */
+    /** Chain mine (inactive) */
     public static final ResourceLocation TOPBAR_ULTIMINE_INACTIVE = topbarTexture("ultimine_inactive");
-    /** 连锁挖掘（悬停） */
+    /** Chain mine (hover) */
     public static final ResourceLocation TOPBAR_ULTIMINE_HOVER = topbarTexture("ultimine_hover");
-    /** 连锁挖掘（活跃） */
+    /** Chain mine (active) */
     public static final ResourceLocation TOPBAR_ULTIMINE_ACTIVE = topbarTexture("ultimine_active");
-    /** 连锁挖掘（按下） */
+    /** Chain mine (pressed) */
     public static final ResourceLocation TOPBAR_ULTIMINE_PRESSED = topbarTexture("ultimine_pressed");
 
-    /** 区块视图（非活跃） */
+    /** Chunk view (inactive) */
     public static final ResourceLocation TOPBAR_CHUNK_VIEW_INACTIVE = topbarTexture("chunk_view_inactive");
-    /** 区块视图（悬停） */
+    /** Chunk view (hover) */
     public static final ResourceLocation TOPBAR_CHUNK_VIEW_HOVER = topbarTexture("chunk_view_hover");
-    /** 区块视图（活跃） */
+    /** Chunk view (active) */
     public static final ResourceLocation TOPBAR_CHUNK_VIEW_ACTIVE = topbarTexture("chunk_view_active");
-    /** 区块视图（按下） */
+    /** Chunk view (pressed) */
     public static final ResourceLocation TOPBAR_CHUNK_VIEW_PRESSED = topbarTexture("chunk_view_pressed");
 
-    /** 设置齿轮（非活跃） */
+    /** Settings gear (inactive) */
     public static final ResourceLocation TOPBAR_GEAR_INACTIVE = topbarTexture("settings_gear_inactive");
-    /** 设置齿轮（悬停） */
+    /** Settings gear (hover) */
     public static final ResourceLocation TOPBAR_GEAR_HOVER = topbarTexture("settings_gear_hover");
-    /** 设置齿轮（活跃） */
+    /** Settings gear (active) */
     public static final ResourceLocation TOPBAR_GEAR_ACTIVE = topbarTexture("settings_gear_active");
-    /** 设置齿轮（按下） */
+    /** Settings gear (pressed) */
     public static final ResourceLocation TOPBAR_GEAR_PRESSED = topbarTexture("settings_gear_pressed");
 
-    /** 任务检测（非活跃） */
+    /** Quest detect (inactive) */
     public static final ResourceLocation TOPBAR_QUEST_DETECT_INACTIVE = topbarTexture("quest_detect_inactive");
-    /** 任务检测（悬停） */
+    /** Quest detect (hover) */
     public static final ResourceLocation TOPBAR_QUEST_DETECT_HOVER = topbarTexture("quest_detect_hover");
-    /** 任务检测（活跃） */
+    /** Quest detect (active) */
     public static final ResourceLocation TOPBAR_QUEST_DETECT_ACTIVE = topbarTexture("quest_detect_active");
-    /** 任务检测（按下） */
+    /** Quest detect (pressed) */
     public static final ResourceLocation TOPBAR_QUEST_DETECT_PRESSED = topbarTexture("quest_detect_pressed");
 
-    // ======================== 辅助方法 ========================
+    // ======================== Utility methods ========================
 
-    /** 构建快速建造纹理路径 */
+    /** Builds QuickBuild texture paths */
     private static ResourceLocation quickBuildTexture(String key) {
         ResourceLocation id = ResourceLocation.tryParse("rtsbuilding:textures/gui/quickbuild/" + key + ".png");
         return id == null ? ResourceLocation.withDefaultNamespace("missingno") : id;
     }
 
-    /** 构建顶部栏纹理路径 */
+    /** Builds top-bar texture paths */
     private static ResourceLocation topbarTexture(String key) {
         ResourceLocation id = ResourceLocation.tryParse("rtsbuilding:textures/gui/topbar/" + key + ".png");
         return id == null ? ResourceLocation.withDefaultNamespace("missingno") : id;
     }
 
     private BuilderScreenConstants() {
-        // 工具类，禁止实例化
+        // Utility class, prevents instantiation
     }
 }

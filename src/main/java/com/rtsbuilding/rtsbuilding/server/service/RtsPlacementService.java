@@ -25,8 +25,6 @@ import java.util.List;
  */
 public final class RtsPlacementService {
 
-    public static final RtsPlacementService INSTANCE = new RtsPlacementService();
-
     private RtsPlacementService() {
     }
 

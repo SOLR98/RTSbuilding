@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 共享渲染工具方法，消除多个渲染器之间的重复代码。
+ * Shared rendering utility methods that eliminate duplicate code across multiple renderers.
  */
 public final class RenderingUtil {
     private RenderingUtil() {}
@@ -39,16 +39,17 @@ public final class RenderingUtil {
     }
 
     /**
-     * 过滤方块位置列表，仅保留在 RTS 边界范围内的方块。
+     * Filters a block position list, keeping only blocks within the RTS boundary.
      * <p>
-     * 边界是一个以锚点为中心的正方形区域，半长为 {@code maxRadius}。
-     * 方块与区域有重叠（不完全在边界外）即视为在范围内。
+     * The boundary is a square region centred on the anchor point with a half-length
+     * of {@code maxRadius}. A block is considered within bounds if it overlaps the region
+     * (i.e. is not entirely outside the boundary).
      *
-     * @param blocks    待过滤的方块位置列表
-     * @param anchorX   边界中心 X 坐标
-     * @param anchorZ   边界中心 Z 坐标
-     * @param maxRadius 边界半长
-     * @return 仅包含边界内方块的新列表；如果所有方块都在边界外则返回空列表
+     * @param blocks    the list of block positions to filter
+     * @param anchorX   boundary centre X coordinate
+     * @param anchorZ   boundary centre Z coordinate
+     * @param maxRadius boundary half-length
+     * @return a new list containing only blocks within the boundary; empty list if all blocks are outside
      */
     public static List<BlockPos> filterBlocksWithinBounds(List<BlockPos> blocks, double anchorX, double anchorZ, double maxRadius) {
         if (blocks == null || blocks.isEmpty()) return blocks;
@@ -67,13 +68,13 @@ public final class RenderingUtil {
     }
 
     /**
-     * 判断单个方块位置是否在 RTS 边界范围内。
+     * Checks whether a single block position is within the RTS boundary.
      *
-     * @param pos       方块位置
-     * @param anchorX   边界中心 X 坐标
-     * @param anchorZ   边界中心 Z 坐标
-     * @param maxRadius 边界半长
-     * @return 如果在边界内则返回 true
+     * @param pos       block position to test
+     * @param anchorX   boundary centre X coordinate
+     * @param anchorZ   boundary centre Z coordinate
+     * @param maxRadius boundary half-length
+     * @return true if the position is within the boundary
      */
     public static boolean isWithinBounds(BlockPos pos, double anchorX, double anchorZ, double maxRadius) {
         if (pos == null) return false;

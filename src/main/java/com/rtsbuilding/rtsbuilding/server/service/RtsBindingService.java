@@ -29,8 +29,6 @@ import net.minecraft.world.level.Level;
  */
 public final class RtsBindingService {
 
-    public static final RtsBindingService INSTANCE = new RtsBindingService();
-
     private RtsBindingService() {
     }
 
@@ -45,7 +43,7 @@ public final class RtsBindingService {
         RtsStorageSession session = RtsSessionService.getOrCreate(player);
         if (RtsStorageBindings.setMode(session, mode)) {
             RtsFunnelService.disableAndFlush(player, session);
-            RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+            RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
         }
     }
 
@@ -65,9 +63,9 @@ public final class RtsBindingService {
         RtsStorageSession session = RtsSessionService.getOrCreate(player);
         if (removeLinkedRef(session, player.serverLevel().dimension(), pos)) {
             RtsStorageTickService.INSTANCE.forceRefresh(player);
-            session.pageDataVersion.incrementAndGet();
+            session.transfer.pageDataVersion.incrementAndGet();
             RtsSessionService.saveToPlayerNbt(player, session);
-            RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+            RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
         }
     }
 
@@ -102,13 +100,13 @@ public final class RtsBindingService {
     public static void setFunnelEnabled(ServerPlayer player, boolean enabled) {
         if (enabled && !RtsProgressionManager.canUse(player, RtsFeature.FUNNEL)) return;
         RtsStorageSession session = RtsSessionService.getOrCreate(player);
-        if (session.funnelEnabled == enabled) return;
+        if (session.funnel.funnelEnabled == enabled) return;
         if (enabled) {
             RtsFunnelService.enable(player, session);
         } else {
             RtsFunnelService.disableAndFlush(player, session);
         }
-        RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
     }
 
     public static void updateFunnelTarget(ServerPlayer player, BlockPos target) {
@@ -122,7 +120,7 @@ public final class RtsBindingService {
         RtsStorageSession session = RtsSessionService.getOrCreate(player);
         session.autoStoreMinedDrops = enabled;
         RtsSessionService.saveToPlayerNbt(player, session);
-        RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
     }
 
     public static void setBdNetworkEnabled(ServerPlayer player, boolean enabled) {
@@ -133,8 +131,8 @@ public final class RtsBindingService {
         session.cachedBdFluidHandler = null;
         RtsSessionService.saveToPlayerNbt(player, session);
         RtsStorageTickService.INSTANCE.forceRefresh(player);
-        session.pageDataVersion.incrementAndGet();
-        RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+        session.transfer.pageDataVersion.incrementAndGet();
+        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
     }
 
     // ======================================================================
@@ -162,7 +160,7 @@ public final class RtsBindingService {
         RtsStorageBindings.UpdateResult result = RtsStorageBindings.openGuiBinding(
                 player, session, slotId, 4.0D);
         if (result != null && result.refreshPage()) {
-            RtsPageService.requestPage(player, result.page(), session.search, session.category, session.sort, session.ascending);
+            RtsPageService.requestPage(player, result.page(), session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
         }
     }
 
@@ -189,14 +187,14 @@ public final class RtsBindingService {
         player.getInventory().setItem(slot, remaining.isEmpty() ? ItemStack.EMPTY : remaining);
         player.containerMenu.broadcastChanges();
         RtsStorageTickService.INSTANCE.forceRefresh(player);
-        session.pageDataVersion.incrementAndGet();
-        RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+        session.transfer.pageDataVersion.incrementAndGet();
+        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
         QuestService.runQuestDetect(player, session, false);
     }
 
     public static void closeRemoteMenu(ServerPlayer player) {
         RtsStorageSession session = RtsSessionService.getIfPresent(player);
-        if (session == null || session.remoteMenuContainerId < 0) return;
+        if (session == null || session.transfer.remoteMenuContainerId < 0) return;
         RtsMenuRemoteService.closeTracked(player, session);
         RtsMenuRemoteService.clearValidation(player, session);
     }
@@ -212,8 +210,8 @@ public final class RtsBindingService {
         }
         if (update.refreshPage()) {
             RtsStorageTickService.INSTANCE.forceRefresh(player);
-            session.pageDataVersion.incrementAndGet();
-            RtsPageService.requestPage(player, update.page(), session.search, session.category, session.sort, session.ascending);
+            session.transfer.pageDataVersion.incrementAndGet();
+            RtsPageService.requestPage(player, update.page(), session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
         }
     }
 }

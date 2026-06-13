@@ -19,48 +19,48 @@ import java.util.Map;
 import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.*;
 
 /**
- * 管理 {@link BuilderScreen} 的持久化 UI 偏好 — 业务管理层。
+ * Manages persistent UI preferences for {@link BuilderScreen} — the business management layer.
  *
- * <p>该类的职责是将持久化的 {@link RtsClientUiStateStore.UiState} 与运行时 UI 组件
- * （面板、形状控制器、相机控制器等）进行双向同步。
+ * <p>This class bridges the persistent {@link RtsClientUiStateStore.UiState} with runtime UI
+ * components (panels, shape controller, camera controller, etc.) via bi-directional sync.
  *
- * <h3>架构定位</h3>
+ * <h3>Architecture</h3>
  * <ul>
- *   <li><b>管理层（Manager）</b> — 桥接 {@link RtsClientUiStateStore 存储层} 与 UI 组件</li>
- *   <li><b>批量加载</b> — {@link #applyStoredUiState()} 从 Store 读取并分发到各组件</li>
- *   <li><b>批量持久化</b> — {@link #persistUiState()} 从各组件收集状态并写入 Store</li>
- *   <li><b>窗口面板位置</b> — 注册/注销可拖拽面板并持久化其边界</li>
- *   <li><b>缩放管理</b> — GUI 缩放比例调整与格式化标签生成</li>
+ *   <li><b>Manager</b> — bridges the {@link RtsClientUiStateStore Store} with UI components</li>
+ *   <li><b>Batch load</b> — {@link #applyStoredUiState()} reads from the Store and dispatches to components</li>
+ *   <li><b>Batch persist</b> — {@link #persistUiState()} collects state from components and writes to the Store</li>
+ *   <li><b>Window panel bounds</b> — registers/unregisters draggable panels and persists their boundaries</li>
+ *   <li><b>Scale management</b> — GUI scale adjustment and formatted label generation</li>
  * </ul>
  *
- * <p>该类不直接 I/O，所有持久化操作委托给 {@link RtsClientUiStateStore}。
+ * <p>This class does not perform I/O directly; all persistence is delegated to {@link RtsClientUiStateStore}.
  *
  * @see RtsClientUiStateStore
  * @see BuilderScreen
  */
 public final class RtsScreenUiStateManager {
-    /** 客户端 RTS 控制器，用于读取/写入相机、输入、视觉偏好。 */
+    /** Client RTS controller, used to read/write camera, input, and visual preferences. */
     private final ClientRtsController controller;
-    /** 形状控制器，用于读取/写入形状模式、填充模式和旋转角度。 */
+    /** Shape controller, used to read/write shape mode, fill mode, and rotation. */
     private final ScreenShapeController shapeController;
-    /** 快速建造面板，用于持久化其打开状态。 */
+    /** Quick-build panel, persisted for its open state. */
     private final QuickBuildPanel quickBuildPanel;
-    /** 连锁挖掘面板，用于持久化其打开状态与限制值。 */
+    /** Ultimine panel, persisted for its open state and limit value. */
 
-    /** 已注册的可持久化窗口面板（key → panel），在 applyStoredUiState / persistUiState 中间接处理。 */
+    /** Registered persistable window panels (key → panel), managed indirectly in applyStoredUiState / persistUiState. */
     private final Map<String, RtsWindowPanel> persistablePanels = new LinkedHashMap<>();
 
-    /** 调试按钮可见性（运行时状态，仅由本类管理）。 */
+    /** Debug button visibility (runtime state, managed only by this class). */
     private boolean debugButtonVisible = false;
-    /** 固定 GUI 缩放值（运行时缓存，持久化时同步到 Store）。 */
+    /** Cached fixed RTS GUI scale (synced to the Store on persist). */
     private double fixedRtsGuiScale = DEFAULT_RTS_GUI_SCALE;
 
     /**
-     * 构造一个 UI 状态管理器。
+     * Constructs a UI state manager.
      *
-     * @param controller     客户端 RTS 控制器
-     * @param shapeController 形状控制器
-     * @param quickBuildPanel 快速建造面板（自动注册为 "quick_build"）
+     * @param controller     the client RTS controller
+     * @param shapeController the shape controller
+     * @param quickBuildPanel the quick-build panel (auto-registered as "quick_build")
      */
     public RtsScreenUiStateManager(
             ClientRtsController controller,
@@ -70,46 +70,47 @@ public final class RtsScreenUiStateManager {
         this.shapeController = shapeController;
         this.quickBuildPanel = quickBuildPanel;
 
-        // 注册可持久化位置的窗口面板
+        // Register persistable-position window panels
         registerWindowPanel("quick_build", quickBuildPanel);
     }
 
     /**
-     * 注册一个窗口面板以使其位置/大小能够被持久化。
-     * key 必须稳定唯一，用于 JSON 存储。重复注册会覆盖旧值。
+     * Registers a window panel so its position/size can be persisted.
+     * The key must be stable and unique; it is used as the JSON storage key.
+     * Re-registering overwrites the old value.
      */
     public void registerWindowPanel(String key, RtsWindowPanel panel) {
         this.persistablePanels.put(key, panel);
     }
 
-    /** 注销一个窗口面板，停止持久化它的位置。 */
+    /** Unregisters a window panel, stopping position persistence for it. */
     public void unregisterWindowPanel(String key) {
         this.persistablePanels.remove(key);
     }
 
-    // ======================== Debug 按钮 ========================
+    // ======================== Debug button ========================
 
-    /** 调试按钮是否可见。 */
+    /** Whether the debug button is visible. */
     public boolean isDebugButtonVisible() {
         return this.debugButtonVisible;
     }
 
-    /** 切换调试按钮可见性。 */
+    /** Toggles debug button visibility. */
     public void toggleDebugButton() {
         this.debugButtonVisible = !this.debugButtonVisible;
     }
 
-    // ======================== GUI 缩放 ========================
+    // ======================== GUI Scale ========================
 
-    /** 返回当前的固定 RTS GUI 缩放值。 */
+    /** Returns the current fixed RTS GUI scale. */
     public double fixedRtsGuiScale() {
         return this.fixedRtsGuiScale;
     }
 
     /**
-     * 按指定的 delta 调整 GUI 缩放值并立即持久化。
+     * Adjusts the GUI scale by the given delta and persists immediately.
      *
-     * @param delta 缩放调整量（如 +0.5 或 -0.5）
+     * @param delta the scale adjustment (e.g. +0.5 or -0.5)
      */
     public void adjustRtsGuiScale(double delta) {
         this.fixedRtsGuiScale = sanitizeRtsGuiScale(this.fixedRtsGuiScale + delta);
@@ -117,8 +118,8 @@ public final class RtsScreenUiStateManager {
     }
 
     /**
-     * 返回格式化的缩放标签。
-     * <p>对于整数值显示如 "2x"，对于半值显示如 "2.5x"。
+     * Returns a formatted scale label.
+     * <p>Displays as "2x" for integer values and "2.5x" for half-values.
      */
     public String rtsGuiScaleLabel() {
         double scale = sanitizeRtsGuiScale(this.fixedRtsGuiScale);
@@ -128,10 +129,10 @@ public final class RtsScreenUiStateManager {
         return String.format(Locale.ROOT, "%.1fx", scale);
     }
 
-    // ======================== 加载 / 持久化 ========================
+    // ======================== Load / Persist ========================
 
     /**
-     * 从持久化存储读取所有 UI 状态，并应用到对应的控制器/面板。
+     * Reads all UI state from persistent storage and applies it to the corresponding controllers/panels.
      */
     public void applyStoredUiState() {
         RtsClientUiStateStore.UiState state = RtsClientUiStateStore.load();
@@ -144,8 +145,8 @@ public final class RtsScreenUiStateManager {
     }
 
     /**
-     * 从当前运行时状态收集所有 UI 偏好并写回持久化存储。
-     * <p>应在状态发生变化时（如面板开关、形状切换、缩放调整）调用。
+     * Collects all UI preferences from current runtime state and writes them back to persistent storage.
+     * <p>Should be called whenever state changes (e.g. panel toggle, shape switch, scale adjustment).
      */
     public void persistUiState() {
         RtsClientUiStateStore.UiState state = RtsClientUiStateStore.load();
@@ -175,9 +176,9 @@ public final class RtsScreenUiStateManager {
         RtsClientUiStateStore.save(state);
     }
 
-    // ====== apply* 拆分 ======
+    // ====== apply* breakdown ======
 
-    /** 恢复面板打开状态与限制值。 */
+    /** Restores panel open state and limit values. */
     private void applyPanelState(RtsClientUiStateStore.UiState state) {
         this.quickBuildPanel.setQuickBuildOpen(state.quickBuildOpen);
         try {
@@ -193,7 +194,7 @@ public final class RtsScreenUiStateManager {
         }
     }
 
-    /** 恢复相机、区块帷幕等视觉偏好。 */
+    /** Restores camera, chunk curtain, and other visual preferences. */
     private void applyCameraState(RtsClientUiStateStore.UiState state) {
         this.controller.setStartCameraAtPlayerHead(state.startCameraAtPlayerHead);
         this.controller.setAllowPlacedBlockRecovery(state.allowPlacedBlockRecovery);
@@ -204,7 +205,7 @@ public final class RtsScreenUiStateManager {
         this.controller.setChunkCurtainVisible(state.chunkCurtainVisible);
     }
 
-    /** 恢复输入灵敏度与拖拽反转。 */
+    /** Restores input sensitivity and drag inversion. */
     private void applyInputState(RtsClientUiStateStore.UiState state) {
         this.controller.setInvertPanDragX(state.invertPanDragX);
         this.controller.setInvertPanDragY(state.invertPanDragY);
@@ -212,10 +213,10 @@ public final class RtsScreenUiStateManager {
     }
 
     /**
-     * 将存储的灵敏度索引转换为 [0, 1] 分数后应用到控制器。
-     * <p>控制器内部的预设数量决定了索引到分数的映射粒度。
+     * Converts the stored sensitivity index to a [0, 1] fraction and applies it to the controller.
+     * <p>The number of presets in the controller determines the granularity of the index-to-fraction mapping.
      *
-     * @param index 存储的灵敏度索引
+     * @param index the stored sensitivity index
      */
     private void applyInputSensitivity(int index) {
         int presetCount = Math.max(1, this.controller.getInputSensitivityPresetCount());
@@ -228,7 +229,7 @@ public final class RtsScreenUiStateManager {
         this.controller.setInputSensitivityByFraction(fraction);
     }
 
-    /** 恢复形状模式、填充模式与旋转角度。 */
+    /** Restores shape mode, fill mode, and rotation angle. */
     private void applyShapeState(RtsClientUiStateStore.UiState state) {
         parseAndSetBuildShape(state.buildShape);
         this.quickBuildPanel.loadStoredShapes(this.controller.getBuildShape(), this.controller.getAreaMineShape());
@@ -239,9 +240,9 @@ public final class RtsScreenUiStateManager {
     }
 
     /**
-     * 尝试解析并设置建造形状字符串。
+     * Attempts to parse and set the build shape string.
      *
-     * @param name 建造形状的枚举名
+     * @param name the enum name of the build shape
      */
     private void parseAndSetBuildShape(String name) {
         try {
@@ -252,9 +253,9 @@ public final class RtsScreenUiStateManager {
     }
 
     /**
-     * 尝试解析并设置填充模式字符串。
+     * Attempts to parse and set the fill mode string.
      *
-     * @param name 填充模式的枚举名
+     * @param name the enum name of the fill mode
      */
     private void parseAndSetFillMode(String name) {
         try {
@@ -264,15 +265,15 @@ public final class RtsScreenUiStateManager {
         }
     }
 
-    /** 恢复调试按钮与 GUI 缩放。 */
+    /** Restores debug button visibility and GUI scale. */
     private void applyMiscState(RtsClientUiStateStore.UiState state) {
         this.debugButtonVisible = state.debugButtonVisible;
         this.fixedRtsGuiScale = sanitizeRtsGuiScale(state.rtsGuiScale);
     }
 
-    // ====== 窗口面板位置持久化 ======
+    // ====== Window panel bounds persistence ======
 
-    /** 将已注册窗口面板的边界写入 state。 */
+    /** Writes registered window panel bounds into the state. */
     private void persistWindowPanelBounds(RtsClientUiStateStore.UiState state) {
         state.windowPanelBounds.clear();
         for (Map.Entry<String, RtsWindowPanel> entry : this.persistablePanels.entrySet()) {
@@ -286,7 +287,7 @@ public final class RtsScreenUiStateManager {
         }
     }
 
-    /** 从 state 恢复已注册窗口面板的边界（通过 setBounds 一次完成，避免中间 clamp 副作用）。 */
+    /** Restores registered window panel bounds from the state (via setBounds to avoid intermediate clamp side effects). */
     private void applyWindowPanelBounds(RtsClientUiStateStore.UiState state) {
         for (Map.Entry<String, RtsWindowPanel> entry : this.persistablePanels.entrySet()) {
             RtsClientUiStateStore.UiState.PanelBounds bounds = state.windowPanelBounds.get(entry.getKey());
@@ -297,9 +298,9 @@ public final class RtsScreenUiStateManager {
         }
     }
 
-    // ====== 缩放工具 ======
+    // ====== Scale utility ======
 
-    /** 将 scale 快照到合法区间并按步长取整。 */
+    /** Snaps the scale to the valid range and rounds to the configured step. */
     private static double sanitizeRtsGuiScale(double scale) {
         if (!Double.isFinite(scale)) {
             return DEFAULT_RTS_GUI_SCALE;

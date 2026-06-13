@@ -10,17 +10,18 @@ import net.minecraft.client.Minecraft;
 import java.util.List;
 
 /**
- * 蓝图虚影预览渲染器（门面类）。
+ * Blueprint ghost preview renderer (facade class).
  * <p>
- * 负责编排蓝图虚影预览的完整渲染管道，将各子任务委托给专用的子渲染器：
+ * Orchestrates the complete rendering pipeline for blueprint ghost previews,
+ * delegating sub-tasks to dedicated sub-renderers:
  * <ul>
- *   <li>{@link BlueprintGhostBoundsFilter} — 边界裁剪</li>
- *   <li>{@link BlueprintGhostBlockModelRenderer} — 半透明方块模型渲染</li>
- *   <li>{@link BlueprintGhostFallbackRenderer} — 缺失/无模型方块的回退框线</li>
- *   <li>{@link BlueprintGhostEnvelopeRenderer} — 整体包围盒框线</li>
+ *   <li>{@link BlueprintGhostBoundsFilter} — bounds clipping</li>
+ *   <li>{@link BlueprintGhostBlockModelRenderer} — translucent block model rendering</li>
+ *   <li>{@link BlueprintGhostFallbackRenderer} — fallback wireframes for missing/non-model blocks</li>
+ *   <li>{@link BlueprintGhostEnvelopeRenderer} — overall bounding box outline</li>
  * </ul>
  * <p>
- * 公开 API 保持向后兼容。
+ * Public API is kept for backward compatibility.
  */
 public final class BlueprintGhostRenderer {
 
@@ -30,16 +31,16 @@ public final class BlueprintGhostRenderer {
     }
 
     /**
-     * 渲染蓝图的虚影预览。
+     * Renders the blueprint ghost preview.
      *
-     * @param minecraft  Minecraft 客户端实例
-     * @param poseStack  姿势栈，用于坐标变换
-     * @param lineBuffer 线条缓冲区
-     * @param fillBuffer 填充缓冲区（预留，当前未使用）
+     * @param minecraft  Minecraft client instance
+     * @param poseStack  Pose stack for coordinate transforms
+     * @param lineBuffer Line vertex buffer
+     * @param fillBuffer Fill vertex buffer (reserved, currently unused)
      */
     public static void renderBlueprintGhostPreview(Minecraft minecraft, PoseStack poseStack, VertexConsumer lineBuffer,
             VertexConsumer fillBuffer) {
-        // 仅在 BuilderScreen 中渲染
+        // Only render in BuilderScreen
         if (!(minecraft.screen instanceof BuilderScreen builderScreen)) {
             return;
         }
@@ -49,18 +50,18 @@ public final class BlueprintGhostRenderer {
             return;
         }
 
-        // 1. 过滤超出 RTS 边界的蓝图方块
+        // 1. Filter out blocks outside RTS bounds
         List<BlueprintPanel.BlueprintGhostBlock> filteredBlocks = BlueprintGhostBoundsFilter.filter(preview.blocks());
         if (filteredBlocks.isEmpty()) {
             return;
         }
 
-        // 2. 根据材料是否齐备选择颜色（材料齐备：绿色系；材料缺失：红色系）
+        // 2. Choose colour based on material availability (ready: green, missing: red)
         float lineR = preview.materialsReady() ? 0.35F : 1.00F;
         float lineG = preview.materialsReady() ? 0.95F : 0.72F;
         float lineB = preview.materialsReady() ? 0.72F : 0.22F;
 
-        // 3. 初始化包围盒边界
+        // 3. Initialise bounding box bounds
         int[] minX = {Integer.MAX_VALUE};
         int[] minY = {Integer.MAX_VALUE};
         int[] minZ = {Integer.MAX_VALUE};
@@ -68,16 +69,16 @@ public final class BlueprintGhostRenderer {
         int[] maxY = {Integer.MIN_VALUE};
         int[] maxZ = {Integer.MIN_VALUE};
 
-        // 4. 渲染半透明方块模型（同时收集包围盒边界）
+        // 4. Render translucent block models (collecting bounding box bounds simultaneously)
         BlueprintGhostBlockModelRenderer.renderModels(
                 minecraft, filteredBlocks, poseStack,
                 minX, minY, minZ,
                 maxX, maxY, maxZ);
 
-        // 5. 渲染缺失/无模型方块的回退框线
+        // 5. Render fallback wireframes for missing/non-model blocks
         BlueprintGhostFallbackRenderer.renderFallbacks(filteredBlocks, poseStack, lineBuffer, lineR, lineG, lineB);
 
-        // 6. 渲染整体包围盒框线
+        // 6. Render overall bounding box outline
         float envelopeAlpha = preview.truncated() ? TRUNCATED_BOX_ALPHA : BlueprintGhostBlockModelRenderer.GHOST_ALPHA;
         BlueprintGhostEnvelopeRenderer.render(
                 poseStack, lineBuffer,

@@ -28,8 +28,6 @@ import java.util.List;
  */
 public final class RtsBlueprintService {
 
-    public static final RtsBlueprintService INSTANCE = new RtsBlueprintService();
-
     private RtsBlueprintService() {
     }
 
@@ -153,6 +151,6 @@ public final class RtsBlueprintService {
         if (session == null) {
             return;
         }
-        RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
     }
 }

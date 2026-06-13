@@ -7,25 +7,25 @@ import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.*;
 
 /**
- * 射线检测辅助工具类
- * 提供鼠标射线计算和方块/实体检测功能
+ * Ray-casting utility class.
+ * Provides mouse-cursor ray calculation and block/entity hit detection.
  */
 public final class RaycastHelper {
 
     /**
-     * 私有构造函数，防止实例化
+     * Private constructor to prevent instantiation.
      */
     private RaycastHelper() {
     }
 
     /**
-     * 从相机位置向鼠标方向发射射线，检测命中的方块
+     * Casts a ray from the camera towards the mouse cursor and detects the hit block.
      *
-     * @param minecraft Minecraft客户端实例
-     * @param camPos 相机起始位置
-     * @param to 射线终点位置
-     * @param includeFluidSource 是否包含流体源方块
-     * @return 方块命中结果，未命中则返回null
+     * @param minecraft          Minecraft client instance
+     * @param camPos             Camera origin position
+     * @param to                 Ray end position
+     * @param includeFluidSource Whether to include fluid source blocks
+     * @return Block hit result, or null if nothing was hit
      */
     public static BlockHitResult raycastBlockFromCursor(Minecraft minecraft, Vec3 camPos, Vec3 to,
             boolean includeFluidSource) {
@@ -44,14 +44,14 @@ public final class RaycastHelper {
     }
 
     /**
-     * 从相机位置向鼠标方向发射射线，检测命中的实体
+     * Casts a ray from the camera towards the mouse cursor and detects the hit entity.
      *
-     * @param minecraft Minecraft客户端实例
-     * @param camPos 相机起始位置
-     * @param to 射线终点位置
-     * @param viewDir 视线方向向量
-     * @param reach 射线最大距离
-     * @return 实体命中结果，未命中则返回null
+     * @param minecraft Minecraft client instance
+     * @param camPos    Camera origin position
+     * @param to        Ray end position
+     * @param viewDir   View direction vector
+     * @param reach     Maximum ray distance
+     * @return Entity hit result, or null if nothing was hit
      */
     public static EntityHitResult raycastEntityFromCursor(Minecraft minecraft, Vec3 camPos, Vec3 to, Vec3 viewDir,
             double reach) {
@@ -60,10 +60,10 @@ public final class RaycastHelper {
             return null;
         }
 
-        // 构建搜索范围：以相机为中心，沿视线方向扩展
+        // Build search AABB: expand from camera along view direction
         AABB search = cameraEntity.getBoundingBox().expandTowards(viewDir.scale(reach)).inflate(1.0D);
 
-        // 执行实体射线检测
+        // Perform entity ray-cast
         return ProjectileUtil.getEntityHitResult(
                 cameraEntity,
                 camPos,
@@ -78,48 +78,48 @@ public final class RaycastHelper {
     }
 
     /**
-     * 计算鼠标光标对应的射线方向向量
-     * 考虑FOV、窗口尺寸、相机朝向等因素
+     * Computes the ray direction vector corresponding to the mouse cursor.
+     * Accounts for FOV, window dimensions, camera orientation, etc.
      *
-     * @param minecraft Minecraft客户端实例
-     * @return 归一化的射线方向向量
+     * @param minecraft Minecraft client instance
+     * @return Normalised ray direction vector
      */
     public static Vec3 computeCursorRayDirection(Minecraft minecraft) {
-        // 获取鼠标屏幕坐标
+        // Get mouse screen coordinates
         double mouseX = minecraft.mouseHandler.xpos();
         double mouseY = minecraft.mouseHandler.ypos();
         double width = Math.max(1.0D, minecraft.getWindow().getScreenWidth());
         double height = Math.max(1.0D, minecraft.getWindow().getScreenHeight());
 
-        // 转换为NDC（归一化设备坐标），范围[-1, 1]
+        // Convert to NDC (Normalised Device Coordinates), range [-1, 1]
         double nx = (mouseX / width) * 2.0D - 1.0D;
         double ny = 1.0D - (mouseY / height) * 2.0D;
 
-        // 获取相机朝向角度
+        // Get camera facing angles
         float yawDeg = minecraft.gameRenderer.getMainCamera().getYRot();
         float pitchDeg = minecraft.gameRenderer.getMainCamera().getXRot();
         double yaw = Math.toRadians(yawDeg);
         double pitch = Math.toRadians(pitchDeg);
 
-        // 计算前向向量（相机正前方）
+        // Compute forward vector (camera's facing direction)
         Vec3 forward = new Vec3(
                 -Math.sin(yaw) * Math.cos(pitch),
                 -Math.sin(pitch),
                 Math.cos(yaw) * Math.cos(pitch)).normalize();
 
-        // 计算右向向量
+        // Compute right vector
         Vec3 right = new Vec3(Math.cos(yaw), 0.0D, Math.sin(yaw)).normalize();
 
-        // 计算上向向量（叉乘）
+        // Compute up vector (cross product)
         Vec3 up = forward.cross(right).normalize();
 
-        // 计算FOV相关的缩放因子
+        // Compute FOV-dependent scale factor
         double fovY = Math.toRadians(minecraft.options.fov().get());
         double tanY = Math.tan(fovY * 0.5D);
         double tanX = tanY * (width / height);
 
-        // 组合最终射线方向：前向 + 水平偏移 + 垂直偏移
-        // 注意：当前yaw基向量产生的是左向量，因此需要反转X NDC以保持屏幕右侧对应射线右侧
+        // Combine final ray direction: forward + horizontal offset + vertical offset
+        // Note: the yaw basis produces a left vector, so negate X NDC to keep screen-right matching ray-right
         return forward.add(right.scale(-nx * tanX)).add(up.scale(ny * tanY)).normalize();
     }
 }

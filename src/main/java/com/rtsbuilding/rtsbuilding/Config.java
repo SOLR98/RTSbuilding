@@ -213,22 +213,6 @@ public class Config {
         SPEC.save();
     }
 
-    public static boolean isBlockGhostPreviewEnabled() {
-        return isPlacementBlockGhostPreviewEnabled();
-    }
-
-    public static void setBlockGhostPreviewEnabled(boolean enabled) {
-        setPlacementBlockGhostPreviewEnabled(enabled);
-    }
-
-    public static boolean isWireframePreviewEnabled() {
-        return isPlacementWireframePreviewEnabled();
-    }
-
-    public static void setWireframePreviewEnabled(boolean enabled) {
-        setPlacementWireframePreviewEnabled(enabled);
-    }
-
     public static boolean isRangeDestroySkeletonEnabled() {
         return USE_RANGE_DESTROY_SKELETON.getAsBoolean();
     }

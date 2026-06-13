@@ -8,12 +8,12 @@ import net.minecraft.core.BlockPos;
 import java.util.List;
 
 /**
- * 单方块放置虚影的线框渲染器。
+ * Wireframe renderer for single-block ghost previews.
  * <p>
- * 负责渲染方块轮廓线框，颜色根据确认状态变化：
+ * Renders block outline wireframes. Colour depends on confirmation state:
  * <ul>
- *   <li>未确认（预览）：青色线框</li>
- *   <li>已就绪（确认）：绿色线框</li>
+ *   <li>Unconfirmed (preview): cyan wireframe</li>
+ *   <li>Ready (confirmed): green wireframe</li>
  * </ul>
  */
 public final class BuildGhostWireframeRenderer {
@@ -22,12 +22,12 @@ public final class BuildGhostWireframeRenderer {
     }
 
     /**
-     * 渲染所有目标位置的方块线框。
+     * Renders wireframes at all target positions.
      *
-     * @param blocks       目标方块位置列表
-     * @param poseStack    姿势栈
-     * @param lineBuffer   线条缓冲区
-     * @param readyConfirm 是否已就绪等待确认
+     * @param blocks       Target block positions
+     * @param poseStack    Pose stack for coordinate transforms
+     * @param lineBuffer   Line vertex buffer
+     * @param readyConfirm Whether the placement is ready to confirm
      */
     public static void renderWireframes(List<BlockPos> blocks, PoseStack poseStack,
             VertexConsumer lineBuffer, boolean readyConfirm) {

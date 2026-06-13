@@ -297,7 +297,7 @@ public final class BuilderScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        // 进入 RTS 缩放帧，使 applyStoredUiState 中的 clamp 使用虚拟坐标空间（而非 GUI 缩放后的宽度）
+        // Enter the RTS scale frame so that clamps in applyStoredUiState use the virtual coordinate space (rather than the GUI-scaled width)
         RtsUiScaleFrame frame = enterFixedRtsGuiScale();
         try {
             this.uiStateManager.applyStoredUiState();
@@ -634,7 +634,7 @@ public final class BuilderScreen extends Screen {
             return true;
         }
 
-        // 范围挖掘选区中，阻止所有鼠标拖拽操作
+        // Block all mouse drag operations while area mine selection is active
         if (!BlueprintPanel.isCaptureModeActive()
                 && this.controller.getAreaMinePhase() != MiningOperationService.AREA_MINE_PHASE_NONE) {
             return true;
@@ -924,7 +924,7 @@ public final class BuilderScreen extends Screen {
         if (!isSearchFocused() && this.shapeController.handleShapeHeightMouseScrolled(scrollY)) {
             return true;
         }
-        // 范围破坏选区中：NEED_HEIGHT阶段滚轮调整高度，其他阶段阻止
+        // While area mine selection is active: scroll wheel adjusts height in NEED_HEIGHT phase, blocked otherwise
         if (!BlueprintPanel.isCaptureModeActive()
                 && this.controller.getAreaMinePhase() != MiningOperationService.AREA_MINE_PHASE_NONE) {
             if (this.controller.getAreaMinePhase() == MiningOperationService.AREA_MINE_PHASE_NEED_HEIGHT) {
@@ -1001,7 +1001,7 @@ public final class BuilderScreen extends Screen {
      * shape rotation, and craft terminal.
      */
     private boolean handleWorldInteractionKeys(int keyCode, int scanCode, int modifiers) {
-        // 范围破坏选区中，阻止除挖矿键之外的其他世界交互键盘操作
+        // While area mine selection is active, block all world interaction keys except the break key
         if (!BlueprintPanel.isCaptureModeActive()
                 && this.controller.getAreaMinePhase() != MiningOperationService.AREA_MINE_PHASE_NONE) {
             if (!ClientKeyMappings.ACTION_BREAK.matches(keyCode, scanCode)) {

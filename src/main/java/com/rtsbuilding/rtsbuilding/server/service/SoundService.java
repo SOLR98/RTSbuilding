@@ -21,8 +21,6 @@ import net.minecraft.world.phys.Vec3;
  */
 public final class SoundService {
 
-    public static final SoundService INSTANCE = new SoundService();
-
     private SoundService() {
     }
 

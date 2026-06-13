@@ -5,26 +5,26 @@ import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
 import net.minecraft.client.gui.GuiGraphics;
 
 /**
- * RTS 面板统一接口。
+ * Unified RTS panel interface.
  * <p>
- * 所有 RTS UI 面板实现该接口，由 {@link BuilderScreen} 统一调度
- * 的 init / tick / render / 事件分发生命周期。
+ * All RTS UI panels implement this interface, which is orchestrated
+ * by {@link BuilderScreen} through the init / tick / render / event dispatch lifecycle.
  */
 public interface RtsPanel {
 
-    /** 初始化面板，每次屏幕 init() 时调用 */
+    /** Initialises the panel, called each time the screen is initted */
     default void init(BuilderScreen screen, ClientRtsController controller) {}
 
-    /** 每 tick 更新面板状态 */
+    /** Ticks the panel state each tick */
     default void tick() {}
 
-    /** 渲染面板内容 */
+    /** Renders the panel content */
     default void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {}
 
-    /** 渲染 tooltip（在 hover 检测之后） */
+    /** Renders tooltips (after hover detection) */
     default void renderOverlays(GuiGraphics g, int mouseX, int mouseY) {}
 
-    // --- 输入事件 ---
+    // --- Input events ---
 
     default boolean mouseClicked(double mouseX, double mouseY, int button) { return false; }
 
@@ -42,6 +42,6 @@ public interface RtsPanel {
 
     default boolean charTyped(char codePoint, int modifiers) { return false; }
 
-    /** 面板关闭/屏幕关闭时调用 */
+    /** Called when the panel / screen is closed */
     default void close() {}
 }

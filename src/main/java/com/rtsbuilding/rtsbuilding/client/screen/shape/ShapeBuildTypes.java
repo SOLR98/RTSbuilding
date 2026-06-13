@@ -17,7 +17,6 @@ import net.minecraft.core.Direction;
  * </ul>
  * <p>
  * All types here are tightly coupled to {@link ShapeGeometryUtil} and
- * {@link com.rtsbuilding.rtsbuilding.client.screen.ScreenShapeController}.
  */
 public final class ShapeBuildTypes {
 

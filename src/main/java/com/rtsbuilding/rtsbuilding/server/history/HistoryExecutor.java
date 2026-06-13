@@ -208,8 +208,8 @@ public final class HistoryExecutor {
             RtsStorageSession session = RtsSessionService.getIfPresent(player);
             if (session != null) {
                 RtsStorageTickService.INSTANCE.forceRefresh(player);
-                session.pageDataVersion.incrementAndGet();
-                RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+                session.transfer.pageDataVersion.incrementAndGet();
+                RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
             }
         }
 

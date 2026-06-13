@@ -14,33 +14,33 @@ import net.minecraft.world.level.block.state.BlockState;
 import java.util.List;
 
 /**
- * 蓝图虚影方块模型渲染器。
+ * Blueprint ghost block model renderer.
  * <p>
- * 负责以半透明方式渲染蓝图预览中的实际方块模型。
- * 仅对具有 {@link RenderShape#MODEL} 渲染形状的方块生效，
- * 缺失方块或空气方块会被跳过（由 {@link BlueprintGhostFallbackRenderer} 处理）。
+ * Renders actual block models for blueprint preview blocks with translucency.
+ * Only applies to blocks with {@link RenderShape#MODEL}.
+ * Missing blocks or air blocks are skipped (handled by {@link BlueprintGhostFallbackRenderer}).
  */
 public final class BlueprintGhostBlockModelRenderer {
 
-    /** 虚影方块模型的全局透明度 */
+    /** Global opacity for ghost block models */
     public static final float GHOST_ALPHA = 0.30F;
 
     private BlueprintGhostBlockModelRenderer() {
     }
 
     /**
-     * 渲染所有可渲染方块模型的虚影方块。
+     * Renders all ghost blocks that have renderable block models.
      *
-     * @param minecraft      Minecraft 客户端实例
-     * @param blocks         过滤后的蓝图方块列表
-     * @param poseStack      姿势栈
-     * @param outMinX        输出参数：包围盒最小 X
-     * @param outMinY        输出参数：包围盒最小 Y
-     * @param outMinZ        输出参数：包围盒最小 Z
-     * @param outMaxX        输出参数：包围盒最大 X
-     * @param outMaxY        输出参数：包围盒最大 Y
-     * @param outMaxZ        输出参数：包围盒最大 Z
-     * @return 是否渲染了至少一个方块模型（需要调用 endBatch）
+     * @param minecraft      Minecraft client instance
+     * @param blocks         Filtered blueprint block list
+     * @param poseStack      Pose stack
+     * @param outMinX        Output: bounding box min X
+     * @param outMinY        Output: bounding box min Y
+     * @param outMinZ        Output: bounding box min Z
+     * @param outMaxX        Output: bounding box max X
+     * @param outMaxY        Output: bounding box max Y
+     * @param outMaxZ        Output: bounding box max Z
+     * @return true if at least one block model was rendered (endBatch required)
      */
     public static boolean renderModels(
             Minecraft minecraft,
@@ -56,7 +56,7 @@ public final class BlueprintGhostBlockModelRenderer {
         for (BlueprintPanel.BlueprintGhostBlock block : blocks) {
             BlockPos pos = block.pos();
 
-            // 更新包围盒边界
+            // Update bounding box
             outMinX[0] = Math.min(outMinX[0], pos.getX());
             outMinY[0] = Math.min(outMinY[0], pos.getY());
             outMinZ[0] = Math.min(outMinZ[0], pos.getZ());
@@ -66,7 +66,7 @@ public final class BlueprintGhostBlockModelRenderer {
 
             BlockState state = block.state();
 
-            // 仅渲染有模型的方块（跳过缺失/空气/非模型方块）
+            // Only render blocks with actual models (skip missing/air/non-model blocks)
             if (!block.missing()
                     && state != null
                     && !state.isAir()
@@ -92,7 +92,7 @@ public final class BlueprintGhostBlockModelRenderer {
     }
 
     /**
-     * 简化版本，自动管理包围盒输出。
+     * Simplified version that manages bounding box output automatically.
      *
      * @see #renderModels(Minecraft, List, PoseStack, int[], int[], int[], int[], int[], int[])
      */

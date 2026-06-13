@@ -13,7 +13,7 @@ import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSessionCodec;
+import com.rtsbuilding.rtsbuilding.server.data.RtsStorageSessionCodec;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -35,8 +35,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * </ul>
  */
 public final class RtsSessionService {
-
-    public static final RtsSessionService INSTANCE = new RtsSessionService();
 
     private static final Map<UUID, RtsStorageSession> SESSIONS = new ConcurrentHashMap<>();
 
@@ -107,14 +105,14 @@ public final class RtsSessionService {
     public static void onRtsEnabled(ServerPlayer player) {
         RtsStorageSession session = getOrCreate(player);
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
-        RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending, false);
+        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending, false);
         ServerHistoryManager.sendSync(player);
     }
 
     public static void onRtsDisabled(ServerPlayer player) {
         RtsStorageSession session = getOrCreate(player);
         RtsMiningStateMachine.stopActiveMining(player, session);
-        session.placeBatchJobs.clear();
+        session.placement.placeBatchJobs.clear();
         RtsFunnelService.disableAndFlush(player, session);
         RtsMenuRemoteService.closeTracked(player, session);
         RtsMenuRemoteService.clearValidation(player, session);
@@ -132,7 +130,7 @@ public final class RtsSessionService {
     public static void onPlayerLogout(ServerPlayer player) {
         RtsStorageSession session = SESSIONS.get(player.getUUID());
         if (session != null) {
-            session.placeBatchJobs.clear();
+            session.placement.placeBatchJobs.clear();
             RtsFunnelService.disableAndFlush(player, session);
             RtsMenuRemoteService.closeTracked(player, session);
             RtsMenuRemoteService.clearValidation(player, session);
@@ -153,12 +151,12 @@ public final class RtsSessionService {
         if (session == null) {
             return;
         }
-        if (session.remoteMenuContainerId < 0
+        if (session.transfer.remoteMenuContainerId < 0
                 && !RtsRemoteMenuCompat.isSupportedRemoteMenu(player.containerMenu)) {
             RtsMenuRemoteService.clearValidation(player, session);
         }
-        if (session.remoteMenuContainerId >= 0
-                && (player.containerMenu == null || player.containerMenu.containerId != session.remoteMenuContainerId)) {
+        if (session.transfer.remoteMenuContainerId >= 0
+                && (player.containerMenu == null || player.containerMenu.containerId != session.transfer.remoteMenuContainerId)) {
             RtsMenuRemoteService.clearValidation(player, session);
         }
         RtsPlacementBatch.tickPlaceBatchJobs(player, session);
@@ -196,10 +194,10 @@ public final class RtsSessionService {
                 if (session == null) continue;
                 // Increment data version so the page cache in RtsPageCore
                 // knows the storage data has changed and should rebuild.
-                session.pageDataVersion.incrementAndGet();
+                session.transfer.pageDataVersion.incrementAndGet();
                 if (!RtsProgressionManager.canUse(player, RtsFeature.STORAGE_BROWSER)) continue;
-                RtsPageService.requestPage(player, session.page, session.search,
-                        session.category, session.sort, session.ascending);
+                RtsPageService.requestPage(player, session.browser.page, session.browser.search,
+                        session.browser.category, session.browser.sort, session.browser.ascending);
             }
         }
 
@@ -234,10 +232,10 @@ public final class RtsSessionService {
         if (!RtsProgressionManager.canUse(player, RtsFeature.STORAGE_BROWSER)) {
             return;
         }
-        if (session.storageViewDirty) {
+        if (session.transfer.storageViewDirty) {
             return;
         }
-        session.storageViewDirty = true;
+        session.transfer.storageViewDirty = true;
         PacketDistributor.sendToPlayer(player, new S2CRtsStorageDirtyPayload(true));
     }
 }

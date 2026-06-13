@@ -15,8 +15,6 @@ import net.neoforged.neoforge.network.PacketDistributor;
  */
 public final class QuestService {
 
-    public static final QuestService INSTANCE = new QuestService();
-
     private static final long QUEST_DETECT_COOLDOWN_TICKS = 100L;
 
     private QuestService() {
@@ -49,10 +47,10 @@ public final class QuestService {
             return;
         }
         long now = player.serverLevel().getGameTime();
-        if (!force && now < session.nextQuestDetectTick) {
+        if (!force && now < session.transfer.nextQuestDetectTick) {
             return;
         }
-        session.nextQuestDetectTick = now + QUEST_DETECT_COOLDOWN_TICKS;
+        session.transfer.nextQuestDetectTick = now + QUEST_DETECT_COOLDOWN_TICKS;
         if (force) {
             sendQuestDetectStatus(player, S2CRtsQuestDetectStatusPayload.PHASE_STARTED, 0, 0, 0);
         }

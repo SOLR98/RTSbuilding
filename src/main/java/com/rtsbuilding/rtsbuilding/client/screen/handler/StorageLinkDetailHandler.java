@@ -19,7 +19,6 @@ import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen
  * Handles rendering and click interactions for the storage link detail action
  * (the extended action bar that appears when hovering the LINK top-bar button).
  * <p>
- * Extracted from {@link BuilderScreen} to reduce screen-level complexity.
  * Owned and invoked by the screen's render/click dispatch methods.
  */
 public final class StorageLinkDetailHandler extends RtsWindowPanel {

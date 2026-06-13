@@ -23,7 +23,7 @@ import java.util.function.BooleanSupplier;
 public final class BuildPlacementService {
 
     // =========================================================================
-    //  放置物品状态
+    //  Placement item state
     // =========================================================================
 
     private String selectedItemId = "";
@@ -36,13 +36,13 @@ public final class BuildPlacementService {
     private int placeRotateSteps;
 
     // =========================================================================
-    //  建造形状
+    //  Build shape
     // =========================================================================
 
     private BuildShape buildShape = BuildShape.BLOCK;
 
     // =========================================================================
-    //  物品/流体选择访问
+    //  Item/fluid selection access
     // =========================================================================
 
     public String getSelectedItemId() { return this.selectedItemId; }
@@ -57,7 +57,7 @@ public final class BuildPlacementService {
     public int getPlaceRotateDegrees() { return this.placeRotateSteps * 90; }
 
     // =========================================================================
-    //  建造形状访问
+    //  Build shape access
     // =========================================================================
 
     public BuildShape getBuildShape() { return this.buildShape; }
@@ -74,7 +74,7 @@ public final class BuildPlacementService {
     }
 
     // =========================================================================
-    //  物品选择
+    //  Item selection
     // =========================================================================
 
     public void selectStorageEntry(int index, List<StorageEntry> entries,
@@ -170,7 +170,7 @@ public final class BuildPlacementService {
     }
 
     // =========================================================================
-    //  放置操作
+    //  Placement operations
     // =========================================================================
 
     public void placeSelected(BlockHitResult hit, boolean forcePlace, Vec3 rayOrigin, Vec3 rayDir,
@@ -267,7 +267,7 @@ public final class BuildPlacementService {
     }
 
     // =========================================================================
-    //  流体存储
+    //  Fluid storage
     // =========================================================================
 
     public void storeFluidFromStorageItem(String itemId) {
@@ -285,7 +285,7 @@ public final class BuildPlacementService {
     }
 
     // =========================================================================
-    //  交互操作
+    //  Interaction operations
     // =========================================================================
 
     public void interactEmpty(BlockHitResult hit, Vec3 rayOrigin, Vec3 rayDir,
@@ -336,7 +336,7 @@ public final class BuildPlacementService {
     }
 
     // =========================================================================
-    //  破坏操作
+    //  Break operations
     // =========================================================================
 
     public void breakPlaced(BlockPos pos, Direction face, boolean allowAdjacentFallback) {
@@ -346,7 +346,7 @@ public final class BuildPlacementService {
     }
 
     // =========================================================================
-    //  旋转
+    //  Rotation
     // =========================================================================
 
     public void rotateBlock(BlockPos pos) {
@@ -363,7 +363,7 @@ public final class BuildPlacementService {
     }
 
     // =========================================================================
-    //  内部辅助方法
+    //  Internal helpers
     // =========================================================================
 
     private void clearSelectedItemOnly() {
@@ -407,10 +407,10 @@ public final class BuildPlacementService {
     }
 
     // =========================================================================
-    //  用于 Controller 回调的公共辅助方法
+    //  Public helpers for controller callbacks
     // =========================================================================
 
-    /** 从储存条目刷新当前选中物品的预览 */
+    /** Refreshes the selected item preview from storage entries */
     public void syncSelectedPreviewFromStorage(List<StorageEntry> entries,
                                                boolean hasStoragePageSnapshot,
                                                long storageTotalCount) {

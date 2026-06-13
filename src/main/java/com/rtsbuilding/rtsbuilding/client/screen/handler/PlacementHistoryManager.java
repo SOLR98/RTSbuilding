@@ -5,68 +5,69 @@ import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
 import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
 
 /**
- * 服务端历史管理的客户端代理（基于 Ultimine-Rewind 风格重构）。
+ * Client-side proxy for server-side history management (refactored from Ultimine-Rewind style).
  * <p>
- * 历史记录现在完全在服务端管理（参见 {@link com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager}）。
- * 此客户端代理负责：
+ * History is now fully managed on the server (see {@link com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager}).
+ * This client proxy is responsible for:
  * <ul>
- *   <li>发送撤回请求到服务端</li>
- *   <li>接收并缓存来自服务端的历史状态同步（undoSize）</li>
- *   <li>提供 getUndoSize 供 UI 按钮状态使用</li>
+ *   <li>Sending undo requests to the server</li>
+ *   <li>Receiving and caching server-synced history state (undoSize)</li>
+ *   <li>Providing getUndoSize for UI button state</li>
  * </ul>
  * <p>
- * 所有旧有的记录方法保留为空方法以保持 API 兼容性，实际历史记录由服务端在执行操作时自动记录。
+ * All legacy recording methods are retained as no-ops for API compatibility;
+ * actual history recording is handled server-side during operation execution.
  */
 public final class PlacementHistoryManager {
 
-    /** 当前活跃实例，供网络处理器静态回调。 */
+    /** Current active instance for network handler static callbacks. */
     private static PlacementHistoryManager INSTANCE = null;
 
-    /** 上一次从服务端同步的 undoSize（在 INSTANCE 可用前缓存）。 */
+    /** Cached undoSize from last server sync (preserved before INSTANCE is available). */
     private static int CACHED_UNDO_SIZE = 0;
 
     private BuilderScreen screen;
     private int undoSize = 0;
 
     /**
-     * 初始化管理器，绑定所属 Screen。
+     * Initialises the manager, binding the owning Screen.
      */
     public void init(BuilderScreen screen, ClientRtsController controller) {
         this.screen = screen;
         INSTANCE = this;
-        // 应用缓存的同步值（进入 RTS 模式时服务端可能在 INSTANCE 设置前就发送了同步包）
+        // Apply cached sync value (server may send a sync packet before INSTANCE is set when entering RTS mode)
         this.undoSize = CACHED_UNDO_SIZE;
     }
 
-    // ===== 状态查询 =====
+    // ===== State queries =====
 
-    /** 当前可撤回的步数。 */
+    /** Current number of undoable steps. */
     public int getUndoSize() {
         return this.undoSize;
     }
 
-    // ===== 撤回 =====
+    // ===== Undo =====
 
     /**
-     * 发送撤回请求到服务端。
+     * Sends an undo request to the server.
      */
     public boolean undo() {
         RtsClientPacketGateway.sendUndo();
         return true;
     }
 
-    // ===== 服务端状态同步 =====
+    // ===== Server state sync =====
 
     /**
-     * 从服务端接收历史状态同步。
+     * Receives a history state sync from the server.
      * <p>
-     * 由 {@link com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers#handleHistorySync}
-     * 在收到 {@link com.rtsbuilding.rtsbuilding.network.builder.S2CRtsHistorySyncPayload} 时调用。
+     * Called by {@link com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers#handleHistorySync}
+     * when a {@link com.rtsbuilding.rtsbuilding.network.builder.S2CRtsHistorySyncPayload} is received.
      *
-     * @param newUndoSize 服务端当前可撤回步数
+     * @param newUndoSize the server's current undoable step count
      */
     public static void syncHistoryState(int newUndoSize) {
-        // 始终更新缓存，确保在 INSTANCE 设置前不会丢失同步
+        // Always update cache so no sync is lost before INSTANCE is set
         CACHED_UNDO_SIZE = newUndoSize;
         PlacementHistoryManager instance = INSTANCE;
         if (instance != null) {
@@ -74,9 +75,9 @@ public final class PlacementHistoryManager {
         }
     }
 
-    // ===== 生命周期 =====
+    // ===== Lifecycle =====
 
-    /** 清空所有状态。 */
+    /** Clears all state. */
     public void clear() {
         this.undoSize = 0;
         CACHED_UNDO_SIZE = 0;

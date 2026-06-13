@@ -25,8 +25,6 @@ import net.neoforged.neoforge.network.PacketDistributor;
  */
 public final class RtsMenuRemoteService {
 
-    public static final RtsMenuRemoteService INSTANCE = new RtsMenuRemoteService();
-
     private RtsMenuRemoteService() {
     }
 
@@ -41,8 +39,8 @@ public final class RtsMenuRemoteService {
             player.containerMenu = remoteMenu;
         }
         if (session != null) {
-            session.remoteMenuContainerId = remoteMenu.containerId;
-            session.remoteMenuPos = pos == null ? null : pos.immutable();
+            session.transfer.remoteMenuContainerId = remoteMenu.containerId;
+            session.transfer.remoteMenuPos = pos == null ? null : pos.immutable();
             relaxMenuValidation(remoteMenu);
             if (RtsRemoteMenuCompat.isSupportedRemoteMenu(remoteMenu)) {
                 RtsRemoteMenuCompat.markServerRemoteMenu(player, remoteMenu);
@@ -57,8 +55,8 @@ public final class RtsMenuRemoteService {
      */
     public static void clearValidation(ServerPlayer player, RtsStorageSession session) {
         if (session != null) {
-            session.remoteMenuContainerId = -1;
-            session.remoteMenuPos = null;
+            session.transfer.remoteMenuContainerId = -1;
+            session.transfer.remoteMenuPos = null;
         }
         RtsRemoteMenuCompat.clearServerRemoteMenu(player);
     }
@@ -67,14 +65,14 @@ public final class RtsMenuRemoteService {
      * 关闭跟踪的远程菜单。
      */
     public static void closeTracked(ServerPlayer player, RtsStorageSession session) {
-        if (player == null || session == null || session.remoteMenuContainerId < 0) return;
+        if (player == null || session == null || session.transfer.remoteMenuContainerId < 0) return;
         if (player.containerMenu != null
-                && player.containerMenu.containerId == session.remoteMenuContainerId
+                && player.containerMenu.containerId == session.transfer.remoteMenuContainerId
                 && !(player.containerMenu instanceof InventoryMenu)) {
             player.closeContainer();
         }
-        session.remoteMenuContainerId = -1;
-        session.remoteMenuPos = null;
+        session.transfer.remoteMenuContainerId = -1;
+        session.transfer.remoteMenuPos = null;
     }
 
     /**

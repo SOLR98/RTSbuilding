@@ -145,23 +145,26 @@ public abstract class RtsWindowPanel implements RtsPanel {
         clampWindowToScreen();
         this.mouseHovering = !this.skipHoverDetection && isInsideWindow(mouseX, mouseY);
 
-        // 当窗口被覆盖时，全局抑制所有子按钮的悬浮效果
-        // 必须在 renderWindowFrame 之前设置，因为关闭按钮在其中渲染
+        // When the window is covered, globally suppress hover effects on all child buttons
+        // Must be set before renderWindowFrame because the close button renders there
         if (this.skipHoverDetection) {
             WindowButton.setGlobalSkipHover(true);
         }
         try {
             renderWindowFrame(g, mouseX, mouseY);
-            // 先 flush 窗口边框（无 scissor），确保边框不会被后续内容 scissor 裁剪掉
-            // 必须与内容分开 flush，因为窗口边框在内容裁剪区域之外。
+            // Flush the window frame first (no scissor) so the border is not clipped
+            // by the content scissor that follows.
+            // Must be flushed separately from content because the window border lies
+            // outside the content clipping region.
             g.flush();
 
             if (shouldClipContent()) {
                 enableContentScissor(g);
             }
             renderContent(g, mouseX, mouseY, partialTick);
-            // 在 scissor 仍生效时 flush 内容，确保物品图标（renderItem）和文字等
-            // 批处理顶点在光栅化时受到内容裁剪区域的限制，防止穿透到相邻面板。
+            // Flush content while scissor is still active, so item icons (renderItem) and
+            // text batched vertices are clipped to the content region at rasterisation time,
+            // preventing visual bleed-through to adjacent panels.
             g.flush();
         } finally {
             if (this.skipHoverDetection) {

@@ -6,9 +6,9 @@ import net.minecraft.util.Mth;
 import java.util.function.Consumer;
 
 /**
- * 窗口风格的水平滑条，适用于 RTS 面板。
+ * Window-style horizontal slider, suitable for RTS panels.
  * <p>
- * 支持鼠标点击和拖拽调整值，带有滑轨和旋钮渲染。
+ * Supports click-and-drag value adjustment with track and knob rendering.
  */
 public class WindowSlider {
 
@@ -23,7 +23,7 @@ public class WindowSlider {
     private boolean dragging = false;
     private Consumer<Integer> onChange;
 
-    // ======================== 颜色常量 ========================
+    // ======================== Colour constants ========================
     private static final int TRACK_BG = 0xFF07090D;
     private static final int TRACK_FILL = 0xFF313946;
     private static final int KNOB_COLOR = 0xFF5FE36C;
@@ -41,7 +41,7 @@ public class WindowSlider {
         this.value = Mth.clamp(value, min, this.max);
     }
 
-    // ======================== 属性 ========================
+    // ======================== Properties ========================
 
     public int getValue() {
         return this.value;
@@ -83,7 +83,7 @@ public class WindowSlider {
         return this;
     }
 
-    // ======================== 渲染 ========================
+    // ======================== Rendering ========================
 
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         if (!visible) return;
@@ -91,16 +91,16 @@ public class WindowSlider {
         int knobX = knobPosition();
         int trackCenterY = y + height / 2;
 
-        // 滑轨背景
+        // Track background
         g.fill(x, trackCenterY - TRACK_H / 2, x + width, trackCenterY + TRACK_H - TRACK_H / 2, TRACK_BG);
         g.fill(x + 1, trackCenterY - TRACK_H / 2 + 1, x + width - 1, trackCenterY + TRACK_H - TRACK_H / 2 - 1, TRACK_FILL);
 
-        // 旋钮
+        // Knob
         int knobY = trackCenterY - KNOB_H / 2;
         g.fill(knobX - KNOB_W / 2, knobY, knobX + KNOB_W - KNOB_W / 2, knobY + KNOB_H, KNOB_COLOR);
     }
 
-    // ======================== 输入处理 ========================
+    // ======================== Input handling ========================
 
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (!visible || button != 0) return false;
@@ -127,7 +127,7 @@ public class WindowSlider {
         return true;
     }
 
-    // ======================== 私有辅助 ========================
+    // ======================== Private helpers ========================
 
     private int knobPosition() {
         if (max <= min) return x;

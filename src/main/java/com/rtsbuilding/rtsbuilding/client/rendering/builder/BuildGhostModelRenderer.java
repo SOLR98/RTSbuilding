@@ -17,26 +17,26 @@ import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import java.util.List;
 
 /**
- * 单方块放置虚影的方块模型渲染器。
+ * Block model renderer for single-block placement ghosts.
  * <p>
- * 负责以半透明方式渲染方块模型，并自动处理多方块方块
- *（门、高植物、床等）的相邻部分扩展。
+ * Renders translucent block models and automatically handles multi-block
+ * expansions (doors, tall plants, beds, etc.).
  */
 public final class BuildGhostModelRenderer {
 
-    /** 虚影模型透明度 */
+    /** Ghost model opacity */
     public static final float GHOST_ALPHA = 0.8F;
 
     private BuildGhostModelRenderer() {
     }
 
     /**
-     * 渲染所有目标位置的半透明方块模型。
+     * Renders translucent block models at all target positions.
      *
-     * @param minecraft    Minecraft 客户端实例
-     * @param blocks       目标方块位置列表
-     * @param poseStack    姿势栈
-     * @param blockState   要渲染的 BlockState
+     * @param minecraft    Minecraft client instance
+     * @param blocks       Target block position list
+     * @param poseStack    Pose stack
+     * @param blockState   BlockState to render
      */
     public static void renderModels(Minecraft minecraft, List<BlockPos> blocks,
             PoseStack poseStack, BlockState blockState) {
@@ -54,7 +54,7 @@ public final class BuildGhostModelRenderer {
     }
 
     /**
-     * 在单个位置渲染半透明方块模型。
+     * Renders a translucent block model at a single position.
      */
     private static void renderGhostAt(Minecraft minecraft, BlockPos pos, BlockState state,
             PoseStack poseStack, MultiBufferSource translucentBuffer) {
@@ -69,8 +69,8 @@ public final class BuildGhostModelRenderer {
     }
 
     /**
-     * 检测并渲染多方块方块的附加虚影部分
-     *（门、高植物、床等），通过标准 BlockState 属性判断。
+     * Detects and renders additional ghost parts for multi-block structures
+     * (doors, tall plants, beds, etc.) via standard BlockState properties.
      */
     private static void expandMultiblockGhost(Minecraft minecraft, BlockPos pos, BlockState state,
             PoseStack poseStack, MultiBufferSource translucentBuffer) {

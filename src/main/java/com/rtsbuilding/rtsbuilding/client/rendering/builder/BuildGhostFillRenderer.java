@@ -8,10 +8,10 @@ import net.minecraft.core.BlockPos;
 import java.util.List;
 
 /**
- * 单方块放置虚影的回退填充渲染器。
+ * Fallback fill renderer for single-block ghost previews.
  * <p>
- * 当方块无法以模型方式渲染（如无模型方块、空气）时，
- * 以半透明填充色块作为占位显示。
+ * Renders semi-transparent coloured boxes as placeholders when blocks
+ * cannot be rendered as models (e.g., non-model blocks, air).
  */
 public final class BuildGhostFillRenderer {
 
@@ -19,12 +19,12 @@ public final class BuildGhostFillRenderer {
     }
 
     /**
-     * 渲染回退填充色块。
+     * Renders fallback fill boxes at the given positions.
      *
-     * @param blocks     目标方块位置列表
-     * @param poseStack  姿势栈
-     * @param fillBuffer 填充缓冲区
-     * @param readyConfirm 是否已就绪等待确认
+     * @param blocks      Target block positions
+     * @param poseStack   Pose stack for coordinate transforms
+     * @param fillBuffer  Fill vertex buffer
+     * @param readyConfirm Whether the placement is ready to confirm
      */
     public static void renderFill(List<BlockPos> blocks, PoseStack poseStack,
             VertexConsumer fillBuffer, boolean readyConfirm) {

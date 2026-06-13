@@ -5,12 +5,13 @@ import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanel;
 import java.util.List;
 
 /**
- * 蓝图虚影预览数据。
+ * Blueprint ghost preview data.
  * <p>
- * 用于在世界上渲染蓝图放置的预览方块，
- * 包含预览方块列表、材料是否就绪、是否被截断等信息。
+ * Used to render the preview blocks of a blueprint placement in-world.
+ * Contains the preview block list, whether materials are ready, and whether
+ * the preview was truncated.
  */
 public record BlueprintGhostPreview(List<BlueprintPanel.BlueprintGhostBlock> blocks, boolean materialsReady, boolean truncated) {
-    /** 空预览常量 */
+    /** Empty preview constant */
     public static final BlueprintGhostPreview EMPTY = new BlueprintGhostPreview(List.of(), false, false);
 }

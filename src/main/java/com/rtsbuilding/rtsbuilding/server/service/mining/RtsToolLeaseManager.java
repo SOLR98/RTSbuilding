@@ -1,8 +1,12 @@
-package com.rtsbuilding.rtsbuilding.server.storage;
+package com.rtsbuilding.rtsbuilding.server.service.mining;
 
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
-import com.rtsbuilding.rtsbuilding.server.service.mining.RtsMiningValidator;
 import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
+import com.rtsbuilding.rtsbuilding.server.service.resolver.RtsLinkedHandlerResolutionService;
+import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -63,7 +67,7 @@ public final class RtsToolLeaseManager {
             return playerLease;
         }
 
-        List<LinkedHandler> activeLinked = RtsLinkedStorageResolver.orderHandlersForExtract(
+        List<LinkedHandler> activeLinked = RtsLinkedHandlerResolutionService.orderHandlersForExtract(
                 RtsLinkedStorageResolver.resolveLinkedHandlers(player, session));
         if (activeLinked.isEmpty()) {
             return RtsToolLease.empty();

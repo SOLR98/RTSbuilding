@@ -3,6 +3,7 @@ package com.rtsbuilding.rtsbuilding.server.service;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
+import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsFluidTransferGateImpl;
 import com.rtsbuilding.rtsbuilding.server.storage.*;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -21,9 +22,10 @@ import java.util.List;
  *   <li>从链接网络放置流体到世界</li>
  * </ul>
  */
+
 public final class RtsFluidService {
 
-    public static final RtsFluidService INSTANCE = new RtsFluidService();
+    private static final FluidTransferGate FLUID_TRANSFER_GATE = new RtsFluidTransferGateImpl();
 
     private RtsFluidService() {
     }
@@ -47,6 +49,7 @@ public final class RtsFluidService {
         List<IItemHandler> insertItemHandlers = RtsLinkedStorageResolver.itemHandlersForInsert(activeItemHandlers);
 
         boolean changed = RtsStorageFluids.storeFluidFromContainer(
+                FLUID_TRANSFER_GATE,
                 player,
                 session,
                 extractItemHandlers,
@@ -57,9 +60,9 @@ public final class RtsFluidService {
                 itemId);
         if (changed) {
             RtsStorageTickService.INSTANCE.forceRefresh(player);
-            session.pageDataVersion.incrementAndGet();
+            session.transfer.pageDataVersion.incrementAndGet();
             RtsSessionService.saveToPlayerNbt(player, session);
-            RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+            RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
         }
     }
 
@@ -81,9 +84,9 @@ public final class RtsFluidService {
         List<LinkedFluidHandler> activeFluidHandlers = RtsLinkedStorageResolver.resolveLinkedFluidHandlers(player, session);
         if (RtsStorageFluids.placeFluid(player, session, activeFluidHandlers, clickedPos, face, hitX, hitY, hitZ, fluidId)) {
             RtsStorageTickService.INSTANCE.forceRefresh(player);
-            session.pageDataVersion.incrementAndGet();
+            session.transfer.pageDataVersion.incrementAndGet();
             RtsSessionService.saveToPlayerNbt(player, session);
-            RtsPageService.requestPage(player, session.page, session.search, session.category, session.sort, session.ascending);
+            RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
         }
     }
 

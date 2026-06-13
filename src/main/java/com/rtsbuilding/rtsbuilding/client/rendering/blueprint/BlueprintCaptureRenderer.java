@@ -9,16 +9,17 @@ import net.minecraft.core.BlockPos;
 import java.util.List;
 
 /**
- * 蓝图捕获框渲染器
- * 负责渲染蓝图录制时的选择框、包含方块高亮和排除方块标记
+ * Blueprint capture box renderer.
+ * Renders the selection box, included block highlights,
+ * and excluded block markers during blueprint recording.
  */
 public final class BlueprintCaptureRenderer {
-    // 包含方块高亮的最大数量限制，避免性能问题
+    // Max number of included block highlights to prevent performance issues
     private static final int CAPTURE_BLOCK_HIGHLIGHT_LIMIT = 8192;
-    // 排除方块高亮的最大数量限制
+    // Max number of excluded block highlights
     private static final int CAPTURE_EXCLUDED_HIGHLIGHT_LIMIT = 1024;
 
-    // 优化：提取颜色常量，便于统一调整
+    // Optimisation: extracted colour constants for easy adjustment
     private static final float INCLUDED_BLOCK_R = 0.12F;
     private static final float INCLUDED_BLOCK_G = 0.56F;
     private static final float INCLUDED_BLOCK_B = 1.0F;
@@ -37,32 +38,32 @@ public final class BlueprintCaptureRenderer {
     private static final float BOUNDARY_BOX_A = 0.95F;
 
     /**
-     * 私有构造函数，防止实例化
+     * Private constructor to prevent instantiation.
      */
     private BlueprintCaptureRenderer() {
     }
 
     /**
-     * 渲染蓝图捕获选择框和高亮
+     * Renders the blueprint capture selection box and highlights.
      *
-     * @param poseStack 姿势栈，用于坐标变换
-     * @param lineBuffer 线条缓冲区
-     * @param fillBuffer 填充缓冲区
+     * @param poseStack  Pose stack for coordinate transforms
+     * @param lineBuffer Line vertex buffer
+     * @param fillBuffer Fill vertex buffer
      */
     public static void renderBlueprintCaptureBox(PoseStack poseStack, VertexConsumer lineBuffer, VertexConsumer fillBuffer) {
-        // 获取第一个角点（起始点）
+        // Get the first corner point (origin)
         BlockPos first = BlueprintPanel.getCapturePointA();
         if (first == null) {
             return;
         }
 
-        // 获取第二个角点（预览点），如果未设置则使用第一个点
+        // Get the second corner point (preview), fall back to first if not set
         BlockPos second = BlueprintPanel.getCapturePreviewPointB();
         if (second == null) {
             second = first;
         }
 
-        // 计算包围盒边界（向外扩展0.01单位以避免Z-fighting）
+        // Compute bounding box edges (expand 0.01 units to prevent Z-fighting)
         double minX = Math.min(first.getX(), second.getX()) - 0.01D;
         double minY = Math.min(first.getY(), second.getY()) + 0.99D;
         double minZ = Math.min(first.getZ(), second.getZ()) - 0.01D;
@@ -70,16 +71,16 @@ public final class BlueprintCaptureRenderer {
         double maxY = Math.max(first.getY(), second.getY()) + 1.01D;
         double maxZ = Math.max(first.getZ(), second.getZ()) + 1.01D;
 
-        // 确保Y轴范围有效
+        // Ensure Y range is valid
         if (minY > maxY) {
             minY = maxY - 0.02D;
         }
 
-        // 获取包含的方块列表（受数量限制）
+        // Get the list of included blocks (subject to limit)
         List<BlockPos> includedBlocks = BlueprintPanel.getCaptureIncludedBlocksForRender(CAPTURE_BLOCK_HIGHLIGHT_LIMIT);
 
-        // 如果需要渲染整体填充且不渲染单个方块高亮，则绘制半透明蓝色填充
-        // 渲染每个包含方块的蓝色高亮
+        // Render a translucent blue fill when not showing individual highlights
+        // Render blue highlights for each included block
         for (BlockPos pos : includedBlocks) {
             LevelRenderer.addChainedFilledBoxVertices(
                     poseStack,
@@ -89,7 +90,7 @@ public final class BlueprintCaptureRenderer {
                     INCLUDED_BLOCK_R, INCLUDED_BLOCK_G, INCLUDED_BLOCK_B, INCLUDED_BLOCK_A);
         }
 
-        // 渲染每个排除方块的红色边框
+        // Render red wireframe for each excluded block
         for (BlockPos pos : BlueprintPanel.getCaptureExcludedBlocksForRender(CAPTURE_EXCLUDED_HIGHLIGHT_LIMIT)) {
             LevelRenderer.addChainedFilledBoxVertices(
                     poseStack,
@@ -111,7 +112,7 @@ public final class BlueprintCaptureRenderer {
                     EXCLUDED_BLOCK_R, EXCLUDED_BLOCK_G, EXCLUDED_BLOCK_B, EXCLUDED_BLOCK_LINE_A);
         }
 
-        // 渲染整个选择框的蓝色边框
+        // Render the blue bounding box outline for the entire selection
         LevelRenderer.renderLineBox(
                 poseStack,
                 lineBuffer,

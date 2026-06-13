@@ -21,13 +21,13 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * 单方块放置虚影的 BlockState 解析器。
+ * BlockState resolver for single-block ghost previews.
  * <p>
- * 负责根据玩家当前手持物品和摄像机方向，
- * 模拟服务端 {@link net.minecraft.world.level.block.Block#getStateForPlacement(BlockPlaceContext)}
- * 的逻辑，解析出虚影渲染所需的正确 BlockState。
+ * Resolves the correct BlockState for ghost rendering by simulating
+ * the server-side {@link net.minecraft.world.level.block.Block#getStateForPlacement(BlockPlaceContext)}
+ * logic based on the player's held item and camera direction.
  * <p>
- * 支持旋转和多方块方块（门、床等）的方向推断。
+ * Supports rotation and multi-block block orientation (doors, beds, etc.).
  */
 public final class BuildGhostBlockStateResolver {
 
@@ -35,11 +35,11 @@ public final class BuildGhostBlockStateResolver {
     }
 
     /**
-     * 解析放置位置的预期 BlockState。
+     * Resolves the expected BlockState for a placement position.
      *
-     * @param minecraft Minecraft 客户端实例
-     * @param targetPos 目标放置位置，可为 null
-     * @return 解析出的 BlockState，如果无法解析则返回 null
+     * @param minecraft Minecraft client instance
+     * @param targetPos Target placement position, may be null
+     * @return Resolved BlockState, or null if resolution fails
      */
     public static BlockState resolve(Minecraft minecraft, BlockPos targetPos) {
         ClientRtsController controller = ClientRtsController.get();
@@ -60,7 +60,7 @@ public final class BuildGhostBlockStateResolver {
     }
 
     /**
-     * 确定用于虚影渲染的物品来源。
+     * Determines the item source for ghost rendering.
      */
     private static ItemStack resolveGhostItemStack(Minecraft minecraft, ClientRtsController controller) {
         ItemStack itemPreview = controller.getSelectedItemPreview();
@@ -77,10 +77,10 @@ public final class BuildGhostBlockStateResolver {
     }
 
     /**
-     * 解析当前手持的刷怪蛋物品栈。
+     * Resolves the currently held spawn egg item stack.
      *
-     * @param minecraft Minecraft 客户端实例
-     * @return 如果是刷怪蛋则返回对应的 ItemStack，否则返回 {@link ItemStack#EMPTY}
+     * @param minecraft Minecraft client instance
+     * @return The spawn egg ItemStack, or {@link ItemStack#EMPTY} if not holding one
      */
     public static ItemStack resolveSpawnEggStack(Minecraft minecraft) {
         ClientRtsController controller = ClientRtsController.get();
@@ -98,10 +98,10 @@ public final class BuildGhostBlockStateResolver {
     }
 
     /**
-     * 解析当前手持的末地水晶物品栈。
+     * Resolves the currently held end crystal item stack.
      *
-     * @param minecraft Minecraft 客户端实例
-     * @return 如果是末地水晶则返回对应的 ItemStack，否则返回 {@link ItemStack#EMPTY}
+     * @param minecraft Minecraft client instance
+     * @return The end crystal ItemStack, or {@link ItemStack#EMPTY} if not holding one
      */
     public static ItemStack resolveEndCrystalStack(Minecraft minecraft) {
         ClientRtsController controller = ClientRtsController.get();
@@ -119,7 +119,7 @@ public final class BuildGhostBlockStateResolver {
     }
 
     /**
-     * 使用客户端摄像机方向模拟 BlockPlaceContext，匹配服务端放置逻辑。
+     * Simulates BlockPlaceContext using the client camera direction, matching server-side placement logic.
      */
     public static BlockState resolveStateWithCamera(Minecraft minecraft, BlockItem blockItem,
             ItemStack stack, BlockPos targetPos) {
@@ -168,7 +168,7 @@ public final class BuildGhostBlockStateResolver {
     }
 
     /**
-     * 当射线未命中任何方块时，通过射线-平面求交计算命中位置。
+     * Computes the fallback hit location via ray-plane intersection when the ray misses all blocks.
      */
     private static Vec3 computeFallbackHitLocation(Direction face, BlockPos adjacentPos,
             Vec3 targetCenter, Vec3 cameraPos, Vec3 viewDir) {
@@ -198,7 +198,7 @@ public final class BuildGhostBlockStateResolver {
     }
 
     /**
-     * 对 BlockState 应用 90° 步进旋转。
+     * Applies 90° stepping rotation to a BlockState.
      */
     public static BlockState applyRotation(BlockState state, int rotateDegrees, LevelAccessor level, BlockPos pos) {
         int turns = (rotateDegrees / 90) & 3;

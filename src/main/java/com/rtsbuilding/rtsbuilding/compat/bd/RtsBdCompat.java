@@ -107,7 +107,8 @@ public final class RtsBdCompat {
         }
     }
 
-    private static final class BdDirectItemHandler implements IItemHandler, ReportedCountItemHandler, DirectExtractHandler {
+    private static final class BdDirectItemHandler implements IItemHandler, ReportedCountItemHandler, DirectExtractHandler,
+            com.rtsbuilding.rtsbuilding.compat.AnySlotInsertItemHandler {
         private final UnifiedStorage storage;
         private final Map<Item, ItemStackKey> itemToKey;
         private final List<ItemStackKey> keys;
@@ -237,6 +238,19 @@ public final class RtsBdCompat {
                 return stack;
             }
             return ItemStack.EMPTY;
+        }
+
+
+        @Override
+        public ItemStack insertItemAnywhere(ItemStack stack, boolean simulate) {
+            // BD's storage.insert() is slot-independent — just delegate to slot 0
+            return insertItem(0, stack, simulate);
+        }
+
+        @Override
+        public ItemStack extractItemAnywhere(Item targetItem, int amount, boolean simulate) {
+            // Use the existing O(1) item-to-key lookup
+            return tryExtractItem(targetItem, amount, simulate);
         }
 
         @Override

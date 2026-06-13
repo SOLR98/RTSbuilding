@@ -197,7 +197,7 @@ public final class PendingGhostRenderer {
     }
 
     /**
-     * 判断方块位置是否在 RTS 边界范围内。
+     * Checks whether a block position is within RTS bounds.
      */
     private static boolean isWithinBounds(BlockPos pos) {
         ClientRtsController controller = ClientRtsController.get();

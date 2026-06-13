@@ -27,8 +27,6 @@ import java.util.List;
  */
 public final class RtsCraftingService {
 
-    public static final RtsCraftingService INSTANCE = new RtsCraftingService();
-
     private RtsCraftingService() {
     }
 
@@ -162,11 +160,11 @@ public final class RtsCraftingService {
 
     private static boolean currentCraftPinyinSearchEnabled(ServerPlayer player) {
         RtsStorageSession session = player == null ? null : RtsSessionService.getIfPresent(player);
-        return session != null && session.craftPinyinSearchEnabled;
+        return session != null && session.browser.craftPinyinSearchEnabled;
     }
 
     private static List<String> currentCraftLocalizedSearchMatches(ServerPlayer player) {
         RtsStorageSession session = player == null ? null : RtsSessionService.getIfPresent(player);
-        return session == null ? List.of() : List.copyOf(session.craftLocalizedSearchMatches);
+        return session == null ? List.of() : List.copyOf(session.browser.craftLocalizedSearchMatches);
     }
 }

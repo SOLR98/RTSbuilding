@@ -1,10 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.storage;
 
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
-import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
-import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 import net.neoforged.neoforge.items.IItemHandler;
@@ -31,8 +28,6 @@ import java.util.*;
  * </pre>
  */
 public class RtsStorageSession {
-
-    public static final int CRAFTABLE_BATCH_SIZE = 12;
 
     // ======================================================================
     // §1  BD 网络缓存（NeoForge only）
@@ -93,45 +88,12 @@ public class RtsStorageSession {
     /** UUID-backed backpack refs that were just broken and should not render at their old position. */
     public final Set<LinkedStorageRef> detachedBackpackRefs = new HashSet<>();
 
-    // ======================================================================
-    // §3  存储浏览器状态
-    //      翻页、搜索、分类、排序和本地化匹配缓存。
-    //      描述玩家<em>如何查看</em>存储内容，非权威物品计数。
+     // ======================================================================
+    // §3 + §4  存储浏览器与合成浏览器状态
     // ======================================================================
 
-    /** 当前页号（0-based） */
-    public int page;
-    /** 每页条目数，默认从页面构建器常量读取 */
-    public int pageSize = RtsStoragePageBuilder.DEFAULT_PAGE_SIZE;
-    /** 搜索关键词（空串 = 无筛选） */
-    public String search = "";
-    /** 分类筛选："all" / "mod|namespace" / "tab|name" */
-    public String category = "all";
-    /** 当前排序方式：数量/名称/模组/种类 */
-    public RtsStorageSort sort = RtsStorageSort.QUANTITY;
-    /** true = 升序，false = 降序 */
-    public boolean ascending = false;
-    /** 拼音模糊搜索开关 */
-    public boolean pinyinSearchEnabled;
-    /** 已本地化的搜索命中 ID 集合（用于客户端高亮/快速过滤） */
-    public final Set<String> localizedSearchMatches = new HashSet<>();
-
-    // ======================================================================
-    // §4  合成浏览器状态
-    //      合成搜索、可用性筛选和本地化匹配缓存。
-    //      请求计数默认与服务端数据包批次大小一致。
-    // ======================================================================
-
-    /** 合成搜索关键词 */
-    public String craftSearch = "";
-    /** 是否显示不可合成的配方 */
-    public boolean craftShowUnavailable;
-    /** 已请求的合成配方总数（含偏移量和限制量，至少为 CRAFTABLE_BATCH_SIZE） */
-    public int craftRequestedCount = CRAFTABLE_BATCH_SIZE;
-    /** 合成搜索的拼音模糊搜索开关 */
-    public boolean craftPinyinSearchEnabled;
-    /** 合成搜索的本地化命中 ID 集合 */
-    public final Set<String> craftLocalizedSearchMatches = new HashSet<>();
+    /** 存储浏览器 + 合成浏览器的状态（翻页、搜索、分类、排序、拼音等） */
+    public final RtsBrowserState browser = new RtsBrowserState();
 
     // ======================================================================
     // §5  会话开关与虚拟流体存储
@@ -146,84 +108,29 @@ public class RtsStorageSession {
       * 用于在没有任何真实流体处理器时展示虚拟流体槽 */
     public final Map<String, Long> internalFluidMb = new HashMap<>();
 
+    /** 远程挖掘与连锁挖掘状态 */
+    public final RtsMiningState mining = new RtsMiningState();
+
     // ======================================================================
     // §6  掉落物漏斗运行时状态
-    //      服务端一侧的临时漏斗缓冲区和目标配置。
-    //      内容为工作中间数据，不属于持久化存储。
     // ======================================================================
 
-    /** 漏斗模式是否激活 */
-    public boolean funnelEnabled;
-    /** 漏斗输出目标坐标 */
-    public BlockPos funnelTarget;
-    /** 漏斗冷却刻数 */
-    public int funnelTickCooldown;
-    /** 漏斗临时缓冲区，存放待处理的掉落物 ItemStack */
-    public final List<ItemStack> funnelBuffer = new ArrayList<>();
+    /** 掉落物漏斗运行时状态 */
+    public final RtsFunnelState funnel = new RtsFunnelState();
 
     // ======================================================================
-    // §7  远程挖掘与连锁挖掘运行时状态
-    //      单方块远程挖掘 + 连锁挖掘（Ultimine）的状态机数据。
-    //      注意：RtsToolLease 由 RtsMiningStateMachine 管理（涉及 NBT 工具的借用与归还）。
+    // §7  远程 GUI 菜单状态
     // ======================================================================
 
-    /** 当前挖掘目标坐标 */
-    public BlockPos miningPos;
-    /** 远程 GUI 菜单的容器 ID；-1 = 无活动远程菜单 */
-    public int remoteMenuContainerId = -1;
-    /** 远程 GUI 菜单对应的方块坐标 */
-    public BlockPos remoteMenuPos;
-    /** 连锁挖掘的待处理目标队列（先进先出） */
-    public final Deque<BlockPos> ultimineTargets = new ArrayDeque<>();
-    /** 连锁挖掘当前正在挖掘的坐标 */
-    public BlockPos ultimineProgressPos;
-    /** 连锁挖掘本次任务的总目标数 */
-    public int ultimineTotalTargets;
-    /** 连锁挖掘已处理完成的目标数 */
-    public int ultimineProcessedTargets;
-    /** 连锁挖掘已成功破坏的位置记录（预捕获的 HistoryBlockRecord，用于批量记录历史） */
-    public final List<com.rtsbuilding.rtsbuilding.server.history.HistoryBlockRecord> ultimineProcessedPositions = new ArrayList<>();
-    /** 连锁挖掘是否已吸收掉落物（防止重复收集，由管理器控制） */
-    public boolean ultimineAbsorbedDrops;
-    /** 挖掘方向（默认为下） */
-    public Direction miningFace = Direction.DOWN;
-    /** 当前使用的工具栏格索引 */
-    public int miningToolSlot;
-    /** 当前借用的远程挖掘工具租约（RtsToolLease 封装工具栈和来源信息） */
-    public RtsToolLease miningToolLease = RtsToolLease.empty();
-    /** True when a non-block RTS selected item must be used instead of silently falling back to the hotbar. */
-    public boolean miningSelectedToolRequested;
-    /** True when active batch mining should stop before a damageable tool reaches its last 5% durability. */
-    public boolean miningToolProtectionEnabled = true;
-    /** 当前挖掘进度[0.0, 1.0]，服务端按 tick 递增 */
-    public float miningProgress;
-    /** 当前破坏阶段索引；-1 = 尚未开始 */
-    public int miningStage = -1;
-    /** 下次检测 RTS 任务或进度的 tick 时间 */
-    public long nextQuestDetectTick;
-    /** True when the client's storage browser page no longer matches storage contents. */
-    public boolean storageViewDirty;
-
-    /**
-     * 存储数据版本号——缓存数据变更时递增。
-     * <p>用于 {@code RtsPageCore} 的页面缓存过期检测。
-     * 纯翻页操作（search/sort/category 不变）时，
-     * 若版本号未变则跳过 O(n log n) 的排序过滤重构。
-     */
-    public final java.util.concurrent.atomic.AtomicLong pageDataVersion =
-            new java.util.concurrent.atomic.AtomicLong();
+    /** 远程菜单与数据版本状态 */
+    public final RtsTransferState transfer = new RtsTransferState();
 
     // ======================================================================
     // §8  放置队列
-    //      尚未执行的方块放置批次。
-    //      PlaceBatchJob 类型定义在 RtsPlacementBatch 中。
     // ======================================================================
 
-    /** 待处理的放置批次作业队列 */
-    public final Deque<RtsPlacementBatch.PlaceBatchJob> placeBatchJobs = new ArrayDeque<>();
-
-    /** 已放置方块被破坏后的掉率物回收作业队列 */
-    public final Deque<PlacedRecoveryJob> recoveryJobs = new ArrayDeque<>();
+    /** 远程放置与回收状态 */
+    public final RtsPlacementState placement = new RtsPlacementState();
 
     // ======================================================================
     // §9  UI 记忆：最近条目、快捷槽与外部 GUI 绑定
@@ -247,12 +154,4 @@ public class RtsStorageSession {
         Arrays.fill(this.quickSlotItemIds, "");
         Arrays.fill(this.quickSlotPreviews, ItemStack.EMPTY);
     }
-
-    /**
-     * 已放置方块被破坏后的掉率物回收作业。
-     *
-     * @param targetPos 原始方块坐标
-     * @param stacks    待回收的掉率物堆栈队列
-     */
-    public record PlacedRecoveryJob(BlockPos targetPos, Deque<ItemStack> stacks) {}
 }

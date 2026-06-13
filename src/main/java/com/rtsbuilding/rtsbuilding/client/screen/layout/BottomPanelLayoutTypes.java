@@ -8,8 +8,6 @@ import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen
  * <p>
  * Groups the panel layout parameters and the tab enum that together define
  * the bottom panel's geometry and mode selection. Both types are always
- * referenced together by {@link com.rtsbuilding.rtsbuilding.client.screen.panel.BottomPanel}
- * and {@link com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen}.
  */
 public final class BottomPanelLayoutTypes {
 
