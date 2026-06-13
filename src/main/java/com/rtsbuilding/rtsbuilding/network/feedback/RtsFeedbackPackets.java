@@ -1,7 +1,6 @@
 package com.rtsbuilding.rtsbuilding.network.feedback;
 
 import com.rtsbuilding.rtsbuilding.network.ClientPayloadDispatcher;
-
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**

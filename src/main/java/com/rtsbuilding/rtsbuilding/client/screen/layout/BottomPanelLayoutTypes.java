@@ -1,8 +1,7 @@
 package com.rtsbuilding.rtsbuilding.client.screen.layout;
 
 
-import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.BOTTOM_PANEL_HEADER_H;
+import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.BOTTOM_PANEL_HEADER_H;
 
 /**
  * Container for bottom-panel layout data types.

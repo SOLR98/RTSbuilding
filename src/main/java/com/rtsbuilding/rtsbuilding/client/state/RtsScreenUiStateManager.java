@@ -2,24 +2,21 @@ package com.rtsbuilding.rtsbuilding.client.state;
 
 
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
-import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
-import com.rtsbuilding.rtsbuilding.client.screen.ScreenShapeController;
+import com.rtsbuilding.rtsbuilding.client.screen.handler.ScreenShapeController;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
-import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildMode;
-import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.ShapeFillMode;
+import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildPanel;
+import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.screen.ultimine.AreaMineShape;
+import com.rtsbuilding.rtsbuilding.common.shape.ShapeFillMode;
 import net.minecraft.util.Mth;
 
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.DEFAULT_RTS_GUI_SCALE;
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.MAX_RTS_GUI_SCALE;
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.MIN_RTS_GUI_SCALE;
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.RTS_GUI_SCALE_STEP;
+import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.*;
 
 /**
  * 管理 {@link BuilderScreen} 的持久化 UI 偏好 — 业务管理层。

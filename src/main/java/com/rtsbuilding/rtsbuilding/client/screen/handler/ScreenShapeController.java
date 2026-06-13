@@ -1,13 +1,16 @@
-package com.rtsbuilding.rtsbuilding.client.screen;
+package com.rtsbuilding.rtsbuilding.client.screen.handler;
 
-import com.rtsbuilding.rtsbuilding.client.rendering.animation.PlacementAnimationRenderer;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
+import com.rtsbuilding.rtsbuilding.client.rendering.animation.PlacementAnimationRenderer;
 import com.rtsbuilding.rtsbuilding.client.rendering.builder.BuildGhostBlockStateResolver;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.RenderingUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
-import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.ShapeFillMode;
-import com.rtsbuilding.rtsbuilding.client.screen.shape.*;
+import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeBuildTypes;
+import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeDataRecords;
+import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeGeometryUtil;
+import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
+import com.rtsbuilding.rtsbuilding.common.shape.ShapeFillMode;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -20,16 +23,16 @@ import net.minecraft.world.item.EndCrystalItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.level.block.state.BlockState;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.SHAPE_ROTATE_STEP_DEGREES;
+import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.SHAPE_ROTATE_STEP_DEGREES;
 
 public final class ScreenShapeController {
     private BuilderScreen screen;
@@ -152,7 +155,7 @@ public final class ScreenShapeController {
                 this.controller.placeSelectedFluid(hit, forcePlace, rayOrigin, rayDir);
             } else {
                 this.controller.placeSelected(hit, forcePlace, rayOrigin, rayDir);
-                // Single block pending ghost — resolve target position for accurate direction
+                // Single block pending ghost 鈥?resolve target position for accurate direction
                 BlockPos placePos = resolvePlacementTargetPos(hit.getBlockPos(), hit.getDirection());
                 BlockState pendingState = resolvePendingGhostBlockState(placePos);
                 if (placePos != null) {
@@ -254,7 +257,7 @@ public final class ScreenShapeController {
      * <ol>
      *   <li>First click sets pointA (session creation)</li>
      *   <li>Second click sets pointB, enters NEED_THIRD_POINT for height</li>
-     *   <li>Third click confirms height → READY_CONFIRM</li>
+     *   <li>Third click confirms height 鈫?READY_CONFIRM</li>
      * </ol>
      */
     private void advanceWallSession(BlockHitResult hit, double mouseY) {
@@ -292,7 +295,7 @@ public final class ScreenShapeController {
      * <ol>
      *   <li>First click sets pointA (session creation)</li>
      *   <li>Second click sets pointB, enters NEED_THIRD_POINT for height</li>
-     *   <li>Third click confirms height → READY_CONFIRM</li>
+     *   <li>Third click confirms height 鈫?READY_CONFIRM</li>
      * </ol>
      */
     private void advanceBoxSession(BlockHitResult hit, double mouseY) {
@@ -371,7 +374,7 @@ public final class ScreenShapeController {
             for (BlockHitResult shapedHit : hits) {
                 positions.add(shapedHit.getBlockPos().immutable());
             }
-            // 解析放置的方块类型 — use first hit position for direction
+            // 瑙ｆ瀽鏀剧疆鐨勬柟鍧楃被鍨?鈥?use first hit position for direction
             BlockPos firstPlacePos = hits.isEmpty() ? null : hits.get(0).getBlockPos();
             BlockState pendingState = resolvePendingGhostBlockState(firstPlacePos);
             // Register pending ghosts for visual feedback while waiting for server confirmation
@@ -542,20 +545,17 @@ public final class ScreenShapeController {
     }
 
     /**
-     * 记录单次方块放置到撤回栈（已在服务端记录，客户端不再参与）。
-     */
+     * 璁板綍鍗曟鏂瑰潡鏀剧疆鍒版挙鍥炴爤锛堝凡鍦ㄦ湇鍔＄璁板綍锛屽鎴风涓嶅啀鍙備笌锛夈€?     */
     public void recordSinglePlacementForUndo(BlockHitResult hit, InteractionTypes.PlacementReplayKind replayKind, String itemId, int toolSlot) {
     }
 
     /**
-     * 记录方块破坏操作到撤回栈（已在服务端记录，客户端不再参与）。
-     */
+     * 璁板綍鏂瑰潡鐮村潖鎿嶄綔鍒版挙鍥炴爤锛堝凡鍦ㄦ湇鍔＄璁板綍锛屽鎴风涓嶅啀鍙備笌锛夈€?     */
     public void recordBreakForUndo(List<BlockPos> positions, Direction face, int toolSlot) {
     }
 
     /**
-     * 记录待服务端确认的破坏批次到撤回栈（已在服务端记录，客户端不再参与）。
-     */
+     * 璁板綍寰呮湇鍔＄纭鐨勭牬鍧忔壒娆″埌鎾ゅ洖鏍堬紙宸插湪鏈嶅姟绔褰曪紝瀹㈡埛绔笉鍐嶅弬涓庯級銆?     */
     public void recordPendingBreakForUndo(List<BlockPos> positions, Direction face, int toolSlot) {
     }
 
@@ -767,7 +767,7 @@ public final class ScreenShapeController {
 
     /**
      * Resolves the block state to use for pending ghost rendering at placement confirmation time.
-     * Uses the target→camera direction to simulate {@link
+     * Uses the target鈫抍amera direction to simulate {@link
      * net.minecraft.world.level.block.Block#getStateForPlacement(BlockPlaceContext)}
      * so the ghost preview matches the server-placed block state.
      *
@@ -1338,7 +1338,5 @@ public final class ScreenShapeController {
     private double currentMouseY() {
         return this.screen.getCurrentMouseY();
     }
-
-    // ===== BlockState 序列化工具 =====
 
 }

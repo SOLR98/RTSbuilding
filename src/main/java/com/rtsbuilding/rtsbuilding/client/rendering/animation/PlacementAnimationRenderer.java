@@ -1,14 +1,13 @@
 package com.rtsbuilding.rtsbuilding.client.rendering.animation;
 
-import java.util.List;
-
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-
 import com.rtsbuilding.rtsbuilding.Config;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
+
+import java.util.List;
 
 /**
  * Facade that coordinates pending placement ghosts and destroy animations.

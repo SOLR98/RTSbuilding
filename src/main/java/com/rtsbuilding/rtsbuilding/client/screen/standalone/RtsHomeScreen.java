@@ -1,9 +1,8 @@
-package com.rtsbuilding.rtsbuilding.client.screen;
+package com.rtsbuilding.rtsbuilding.client.screen.standalone;
 
 
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.progression.RtsProgressionNodes;
-
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;

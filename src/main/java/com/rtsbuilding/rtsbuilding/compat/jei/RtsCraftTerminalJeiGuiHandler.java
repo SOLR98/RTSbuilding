@@ -1,16 +1,15 @@
 package com.rtsbuilding.rtsbuilding.compat.jei;
 
-import java.util.List;
-import java.util.Optional;
-
-import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
-import com.rtsbuilding.rtsbuilding.client.screen.RtsCraftTerminalScreen;
-
+import com.rtsbuilding.rtsbuilding.client.record.StorageEntry;
+import com.rtsbuilding.rtsbuilding.client.screen.standalone.RtsCraftTerminalScreen;
 import mezz.jei.api.gui.handlers.IGuiContainerHandler;
 import mezz.jei.api.runtime.IClickableIngredient;
 import mezz.jei.api.runtime.IIngredientManager;
 import net.minecraft.client.renderer.Rect2i;
 import net.minecraft.world.item.ItemStack;
+
+import java.util.List;
+import java.util.Optional;
 
 final class RtsCraftTerminalJeiGuiHandler implements IGuiContainerHandler<RtsCraftTerminalScreen> {
     private final IIngredientManager ingredientManager;
@@ -29,7 +28,7 @@ final class RtsCraftTerminalJeiGuiHandler implements IGuiContainerHandler<RtsCra
             RtsCraftTerminalScreen screen,
             double mouseX,
             double mouseY) {
-        ClientRtsController.StorageEntry entry = screen.getLinkedEntryAt(mouseX, mouseY);
+        StorageEntry entry = screen.getLinkedEntryAt(mouseX, mouseY);
         if (entry == null) {
             return Optional.empty();
         }

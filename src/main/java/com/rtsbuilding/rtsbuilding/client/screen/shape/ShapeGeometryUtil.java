@@ -1,8 +1,8 @@
 package com.rtsbuilding.rtsbuilding.client.screen.shape;
 
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
-import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.ShapeFillMode;
-import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants;
+import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants;
+import com.rtsbuilding.rtsbuilding.common.shape.ShapeFillMode;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.Mth;

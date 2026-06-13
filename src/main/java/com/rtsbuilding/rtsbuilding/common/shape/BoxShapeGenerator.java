@@ -1,6 +1,5 @@
 package com.rtsbuilding.rtsbuilding.common.shape;
 
-import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.ShapeFillMode;
 import net.minecraft.core.BlockPos;
 
 import java.util.ArrayList;

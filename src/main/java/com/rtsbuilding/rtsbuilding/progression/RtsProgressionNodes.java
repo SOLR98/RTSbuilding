@@ -1,16 +1,15 @@
 package com.rtsbuilding.rtsbuilding.progression;
 
-import java.util.Collection;
-import java.util.List;
-
 import com.rtsbuilding.rtsbuilding.Config;
 import com.rtsbuilding.rtsbuilding.progression.cost.RtsCostOverrideManager;
 import com.rtsbuilding.rtsbuilding.progression.cost.RtsCostSerialization;
 import com.rtsbuilding.rtsbuilding.progression.node.RtsProgressionNodeId;
 import com.rtsbuilding.rtsbuilding.progression.tree.MutableProgressionTree;
 import com.rtsbuilding.rtsbuilding.progression.tree.RtsProgressionTreeBuilder;
-
 import net.minecraft.resources.ResourceLocation;
+
+import java.util.Collection;
+import java.util.List;
 
 /**
  * 科技树节点的集中访问入口（兼容层）。

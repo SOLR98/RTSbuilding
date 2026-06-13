@@ -1,23 +1,22 @@
 package com.rtsbuilding.rtsbuilding.client.screen.storage;
 
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
-import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
+import com.rtsbuilding.rtsbuilding.client.record.LinkedStorageEntry;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
+import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
 import com.rtsbuilding.rtsbuilding.client.widget.WindowTextBox;
 import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsLinkStoragePayload;
-
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
-
 import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
 
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.TOP_H;
+import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.TOP_H;
 
 /**
  * Movable window for inspecting and unlinking RTS storage bindings.
@@ -76,7 +75,7 @@ public final class LinkedStoragePanel extends RtsWindowPanel {
 
     @Override
     protected void renderContent(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        List<ClientRtsController.LinkedStorageEntry> entries = this.controller.getLinkedStorageEntries();
+        List<LinkedStorageEntry> entries = this.controller.getLinkedStorageEntries();
         this.scroll = Mth.clamp(this.scroll, 0, maxScroll(entries));
 
         int x = contentX() + 8;
@@ -113,7 +112,7 @@ public final class LinkedStoragePanel extends RtsWindowPanel {
         renderScrollbar(g, entries.size(), x + rowW + SCROLLBAR_GAP, firstY, visibleRows * ROW_H);
     }
 
-    private void renderRow(GuiGraphics g, int mouseX, int mouseY, ClientRtsController.LinkedStorageEntry entry,
+    private void renderRow(GuiGraphics g, int mouseX, int mouseY, LinkedStorageEntry entry,
             int x, int y, int w) {
         boolean hovered = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + ROW_H - 2;
         int fill = hovered ? 0xCC243244 : 0xAA1A222D;
@@ -152,7 +151,7 @@ public final class LinkedStoragePanel extends RtsWindowPanel {
     }
 
     private void renderPriorityControl(GuiGraphics g, int mouseX, int mouseY,
-            ClientRtsController.LinkedStorageEntry entry, int x, int y) {
+            LinkedStorageEntry entry, int x, int y) {
         if (isEditingPriority(entry.pos())) {
             this.priorityInput.setX(x);
             this.priorityInput.setY(y);
@@ -169,7 +168,7 @@ public final class LinkedStoragePanel extends RtsWindowPanel {
     }
 
     private void renderExtractToggle(GuiGraphics g, int mouseX, int mouseY,
-            ClientRtsController.LinkedStorageEntry entry, int x, int y) {
+            LinkedStorageEntry entry, int x, int y) {
         boolean extractOnly = entry.mode() == C2SRtsLinkStoragePayload.MODE_EXTRACT_ONLY;
         boolean hovered = inside(mouseX, mouseY, x, y, EXTRACT_W, CONTROL_H);
         int fill = extractOnly
@@ -194,7 +193,7 @@ public final class LinkedStoragePanel extends RtsWindowPanel {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             return;
         }
-        List<ClientRtsController.LinkedStorageEntry> entries = this.controller.getLinkedStorageEntries();
+        List<LinkedStorageEntry> entries = this.controller.getLinkedStorageEntries();
         if (entries.isEmpty()) {
             commitPriorityEdit();
             return;
@@ -213,7 +212,7 @@ public final class LinkedStoragePanel extends RtsWindowPanel {
             return;
         }
         int rowY = firstY + row * ROW_H;
-        ClientRtsController.LinkedStorageEntry entry = entries.get(index);
+        LinkedStorageEntry entry = entries.get(index);
         int controlY = controlY(rowY);
         if (inside(mouseX, mouseY, priorityBoxX(x, rowW), controlY, PRIORITY_W, CONTROL_H)) {
             beginPriorityEdit(entry, priorityBoxX(x, rowW), controlY);
@@ -304,7 +303,7 @@ public final class LinkedStoragePanel extends RtsWindowPanel {
         return Math.max(1, (contentHeight() - HEADER_H - 16) / ROW_H);
     }
 
-    private int maxScroll(List<ClientRtsController.LinkedStorageEntry> entries) {
+    private int maxScroll(List<LinkedStorageEntry> entries) {
         return Math.max(0, entries.size() - visibleRows());
     }
 
@@ -315,7 +314,7 @@ public final class LinkedStoragePanel extends RtsWindowPanel {
         return input;
     }
 
-    private void beginPriorityEdit(ClientRtsController.LinkedStorageEntry entry, int x, int y) {
+    private void beginPriorityEdit(LinkedStorageEntry entry, int x, int y) {
         if (entry == null || entry.pos() == null) {
             return;
         }
@@ -339,7 +338,7 @@ public final class LinkedStoragePanel extends RtsWindowPanel {
         }
         BlockPos pos = this.editingPriorityPos;
         int priority = parsePriorityDraft(this.priorityInput.getValue(), this.editingPriorityFallback);
-        ClientRtsController.LinkedStorageEntry entry = findEntry(pos);
+        LinkedStorageEntry entry = findEntry(pos);
         boolean extractOnly = entry != null
                 && entry.mode() == C2SRtsLinkStoragePayload.MODE_EXTRACT_ONLY;
         if (entry == null || entry.priority() != priority) {
@@ -356,11 +355,11 @@ public final class LinkedStoragePanel extends RtsWindowPanel {
         }
     }
 
-    private ClientRtsController.LinkedStorageEntry findEntry(BlockPos pos) {
+    private LinkedStorageEntry findEntry(BlockPos pos) {
         if (pos == null) {
             return null;
         }
-        for (ClientRtsController.LinkedStorageEntry entry : this.controller.getLinkedStorageEntries()) {
+        for (LinkedStorageEntry entry : this.controller.getLinkedStorageEntries()) {
             if (entry != null && pos.equals(entry.pos())) {
                 return entry;
             }
@@ -400,7 +399,7 @@ public final class LinkedStoragePanel extends RtsWindowPanel {
         return rowY + 7;
     }
 
-    private static String formatPos(ClientRtsController.LinkedStorageEntry entry) {
+    private static String formatPos(LinkedStorageEntry entry) {
         if (entry == null || !entry.worldAvailable()) {
             return Component.translatable("screen.rtsbuilding.storage_links.position_na").getString();
         }

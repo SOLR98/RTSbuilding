@@ -1,15 +1,10 @@
 package com.rtsbuilding.rtsbuilding.common;
 
-import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.ShapeFillMode;
-import com.rtsbuilding.rtsbuilding.common.shape.AreaShape;
-import com.rtsbuilding.rtsbuilding.common.shape.AreaShapeGenerator;
-import com.rtsbuilding.rtsbuilding.common.shape.AreaShapeInput;
-import com.rtsbuilding.rtsbuilding.common.shape.ShapeGeneratorRegistry;
+import com.rtsbuilding.rtsbuilding.common.shape.*;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayList;
@@ -59,6 +54,9 @@ public final class AreaOperationExecutor {
 
     /**
      * Generates the target positions for an area destruction operation.
+     * <p>
+     * Semantically identical to {@link #generatePlacementPositions} — the
+     * position list is the same; the caller decides whether to place or destroy.
      *
      * @param shape     the shape type
      * @param start     anchor position
@@ -70,9 +68,7 @@ public final class AreaOperationExecutor {
      */
     public static List<BlockPos> generateDestroyPositions(AreaShape shape, BlockPos start, BlockPos end,
                                                            int height, Direction face, ShapeFillMode fillMode) {
-        AreaShapeGenerator generator = ShapeGeneratorRegistry.getGenerator(shape);
-        AreaShapeInput input = AreaShapeInput.of(start, end, height, face, face);
-        return generator.generatePositions(input, fillMode);
+        return generatePlacementPositions(shape, start, end, height, face, fillMode);
     }
 
     /**
@@ -122,19 +118,15 @@ public final class AreaOperationExecutor {
     }
 
     /**
-     * Validates that a single position is a valid destruction target for the
-     * given tool.  Checks destroy speed, tool compatibility, and world access.
+     * Validates that a single position is a valid destruction target.
+     * Checks destroy speed and world access.
      *
-     * @param level                the server world
-     * @param pos                  target block position
-     * @param player               the player
-     * @param toolSlot             selected hotbar slot
-     * @param tool                 the tool stack (may be empty)
-     * @param selectedToolRequested whether a specific tool was requested
+     * @param level  the server world
+     * @param pos    target block position
+     * @param player the player
      * @return true if the block is destroyable
      */
-    public static boolean isValidDestroyTarget(ServerLevel level, BlockPos pos, ServerPlayer player,
-                                                int toolSlot, ItemStack tool, boolean selectedToolRequested) {
+    public static boolean isValidDestroyTarget(ServerLevel level, BlockPos pos, ServerPlayer player) {
         return AreaShapeGenerator.validateDestroyPosition(level, pos, player);
     }
 

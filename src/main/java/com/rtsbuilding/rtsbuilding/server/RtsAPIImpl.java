@@ -1,17 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server;
 
 import com.rtsbuilding.rtsbuilding.server.api.*;
-import com.rtsbuilding.rtsbuilding.server.api.impl.RtsBindingsAPIImpl;
-import com.rtsbuilding.rtsbuilding.server.api.impl.RtsBlueprintAPIImpl;
-import com.rtsbuilding.rtsbuilding.server.api.impl.RtsCraftingAPIImpl;
-import com.rtsbuilding.rtsbuilding.server.api.impl.RtsFluidAPIImpl;
-import com.rtsbuilding.rtsbuilding.server.api.impl.RtsInteractionAPIImpl;
-import com.rtsbuilding.rtsbuilding.server.api.impl.RtsLifecycleAPIImpl;
-import com.rtsbuilding.rtsbuilding.server.api.impl.RtsMiningAPIImpl;
-import com.rtsbuilding.rtsbuilding.server.api.impl.RtsPlacementAPIImpl;
-import com.rtsbuilding.rtsbuilding.server.api.impl.RtsSessionQueryAPIImpl;
-import com.rtsbuilding.rtsbuilding.server.api.impl.RtsStorageQueryAPIImpl;
-import com.rtsbuilding.rtsbuilding.server.api.impl.RtsTransferAPIImpl;
+import com.rtsbuilding.rtsbuilding.server.api.impl.*;
 
 /**
  * RtsAPI 的默认实现——将所有调用委托给领域服务层。

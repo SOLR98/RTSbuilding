@@ -1,8 +1,6 @@
 package com.rtsbuilding.rtsbuilding.client.screen.layout;
 
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.CRAFT_DOCK_C_SIZE;
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.CRAFT_DOCK_GAP;
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.CRAFT_DOCK_SLOT_SIZE;
+import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.*;
 
 /**
  * Container for small specialised panel-layout records.

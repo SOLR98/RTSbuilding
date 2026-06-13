@@ -2,7 +2,6 @@ package com.rtsbuilding.rtsbuilding.client.rendering.util;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import com.rtsbuilding.rtsbuilding.client.rendering.util.RenderingUtil;
 
 /**
  * Renders thickened corner brackets around an AABB using quad-based geometry.

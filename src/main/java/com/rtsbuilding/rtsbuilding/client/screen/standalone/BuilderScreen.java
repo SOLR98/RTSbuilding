@@ -1,13 +1,14 @@
-package com.rtsbuilding.rtsbuilding.client.screen;
+package com.rtsbuilding.rtsbuilding.client.screen.standalone;
 
 
-import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanel;
 import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintMaterialWindowPanel;
 import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintNameWindowPanel;
+import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanel;
 import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintWindowPanel;
 import com.rtsbuilding.rtsbuilding.client.bootstrap.ClientKeyMappings;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
+import com.rtsbuilding.rtsbuilding.client.record.CraftableEntry;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.RenderingUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.blueprint.BlueprintGhostPreview;
 import com.rtsbuilding.rtsbuilding.client.screen.craft.RtsCraftQuantityWindowPanel;
@@ -15,28 +16,33 @@ import com.rtsbuilding.rtsbuilding.client.screen.funnel.FunnelBufferPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.gear.GearMenuPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.guide.GuidePanel;
 import com.rtsbuilding.rtsbuilding.client.screen.guide.GuideTypes;
+import com.rtsbuilding.rtsbuilding.client.screen.handler.RtsUiScaleFrame;
+import com.rtsbuilding.rtsbuilding.client.screen.handler.ScreenCursorPicker;
+import com.rtsbuilding.rtsbuilding.client.screen.handler.ScreenShapeController;
+import com.rtsbuilding.rtsbuilding.client.screen.handler.StorageLinkDetailHandler;
 import com.rtsbuilding.rtsbuilding.client.screen.input.CameraInputHandler;
 import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.layout.BottomPanelLayoutTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.layout.PanelLayouts;
+import com.rtsbuilding.rtsbuilding.client.screen.overlay.PlayerStatusRenderer;
+import com.rtsbuilding.rtsbuilding.client.screen.overlay.RtsScreenOverlayRenderer;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.BottomPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsFloatingWindowLayer;
-import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
-import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildMode;
-import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.ShapeFillMode;
+import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeDataRecords;
 import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeGeometryUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.storage.LinkedStoragePanel;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarTypes;
-import com.rtsbuilding.rtsbuilding.client.screen.ultimine.AreaMineShape;
+import com.rtsbuilding.rtsbuilding.client.service.MiningOperationService;
 import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
 import com.rtsbuilding.rtsbuilding.client.state.RtsScreenUiStateManager;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
 import com.rtsbuilding.rtsbuilding.common.RtsUltimineCollector;
+import com.rtsbuilding.rtsbuilding.common.shape.ShapeFillMode;
 import com.rtsbuilding.rtsbuilding.compat.ae2.RtsAe2IconResolver;
 import com.rtsbuilding.rtsbuilding.progression.RtsProgressionNodes;
 import net.minecraft.client.gui.Font;
@@ -60,7 +66,7 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
 
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.*;
+import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.*;
 /**
  * The main RTS Builder screen — the primary UI entry point for the RTS building mode.
  * <p>
@@ -476,7 +482,7 @@ public final class BuilderScreen extends Screen {
         if (BlueprintPanel.isCaptureModeActive()) {
             return false;
         }
-        if (this.controller.getAreaMinePhase() == ClientRtsController.AREA_MINE_PHASE_NONE) {
+        if (this.controller.getAreaMinePhase() == MiningOperationService.AREA_MINE_PHASE_NONE) {
             return false;
         }
         if (isWorldArea(mouseX, mouseY) && !CameraInputHandler.isBreakActionMouse(button)) {
@@ -630,7 +636,7 @@ public final class BuilderScreen extends Screen {
 
         // 范围挖掘选区中，阻止所有鼠标拖拽操作
         if (!BlueprintPanel.isCaptureModeActive()
-                && this.controller.getAreaMinePhase() != ClientRtsController.AREA_MINE_PHASE_NONE) {
+                && this.controller.getAreaMinePhase() != MiningOperationService.AREA_MINE_PHASE_NONE) {
             return true;
         }
 
@@ -920,8 +926,8 @@ public final class BuilderScreen extends Screen {
         }
         // 范围破坏选区中：NEED_HEIGHT阶段滚轮调整高度，其他阶段阻止
         if (!BlueprintPanel.isCaptureModeActive()
-                && this.controller.getAreaMinePhase() != ClientRtsController.AREA_MINE_PHASE_NONE) {
-            if (this.controller.getAreaMinePhase() == ClientRtsController.AREA_MINE_PHASE_NEED_HEIGHT) {
+                && this.controller.getAreaMinePhase() != MiningOperationService.AREA_MINE_PHASE_NONE) {
+            if (this.controller.getAreaMinePhase() == MiningOperationService.AREA_MINE_PHASE_NEED_HEIGHT) {
                 int delta = scrollY > 0.0D ? 1 : -1;
                 if (isAltDown()) {
                     delta *= 4;
@@ -997,7 +1003,7 @@ public final class BuilderScreen extends Screen {
     private boolean handleWorldInteractionKeys(int keyCode, int scanCode, int modifiers) {
         // 范围破坏选区中，阻止除挖矿键之外的其他世界交互键盘操作
         if (!BlueprintPanel.isCaptureModeActive()
-                && this.controller.getAreaMinePhase() != ClientRtsController.AREA_MINE_PHASE_NONE) {
+                && this.controller.getAreaMinePhase() != MiningOperationService.AREA_MINE_PHASE_NONE) {
             if (!ClientKeyMappings.ACTION_BREAK.matches(keyCode, scanCode)) {
                 return true;
             }
@@ -1541,8 +1547,8 @@ public final class BuilderScreen extends Screen {
             return false;
         }
         int phase = this.controller.getAreaMinePhase();
-        return phase == ClientRtsController.AREA_MINE_PHASE_NEED_SECOND
-                || phase == ClientRtsController.AREA_MINE_PHASE_NEED_HEIGHT;
+        return phase == MiningOperationService.AREA_MINE_PHASE_NEED_SECOND
+                || phase == MiningOperationService.AREA_MINE_PHASE_NEED_HEIGHT;
     }
     /** Returns the number of available undo steps for shape placement. */
     public int getShapeUndoSize() {
@@ -1566,7 +1572,7 @@ public final class BuilderScreen extends Screen {
     }
 
     /** Opens the window-layer craft quantity picker for a craftable entry. */
-    public void openCraftQuantityWindow(ClientRtsController.CraftableEntry entry) {
+    public void openCraftQuantityWindow(CraftableEntry entry) {
         this.craftQuantityWindowPanel.open(entry);
     }
 

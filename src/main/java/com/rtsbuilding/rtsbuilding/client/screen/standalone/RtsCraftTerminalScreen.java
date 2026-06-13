@@ -1,17 +1,13 @@
-package com.rtsbuilding.rtsbuilding.client.screen;
+package com.rtsbuilding.rtsbuilding.client.screen.standalone;
 
 
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
+import com.rtsbuilding.rtsbuilding.client.record.StorageEntry;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
-import java.util.List;
-
 import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsImportMenuSlotPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsLinkedPickupPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsReturnCarriedPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
-
-import org.lwjgl.glfw.GLFW;
-
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
@@ -30,6 +26,9 @@ import net.minecraft.world.item.crafting.CraftingInput;
 import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.neoforged.neoforge.network.PacketDistributor;
+import org.lwjgl.glfw.GLFW;
+
+import java.util.List;
 
 public final class RtsCraftTerminalScreen extends AbstractContainerScreen<CraftingMenu> {
     private static final ResourceLocation VANILLA_CRAFTING_BG =
@@ -228,7 +227,7 @@ public final class RtsCraftTerminalScreen extends AbstractContainerScreen<Crafti
         String clearLabel = this.searchBox != null && !this.searchBox.getValue().isEmpty() ? "x" : ".";
         guiGraphics.drawCenteredString(this.font, clearLabel, clearX + (LINK_SEARCH_CLEAR_W / 2), searchY + 2, 0xEAF2FF);
 
-        List<ClientRtsController.StorageEntry> entries = controller.getStorageEntries();
+        List<StorageEntry> entries = controller.getStorageEntries();
         int maxSlots = Math.min(entries.size(), LINK_COLS * LINK_ROWS);
         int gridX = panelX + LINK_GRID_X_OFF;
         int gridY = panelY + LINK_GRID_Y_OFF;
@@ -241,14 +240,14 @@ public final class RtsCraftTerminalScreen extends AbstractContainerScreen<Crafti
             if (i >= maxSlots) {
                 continue;
             }
-            ClientRtsController.StorageEntry entry = entries.get(i);
+            StorageEntry entry = entries.get(i);
             guiGraphics.renderItem(entry.stack(), slotX + 1, slotY + 1);
             drawCountOverlay(guiGraphics, slotX, slotY, RtsClientUiUtil.compactCount(entry.count()));
         }
 
         int hovered = resolveLinkedSlotIndex(mouseX, mouseY);
         if (hovered >= 0 && hovered < maxSlots) {
-            ClientRtsController.StorageEntry entry = entries.get(hovered);
+            StorageEntry entry = entries.get(hovered);
             guiGraphics.renderTooltip(this.font, entry.stack(), (int) mouseX, (int) mouseY);
         }
     }
@@ -318,7 +317,7 @@ public final class RtsCraftTerminalScreen extends AbstractContainerScreen<Crafti
 
         int linkedIndex = resolveLinkedSlotIndex(mouseX, mouseY);
         if (linkedIndex >= 0) {
-            List<ClientRtsController.StorageEntry> entries = controller.getStorageEntries();
+            List<StorageEntry> entries = controller.getStorageEntries();
             if (linkedIndex < entries.size()) {
                 int requested = button == GLFW.GLFW_MOUSE_BUTTON_RIGHT ? 1 : Integer.MAX_VALUE;
                 return pickupFromLinked(entries.get(linkedIndex), requested);
@@ -329,7 +328,7 @@ public final class RtsCraftTerminalScreen extends AbstractContainerScreen<Crafti
         return inside(mouseX, mouseY, panelX, panelY, LINK_PANEL_W, LINK_PANEL_H);
     }
 
-    private boolean pickupFromLinked(ClientRtsController.StorageEntry entry, int requestedAmount) {
+    private boolean pickupFromLinked(StorageEntry entry, int requestedAmount) {
         if (entry == null || entry.stack().isEmpty()) {
             return false;
         }
@@ -453,12 +452,12 @@ public final class RtsCraftTerminalScreen extends AbstractContainerScreen<Crafti
         return new Rect2i(this.leftPos + LINK_PANEL_X_OFF, this.topPos + LINK_PANEL_Y_OFF, LINK_PANEL_W, LINK_PANEL_H);
     }
 
-    public ClientRtsController.StorageEntry getLinkedEntryAt(double mouseX, double mouseY) {
+    public StorageEntry getLinkedEntryAt(double mouseX, double mouseY) {
         int index = resolveLinkedSlotIndex(mouseX, mouseY);
         if (index < 0) {
             return null;
         }
-        List<ClientRtsController.StorageEntry> entries = ClientRtsController.get().getStorageEntries();
+        List<StorageEntry> entries = ClientRtsController.get().getStorageEntries();
         if (index >= entries.size()) {
             return null;
         }

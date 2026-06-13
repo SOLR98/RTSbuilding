@@ -1,7 +1,8 @@
-package com.rtsbuilding.rtsbuilding.client.screen;
+package com.rtsbuilding.rtsbuilding.client.screen.handler;
 
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
+import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
 
 /**
  * 服务端历史管理的客户端代理（基于 Ultimine-Rewind 风格重构）。

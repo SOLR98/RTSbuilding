@@ -1,7 +1,6 @@
 package com.rtsbuilding.rtsbuilding.client.rendering.util;
 
 import com.mojang.blaze3d.vertex.VertexConsumer;
-
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 

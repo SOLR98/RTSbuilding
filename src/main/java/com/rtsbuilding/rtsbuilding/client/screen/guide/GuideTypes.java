@@ -1,9 +1,5 @@
 package com.rtsbuilding.rtsbuilding.client.screen.guide;
 
-import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarIconRenderer;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.resources.ResourceLocation;
-
 /**
  * Container class grouping all guide-panel data types used by
  * {@link GuidePanel}.

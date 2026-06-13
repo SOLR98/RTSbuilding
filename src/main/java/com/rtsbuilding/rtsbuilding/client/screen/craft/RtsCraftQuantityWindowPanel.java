@@ -1,16 +1,16 @@
 package com.rtsbuilding.rtsbuilding.client.screen.craft;
 
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
-import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
+import com.rtsbuilding.rtsbuilding.client.record.CraftRecipeOption;
+import com.rtsbuilding.rtsbuilding.client.record.CraftableEntry;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
+import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
-
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
-
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -40,7 +40,7 @@ public final class RtsCraftQuantityWindowPanel extends RtsWindowPanel {
 
     private String itemLabel = "";
     private ItemStack preview = ItemStack.EMPTY;
-    private final List<ClientRtsController.CraftRecipeOption> recipeOptions = new ArrayList<>();
+    private final List<CraftRecipeOption> recipeOptions = new ArrayList<>();
     private int selectedRecipeIndex;
     private int recipeScroll;
     private String quantityText = "1";
@@ -52,7 +52,7 @@ public final class RtsCraftQuantityWindowPanel extends RtsWindowPanel {
         super.init(screen, controller);
     }
 
-    public void open(ClientRtsController.CraftableEntry entry) {
+    public void open(CraftableEntry entry) {
         if (entry == null || !entry.craftable()) {
             return;
         }
@@ -81,7 +81,7 @@ public final class RtsCraftQuantityWindowPanel extends RtsWindowPanel {
         Layout layout = resolveLayout();
         int visibleRows = visibleOptionRows(layout);
         ensureSelectionVisible(visibleRows);
-        ClientRtsController.CraftRecipeOption selected = getSelectedOption();
+        CraftRecipeOption selected = getSelectedOption();
 
         if (!this.preview.isEmpty()) {
             g.renderItem(this.preview, layout.x(), layout.y());
@@ -100,7 +100,7 @@ public final class RtsCraftQuantityWindowPanel extends RtsWindowPanel {
             if (optionIndex >= this.recipeOptions.size()) {
                 break;
             }
-            ClientRtsController.CraftRecipeOption option = this.recipeOptions.get(optionIndex);
+            CraftRecipeOption option = this.recipeOptions.get(optionIndex);
             int rowY = layout.optionsY() + 2 + row * OPTION_ROW_H;
             int fill = option.craftable() ? 0xAA223B2E : 0xAA402626;
             if (optionIndex == this.selectedRecipeIndex) {
@@ -278,7 +278,7 @@ public final class RtsCraftQuantityWindowPanel extends RtsWindowPanel {
     }
 
     private void confirm() {
-        ClientRtsController.CraftRecipeOption selected = getSelectedOption();
+        CraftRecipeOption selected = getSelectedOption();
         int craftCount = getQuantity();
         if (selected == null || !selected.craftable()
                 || selected.recipeId() == null || selected.recipeId().isBlank()
@@ -289,7 +289,7 @@ public final class RtsCraftQuantityWindowPanel extends RtsWindowPanel {
         setOpen(false);
     }
 
-    private ClientRtsController.CraftRecipeOption getSelectedOption() {
+    private CraftRecipeOption getSelectedOption() {
         if (this.selectedRecipeIndex < 0 || this.selectedRecipeIndex >= this.recipeOptions.size()) {
             return this.recipeOptions.isEmpty() ? null : this.recipeOptions.get(0);
         }

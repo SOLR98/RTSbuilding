@@ -1,21 +1,27 @@
 package com.rtsbuilding.rtsbuilding.client.screen.panel;
 
 
+import com.rtsbuilding.rtsbuilding.Config;
+import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanel;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.popup.RtsCraftFeedbackPopup;
-import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
+import com.rtsbuilding.rtsbuilding.client.record.CraftableEntry;
+import com.rtsbuilding.rtsbuilding.client.record.FluidEntry;
+import com.rtsbuilding.rtsbuilding.client.record.RecentEntry;
+import com.rtsbuilding.rtsbuilding.client.record.StorageEntry;
+import com.rtsbuilding.rtsbuilding.client.screen.layout.BottomPanelLayoutTypes;
+import com.rtsbuilding.rtsbuilding.client.screen.layout.CategoryTypes;
+import com.rtsbuilding.rtsbuilding.client.screen.layout.PanelLayouts;
+import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
 import com.rtsbuilding.rtsbuilding.client.util.RtsCraftablesUiHelper;
 import com.rtsbuilding.rtsbuilding.client.util.RtsCreativeItemCatalog;
-import com.rtsbuilding.rtsbuilding.Config;
-import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanel;
-import com.rtsbuilding.rtsbuilding.client.screen.layout.*;
 import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
 import com.rtsbuilding.rtsbuilding.progression.RtsProgressionNodes;
 import net.minecraft.client.Minecraft;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
@@ -24,7 +30,7 @@ import net.neoforged.fml.ModList;
 
 import java.util.*;
 
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.*;
+import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.*;
 
 /**
  * 底部面板 — 储存网格、分类、合成、流体、蓝图的集中 UI。
@@ -552,7 +558,7 @@ public final class BottomPanel {
         int rows = Math.max(1, height / SLOT);
         int maxSlots = cols * rows;
         this.controller.updateStoragePageSize(maxSlots);
-        List<ClientRtsController.StorageEntry> entries = this.controller.getStorageEntries();
+        List<StorageEntry> entries = this.controller.getStorageEntries();
 
         for (int i = 0; i < maxSlots; i++) {
             int cx = x + (i % cols) * SLOT;
@@ -655,7 +661,7 @@ public final class BottomPanel {
         int cols = Math.max(1, width / SLOT);
         int rows = Math.max(1, height / SLOT);
         int maxSlots = cols * rows;
-        List<ClientRtsController.RecentEntry> entries = this.controller.getRecentEntries();
+        List<RecentEntry> entries = this.controller.getRecentEntries();
 
         for (int i = 0; i < maxSlots; i++) {
             int cx = x + (i % cols) * SLOT;
@@ -671,7 +677,7 @@ public final class BottomPanel {
                 continue;
             }
 
-            ClientRtsController.RecentEntry entry = entries.get(i);
+            RecentEntry entry = entries.get(i);
             if (!entry.preview().isEmpty()) {
                 g.renderItem(entry.preview(), cx + 2, cy + 2);
             }
@@ -686,7 +692,7 @@ public final class BottomPanel {
         }
     }
 
-    private String formatRecentAmount(ClientRtsController.RecentEntry entry) {
+    private String formatRecentAmount(RecentEntry entry) {
         if (entry == null) {
             return "";
         }
@@ -705,7 +711,7 @@ public final class BottomPanel {
         int rows = Math.max(1, height / SLOT);
         int maxSlots = cols * rows;
         int box = SLOT - 2;
-        List<ClientRtsController.FluidEntry> entries = this.controller.getFluidEntries();
+        List<FluidEntry> entries = this.controller.getFluidEntries();
 
         for (int i = 0; i < maxSlots; i++) {
             int cx = x + (i % cols) * SLOT;
@@ -781,7 +787,7 @@ public final class BottomPanel {
 
         int gridY = searchY + CRAFT_PANEL_SEARCH_H + 6;
         int clampedRows = Math.max(1, (height - (gridY - y) - 6) / CRAFT_PANEL_PITCH);
-        List<ClientRtsController.CraftableEntry> entries = this.controller.getCraftableEntries();
+        List<CraftableEntry> entries = this.controller.getCraftableEntries();
         int totalRows = Math.max(1, (int) Math.ceil(entries.size() / (double) CRAFT_PANEL_COLS));
         int maxScroll = Math.max(0, totalRows - clampedRows);
         this.craftScroll = Mth.clamp(this.craftScroll, 0, maxScroll);
@@ -794,7 +800,7 @@ public final class BottomPanel {
                 int slotY = gridY + row * CRAFT_PANEL_PITCH;
                 int fill = 0xAA1A212B;
                 if (index < entries.size()) {
-                    ClientRtsController.CraftableEntry entry = entries.get(index);
+                    CraftableEntry entry = entries.get(index);
                     fill = entry.craftable() ? 0xAA214131 : 0xAA3F2323;
                 }
                 RtsClientUiUtil.drawPanelFrame(g, slotX, slotY, CRAFT_PANEL_SLOT, CRAFT_PANEL_SLOT, fill, 0xFF596D84, 0xFF11171E);
@@ -802,7 +808,7 @@ public final class BottomPanel {
                     continue;
                 }
 
-                ClientRtsController.CraftableEntry entry = entries.get(index);
+                CraftableEntry entry = entries.get(index);
                 g.renderItem(entry.stack(), slotX + 1, slotY + 1);
                 if (entry.resultCount() > 1) {
                     drawSlotCountOverlay(g, slotX, slotY, CRAFT_PANEL_SLOT, RtsClientUiUtil.compactCount(entry.resultCount()), 0xFFE8F4FF);
@@ -838,7 +844,7 @@ public final class BottomPanel {
         return RtsCraftablesUiHelper.normalizeSearchDraft(value);
     }
 
-    public void openCraftQuantityDialog(ClientRtsController.CraftableEntry entry) {
+    public void openCraftQuantityDialog(CraftableEntry entry) {
         screen.blurSearchFocus();
         screen.openCraftQuantityWindow(entry);
     }
@@ -1462,7 +1468,7 @@ public final class BottomPanel {
         if (entryIndex < 0 || entryIndex >= this.controller.getCraftableEntries().size()) {
             return inside(mouseX, mouseY, x, y, width, height);
         }
-        ClientRtsController.CraftableEntry entry = this.controller.getCraftableEntries().get(entryIndex);
+        CraftableEntry entry = this.controller.getCraftableEntries().get(entryIndex);
         if (!entry.craftable()) {
             return true;
         }
@@ -1474,7 +1480,7 @@ public final class BottomPanel {
         int searchY = y + 15;
         int gridY = searchY + CRAFT_PANEL_SEARCH_H + 6;
         int visibleRows = Math.max(1, (height - (gridY - y) - 6) / CRAFT_PANEL_PITCH);
-        List<ClientRtsController.CraftableEntry> entries = this.controller.getCraftableEntries();
+        List<CraftableEntry> entries = this.controller.getCraftableEntries();
         int totalRows = Math.max(1, (int) Math.ceil(entries.size() / (double) CRAFT_PANEL_COLS));
         int maxScroll = Math.max(0, totalRows - visibleRows);
         this.craftScroll = Mth.clamp(this.craftScroll, 0, maxScroll);

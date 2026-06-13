@@ -1,34 +1,26 @@
 package com.rtsbuilding.rtsbuilding.client.rendering.builder;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.vertex.BufferBuilder;
-import com.mojang.blaze3d.vertex.ByteBufferBuilder;
-import com.mojang.blaze3d.vertex.DefaultVertexFormat;
-import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexConsumer;
-import com.mojang.blaze3d.vertex.VertexFormat;
-
+import com.mojang.blaze3d.vertex.*;
+import com.rtsbuilding.rtsbuilding.client.rendering.util.CornerBracketRenderer;
+import com.rtsbuilding.rtsbuilding.client.rendering.util.RaycastHelper;
+import com.rtsbuilding.rtsbuilding.client.rendering.util.RenderingUtil;
+import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeDataRecords;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LevelRenderer;
-import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.RenderStateShard;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.Vec3;
-
 import org.joml.Matrix4f;
 
-import com.rtsbuilding.rtsbuilding.client.rendering.util.CornerBracketRenderer;
-import com.rtsbuilding.rtsbuilding.client.rendering.util.RaycastHelper;
-import com.rtsbuilding.rtsbuilding.client.rendering.util.RenderingUtil;
-import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeDataRecords;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Renders the chain-mining (ultimine) ghost preview in FTB Ultimine style,
@@ -103,7 +95,7 @@ public final class UltimineGhostRenderer {
         // brackets instead of the chain-destroy (ultimine) ghost preview.
         Minecraft mc = Minecraft.getInstance();
         if (mc != null && mc.level != null && mc.getCameraEntity() != null
-                && mc.screen instanceof com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen) {
+                && mc.screen instanceof com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen) {
             Vec3 camPos = mc.gameRenderer.getMainCamera().getPosition();
             Vec3 viewDir = RaycastHelper.computeCursorRayDirection(mc);
             Vec3 rayEnd = camPos.add(viewDir.scale(128.0D));

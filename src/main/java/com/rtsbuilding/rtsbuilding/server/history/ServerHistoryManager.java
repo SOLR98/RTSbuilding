@@ -1,6 +1,6 @@
 package com.rtsbuilding.rtsbuilding.server.history;
 
-import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants;
+import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;

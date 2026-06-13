@@ -1,21 +1,16 @@
 package com.rtsbuilding.rtsbuilding.blueprint.client;
 
-import java.util.List;
-
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
-
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.util.Mth;
 
+import java.util.List;
+
 import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintMaterialInspector.buildStats;
 import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintMaterialInspector.detailLines;
-import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelUi.drawButton;
-import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelUi.drawFrame;
-import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelUi.inside;
-import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelUi.text;
-import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelUi.trim;
+import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelUi.*;
 
 /**
  * Renders the modal list of missing materials and blueprint compatibility notes.

@@ -3,10 +3,10 @@ package com.rtsbuilding.rtsbuilding.client.rendering.overlay;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
+import com.rtsbuilding.rtsbuilding.client.record.LinkedStorageEntry;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.CornerBracketRenderer;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.RenderingUtil;
 import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsLinkStoragePayload;
-
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -143,12 +143,12 @@ public final class StorageRenderer {
         Vec3 cameraPos = minecraft.gameRenderer.getMainCamera().getPosition();
         long now = System.currentTimeMillis();
 
-        List<ClientRtsController.LinkedStorageEntry> entries = controller.getLinkedStorageEntries();
+        List<LinkedStorageEntry> entries = controller.getLinkedStorageEntries();
 
         // ── 1. Detect additions / removals ─────────────────────────────────
 
         Set<BlockPos> currPositions = new HashSet<>();
-        for (ClientRtsController.LinkedStorageEntry e : entries) {
+        for (LinkedStorageEntry e : entries) {
             if (e.worldAvailable() && e.pos() != null) currPositions.add(e.pos());
         }
 
@@ -183,7 +183,7 @@ public final class StorageRenderer {
             }
 
             // Additions → start BINDING (or restart if still UNBINDING).
-            for (ClientRtsController.LinkedStorageEntry e : entries) {
+            for (LinkedStorageEntry e : entries) {
                 if (!e.worldAvailable()) continue;
                 BlockPos p = e.pos();
                 if (p == null || prevPositions.contains(p)) continue;
@@ -235,7 +235,7 @@ public final class StorageRenderer {
 
         // ── 3. Render currently linked entries (BINDING / BOUND) ────────────
 
-        for (ClientRtsController.LinkedStorageEntry entry : entries) {
+        for (LinkedStorageEntry entry : entries) {
             if (!entry.worldAvailable()) {
                 continue;
             }

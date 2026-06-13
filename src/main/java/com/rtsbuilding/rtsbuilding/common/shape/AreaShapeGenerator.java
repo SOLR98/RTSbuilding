@@ -1,6 +1,5 @@
 package com.rtsbuilding.rtsbuilding.common.shape;
 
-import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.ShapeFillMode;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -108,6 +107,29 @@ public abstract class AreaShapeGenerator {
      */
     protected static int dotDelta(int dx, int dy, int dz, Direction axis) {
         return (dx * axis.getStepX()) + (dy * axis.getStepY()) + (dz * axis.getStepZ());
+    }
+
+    /**
+     * Generates a straight line of connected blocks between two positions (inclusive, Bresenham-style).
+     */
+    protected static List<BlockPos> generateLinePositions(BlockPos start, BlockPos end) {
+        int dx = end.getX() - start.getX();
+        int dy = end.getY() - start.getY();
+        int dz = end.getZ() - start.getZ();
+        int steps = Math.max(Math.abs(dx), Math.max(Math.abs(dy), Math.abs(dz)));
+        List<BlockPos> result = new ArrayList<>(steps + 1);
+        if (steps <= 0) {
+            result.add(start);
+            return result;
+        }
+        for (int i = 0; i <= steps; i++) {
+            double t = i / (double) steps;
+            int x = start.getX() + (int) Math.round(dx * t);
+            int y = start.getY() + (int) Math.round(dy * t);
+            int z = start.getZ() + (int) Math.round(dz * t);
+            result.add(new BlockPos(x, y, z));
+        }
+        return result;
     }
 
     /**

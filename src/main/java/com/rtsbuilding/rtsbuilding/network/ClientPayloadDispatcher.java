@@ -1,10 +1,7 @@
 package com.rtsbuilding.rtsbuilding.network;
 
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsBreakAnimationPayload;
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsHistorySyncPayload;
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsMineProgressPayload;
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsPlaceAnimationPayload;
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsUltimineProgressPayload;
+import com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers;
+import com.rtsbuilding.rtsbuilding.network.builder.*;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraStatePayload;
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftablesPayload;
@@ -14,7 +11,6 @@ import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsQuestDetectStatusPa
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsRemoteMenuHintPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStorageDirtyPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
-
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -42,7 +38,7 @@ public final class ClientPayloadDispatcher {
         if (!IS_CLIENT) return;
         switch (payload) {
             case S2CRtsCameraStatePayload p ->
-                    com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleCameraState(p, ctx);
+                    RtsClientNetworkHandlers.handleCameraState(p, ctx);
             default -> {}
         }
     }
@@ -55,11 +51,11 @@ public final class ClientPayloadDispatcher {
         if (!IS_CLIENT) return;
         switch (payload) {
             case S2CRtsStoragePagePayload p ->
-                    com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleStoragePage(p, ctx);
+                    RtsClientNetworkHandlers.handleStoragePage(p, ctx);
             case S2CRtsStorageDirtyPayload p ->
-                    com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleStorageDirty(p, ctx);
+                    RtsClientNetworkHandlers.handleStorageDirty(p, ctx);
             case S2CRtsRemoteMenuHintPayload p ->
-                    com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleRemoteMenuHint(p, ctx);
+                    RtsClientNetworkHandlers.handleRemoteMenuHint(p, ctx);
             default -> {}
         }
     }
@@ -72,15 +68,15 @@ public final class ClientPayloadDispatcher {
         if (!IS_CLIENT) return;
         switch (payload) {
             case S2CRtsMineProgressPayload p ->
-                    com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleMineProgress(p, ctx);
+                    RtsClientNetworkHandlers.handleMineProgress(p, ctx);
             case S2CRtsPlaceAnimationPayload p ->
-                    com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handlePlaceAnimation(p, ctx);
+                    RtsClientNetworkHandlers.handlePlaceAnimation(p, ctx);
             case S2CRtsBreakAnimationPayload p ->
-                    com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleBreakAnimation(p, ctx);
+                    RtsClientNetworkHandlers.handleBreakAnimation(p, ctx);
             case S2CRtsUltimineProgressPayload p ->
-                    com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleUltimineProgress(p, ctx);
+                    RtsClientNetworkHandlers.handleUltimineProgress(p, ctx);
             case S2CRtsHistorySyncPayload p ->
-                    com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleHistorySync(p, ctx);
+                    RtsClientNetworkHandlers.handleHistorySync(p, ctx);
             default -> {}
         }
     }
@@ -93,9 +89,9 @@ public final class ClientPayloadDispatcher {
         if (!IS_CLIENT) return;
         switch (payload) {
             case S2CRtsCraftablesPayload p ->
-                    com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleCraftables(p, ctx);
+                    RtsClientNetworkHandlers.handleCraftables(p, ctx);
             case S2CRtsCraftFeedbackPayload p ->
-                    com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleCraftFeedback(p, ctx);
+                    RtsClientNetworkHandlers.handleCraftFeedback(p, ctx);
             default -> {}
         }
     }
@@ -108,9 +104,9 @@ public final class ClientPayloadDispatcher {
         if (!IS_CLIENT) return;
         switch (payload) {
             case S2CRtsProgressionStatePayload p ->
-                    com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleProgressionState(p, ctx);
+                    RtsClientNetworkHandlers.handleProgressionState(p, ctx);
             case S2CRtsQuestDetectStatusPayload p ->
-                    com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleQuestDetectStatus(p, ctx);
+                    RtsClientNetworkHandlers.handleQuestDetectStatus(p, ctx);
             default -> {}
         }
     }
@@ -123,7 +119,7 @@ public final class ClientPayloadDispatcher {
         if (!IS_CLIENT) return;
         switch (payload) {
             case S2CRtsDamageFeedbackPayload p ->
-                    com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers.handleDamageFeedback(p, ctx);
+                    RtsClientNetworkHandlers.handleDamageFeedback(p, ctx);
             default -> {}
         }
     }

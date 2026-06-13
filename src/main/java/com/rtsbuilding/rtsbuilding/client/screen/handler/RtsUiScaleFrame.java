@@ -1,4 +1,4 @@
-package com.rtsbuilding.rtsbuilding.client.screen;
+package com.rtsbuilding.rtsbuilding.client.screen.handler;
 
 /**
  * RTS UI 缩放帧管理。

@@ -7,11 +7,7 @@ import net.minecraft.core.BlockPos;
 
 import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintCaptureGeometry.capturePreviewSummaryLine;
 import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelLayout.nameDialogLayout;
-import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelUi.drawButton;
-import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelUi.drawFrame;
-import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelUi.inside;
-import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelUi.text;
-import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelUi.trim;
+import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelUi.*;
 
 /**
  * Renders the blueprint save/rename modal and classifies mouse clicks.

@@ -4,7 +4,6 @@ import com.rtsbuilding.rtsbuilding.network.ClientPayloadDispatcher;
 import com.rtsbuilding.rtsbuilding.network.storage.handler.RtsBindingHandlers;
 import com.rtsbuilding.rtsbuilding.network.storage.handler.RtsPageHandlers;
 import com.rtsbuilding.rtsbuilding.network.storage.handler.RtsTransferHandlers;
-
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**

@@ -1,7 +1,6 @@
 package com.rtsbuilding.rtsbuilding.compat.remote;
 
 import com.rtsbuilding.rtsbuilding.compat.RemoteMenuTracker;
-
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;

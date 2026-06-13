@@ -1,12 +1,13 @@
-package com.rtsbuilding.rtsbuilding.client.screen;
+package com.rtsbuilding.rtsbuilding.client.screen.overlay;
 
+import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.util.Mth;
 
 import java.util.function.Function;
 
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.TOP_H;
+import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.TOP_H;
 
 /**
  * Renders the player's health, food, armor and absorption status bars at the

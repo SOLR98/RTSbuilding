@@ -1,13 +1,11 @@
 package com.rtsbuilding.rtsbuilding.mixin;
 
+import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
+import net.minecraft.client.player.LocalPlayer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
-
-import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
-
-import net.minecraft.client.player.LocalPlayer;
 
 /**
  * 让 Minecraft 原生的客户端-服务端同步机制正常工作。

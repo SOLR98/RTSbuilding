@@ -1,7 +1,6 @@
 package com.rtsbuilding.rtsbuilding.client.screen.topbar;
 
 
-import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
 /**
  * Container for top-bar data types.
  * <p>

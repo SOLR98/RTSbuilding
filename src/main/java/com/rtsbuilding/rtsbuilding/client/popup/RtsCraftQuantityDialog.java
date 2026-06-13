@@ -1,18 +1,17 @@
 package com.rtsbuilding.rtsbuilding.client.popup;
 
 
-import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
+import com.rtsbuilding.rtsbuilding.client.record.CraftRecipeOption;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
-import java.util.ArrayList;
-import java.util.List;
-
-import org.lwjgl.glfw.GLFW;
-
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
+import org.lwjgl.glfw.GLFW;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public final class RtsCraftQuantityDialog {
     private static final int PANEL_W = 238;
@@ -32,7 +31,7 @@ public final class RtsCraftQuantityDialog {
     private boolean open;
     private String itemLabel = "";
     private ItemStack preview = ItemStack.EMPTY;
-    private final List<ClientRtsController.CraftRecipeOption> recipeOptions = new ArrayList<>();
+    private final List<CraftRecipeOption> recipeOptions = new ArrayList<>();
     private int selectedRecipeIndex;
     private int recipeScroll;
     private String quantityText = "1";
@@ -42,7 +41,7 @@ public final class RtsCraftQuantityDialog {
     public void open(
             String itemLabel,
             ItemStack preview,
-            List<ClientRtsController.CraftRecipeOption> recipeOptions,
+            List<CraftRecipeOption> recipeOptions,
             int initialCount) {
         this.open = true;
         this.itemLabel = itemLabel == null ? "" : itemLabel;
@@ -85,7 +84,7 @@ public final class RtsCraftQuantityDialog {
             return;
         }
         Layout layout = resolveLayout(screenWidth, screenHeight);
-        ClientRtsController.CraftRecipeOption selected = getSelectedOption();
+        CraftRecipeOption selected = getSelectedOption();
 
         g.pose().pushPose();
         g.pose().translate(0.0F, 0.0F, 680.0F);
@@ -112,7 +111,7 @@ public final class RtsCraftQuantityDialog {
             if (optionIndex >= this.recipeOptions.size()) {
                 break;
             }
-            ClientRtsController.CraftRecipeOption option = this.recipeOptions.get(optionIndex);
+            CraftRecipeOption option = this.recipeOptions.get(optionIndex);
             int rowY = layout.optionsY() + 2 + row * OPTION_ROW_H;
             int fill = option.craftable() ? 0xAA223B2E : 0xAA402626;
             if (optionIndex == this.selectedRecipeIndex) {
@@ -274,7 +273,7 @@ public final class RtsCraftQuantityDialog {
     }
 
     private void confirm() {
-        ClientRtsController.CraftRecipeOption selected = getSelectedOption();
+        CraftRecipeOption selected = getSelectedOption();
         int craftCount = getQuantity();
         if (selected == null || !selected.craftable() || selected.recipeId() == null || selected.recipeId().isBlank() || craftCount <= 0) {
             return;
@@ -283,7 +282,7 @@ public final class RtsCraftQuantityDialog {
         close();
     }
 
-    private ClientRtsController.CraftRecipeOption getSelectedOption() {
+    private CraftRecipeOption getSelectedOption() {
         if (this.selectedRecipeIndex < 0 || this.selectedRecipeIndex >= this.recipeOptions.size()) {
             return this.recipeOptions.isEmpty() ? null : this.recipeOptions.get(0);
         }

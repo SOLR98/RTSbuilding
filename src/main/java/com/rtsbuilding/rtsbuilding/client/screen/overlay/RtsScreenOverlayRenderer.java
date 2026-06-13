@@ -1,12 +1,12 @@
-package com.rtsbuilding.rtsbuilding.client.screen;
-
+package com.rtsbuilding.rtsbuilding.client.screen.overlay;
 
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
-import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
-import com.rtsbuilding.rtsbuilding.client.screen.ScreenCursorPicker;
+import com.rtsbuilding.rtsbuilding.client.screen.handler.ScreenCursorPicker;
 import com.rtsbuilding.rtsbuilding.client.screen.layout.BottomPanelLayoutTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.BottomPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
+import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
+import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsQuestDetectStatusPayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -16,12 +16,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.phys.BlockHitResult;
 import org.lwjgl.glfw.GLFW;
 
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.DAMAGE_FLASH_DURATION_MS;
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.QUEST_DETECT_POPUP_H;
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.QUEST_DETECT_POPUP_W;
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.STORAGE_SCAN_POPUP_H;
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.STORAGE_SCAN_POPUP_W;
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.TOP_H;
+import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.*;
 
 /**
  * Renders lightweight overlays owned by the RTS builder screen.

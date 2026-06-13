@@ -2,14 +2,14 @@ package com.rtsbuilding.rtsbuilding.client.screen.input;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanel;
-import com.rtsbuilding.rtsbuilding.client.screen.BuilderScreen;
-import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionTypes;
 import com.rtsbuilding.rtsbuilding.client.bootstrap.ClientKeyMappings;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
+import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionTypes;
+import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
+import com.rtsbuilding.rtsbuilding.client.service.MiningOperationService;
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
@@ -23,7 +23,7 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
 
-import static com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants.MIDDLE_CLICK_DRAG_THRESHOLD;
+import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.MIDDLE_CLICK_DRAG_THRESHOLD;
 
 /**
  * 处理 RTS 镜头和输入交互的状态管理。
@@ -338,7 +338,7 @@ public final class CameraInputHandler {
             return false;
         }
         if (screen.isQuickBuildRangeDestroyMode()
-                && this.controller.getAreaMinePhase() == ClientRtsController.AREA_MINE_PHASE_NEED_HEIGHT) {
+                && this.controller.getAreaMinePhase() == MiningOperationService.AREA_MINE_PHASE_NEED_HEIGHT) {
             // 第三次点击：确认范围挖掘，直接发包执行，不需要再求 BlockHit
             this.controller.confirmAreaMine(screen.getSelectedToolSlot(), screen.getShapeFillMode());
         } else {
@@ -357,10 +357,10 @@ public final class CameraInputHandler {
                 // 第 2 击 → setPointB (进入 NEED_HEIGHT)
                 // 第 3 击 → 上面 confirmAreaMine (由 phase==NEED_HEIGHT 分支处理)
                 int phase = this.controller.getAreaMinePhase();
-                if (phase == ClientRtsController.AREA_MINE_PHASE_NONE) {
+                if (phase == MiningOperationService.AREA_MINE_PHASE_NONE) {
                     // First click: set point A
                     this.controller.setAreaMinePointA(hit.getBlockPos().immutable());
-                } else if (phase == ClientRtsController.AREA_MINE_PHASE_NEED_SECOND) {
+                } else if (phase == MiningOperationService.AREA_MINE_PHASE_NEED_SECOND) {
                     // Second click: set point B (defines base rectangle), enter height adjustment phase
                     this.controller.setAreaMinePointB(hit.getBlockPos().immutable());
                 }

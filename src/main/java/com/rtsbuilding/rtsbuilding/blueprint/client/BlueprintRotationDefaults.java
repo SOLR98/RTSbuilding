@@ -1,5 +1,7 @@
 package com.rtsbuilding.rtsbuilding.blueprint.client;
 
+import com.rtsbuilding.rtsbuilding.blueprint.BlueprintTransform;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -8,8 +10,6 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
-
-import com.rtsbuilding.rtsbuilding.blueprint.BlueprintTransform;
 
 /**
  * Stores the per-file default rotation players save from the blueprint preview.

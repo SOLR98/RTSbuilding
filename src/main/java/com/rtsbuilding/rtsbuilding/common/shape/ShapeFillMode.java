@@ -1,4 +1,4 @@
-package com.rtsbuilding.rtsbuilding.client.screen.quickbuild;
+package com.rtsbuilding.rtsbuilding.common.shape;
 
 /**
  * 形状填充模式枚举。

@@ -1,12 +1,12 @@
 package com.rtsbuilding.rtsbuilding.blueprint.client;
 
+import net.neoforged.fml.loading.FMLPaths;
+
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
-
-import net.neoforged.fml.loading.FMLPaths;
 
 /**
  * File-system helper layer for the client blueprint panel.

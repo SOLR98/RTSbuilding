@@ -1,10 +1,9 @@
 package com.rtsbuilding.rtsbuilding.client.state;
 
 
-import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
-import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
 import net.neoforged.fml.loading.FMLPaths;
 
 import java.io.IOException;

@@ -1,13 +1,8 @@
 package com.rtsbuilding.rtsbuilding.blueprint.client;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-
 import com.rtsbuilding.rtsbuilding.blueprint.RtsBlueprint;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
-
+import com.rtsbuilding.rtsbuilding.client.record.FluidEntry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
@@ -19,6 +14,11 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.level.material.Fluids;
 import net.neoforged.neoforge.fluids.FluidType;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import static com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanelUi.text;
 
@@ -328,7 +328,7 @@ final class BlueprintMaterialInspector {
             return 0L;
         }
         long amount = 0L;
-        for (ClientRtsController.FluidEntry entry : controller.getFluidEntries()) {
+        for (FluidEntry entry : controller.getFluidEntries()) {
             if (id.toString().equals(entry.fluidId())) {
                 amount = saturatedAdd(amount, entry.amount());
             }
