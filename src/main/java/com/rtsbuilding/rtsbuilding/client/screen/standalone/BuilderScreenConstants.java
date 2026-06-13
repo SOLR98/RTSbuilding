@@ -1,5 +1,6 @@
 package com.rtsbuilding.rtsbuilding.client.screen.standalone;
 
+import com.rtsbuilding.rtsbuilding.common.RtsHistoryConstants;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 
@@ -129,7 +130,7 @@ public final class BuilderScreenConstants {
     /** Shape rotation step degrees */
     public static final int SHAPE_ROTATE_STEP_DEGREES = 15;
     /** Shape history limit */
-    public static final int SHAPE_HISTORY_LIMIT = 1000;
+    public static final int SHAPE_HISTORY_LIMIT = RtsHistoryConstants.SHAPE_HISTORY_LIMIT;
 
     // ======================== Shape context panel ========================
     /** Shape context panel width */
