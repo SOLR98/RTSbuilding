@@ -7,6 +7,7 @@ import com.rtsbuilding.rtsbuilding.client.rendering.animation.PlacementAnimation
 import com.rtsbuilding.rtsbuilding.client.rendering.builder.ShapeGhostRenderer;
 import com.rtsbuilding.rtsbuilding.client.screen.handler.PlacementHistoryManager;
 import com.rtsbuilding.rtsbuilding.network.builder.*;
+import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraAnchorPayload;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraStatePayload;
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftablesPayload;
@@ -24,6 +25,10 @@ public final class RtsClientNetworkHandlers {
 
     public static void handleCameraState(S2CRtsCameraStatePayload payload, IPayloadContext context) {
         context.enqueueWork(() -> ClientRtsController.get().applyServerCameraState(payload));
+    }
+
+    public static void handleCameraAnchor(S2CRtsCameraAnchorPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> ClientRtsController.get().applyServerCameraAnchor(payload));
     }
 
     public static void handleStoragePage(S2CRtsStoragePagePayload payload, IPayloadContext context) {

@@ -478,6 +478,14 @@ public final class CameraOrbitService {
      * @param maxRadius current RTS max radius
      */
     public void tick(Minecraft minecraft, double anchorX, double anchorY, double anchorZ, double maxRadius) {
+        // Keep the service's internal anchor fields in sync with the latest
+        // values from the controller so that applyLocalPrediction and
+        // visual-frame syncing use the correct, up-to-date bounds.
+        this.anchorX = anchorX;
+        this.anchorY = anchorY;
+        this.anchorZ = anchorZ;
+        this.maxRadius = maxRadius;
+
         CameraInput cameraInput = readCameraInput(minecraft);
         float forward = cameraInput.forward;
         float strafe = cameraInput.strafe;

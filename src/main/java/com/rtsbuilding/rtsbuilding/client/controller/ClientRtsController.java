@@ -20,6 +20,7 @@ import com.rtsbuilding.rtsbuilding.common.shape.ShapeFillMode;
 import com.rtsbuilding.rtsbuilding.compat.remote.RtsRemoteMenuCompat;
 import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsMineProgressPayload;
 import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsUltimineProgressPayload;
+import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraAnchorPayload;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraStatePayload;
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftablesPayload;
@@ -762,6 +763,22 @@ public final class ClientRtsController {
         }
 
         this.cameraOrbitService.restorePreviousView(minecraft, minecraft.player);
+    }
+
+    /**
+     * Updates the local anchor position and camera bounds from a server
+     * anchor update payload, keeping client visuals in sync when the
+     * server moves the anchor to follow the player entity.
+     */
+    public void applyServerCameraAnchor(S2CRtsCameraAnchorPayload payload) {
+        if (!this.enabled) {
+            return;
+        }
+        this.anchorX = payload.anchorX();
+        this.anchorY = payload.anchorY();
+        this.anchorZ = payload.anchorZ();
+        this.maxRadius = payload.maxRadius();
+        this.cameraOrbitService.setBounds(payload.anchorX(), payload.anchorY(), payload.anchorZ(), payload.maxRadius());
     }
 
     public void preTick() {

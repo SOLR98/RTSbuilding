@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.camera;
 
 import com.rtsbuilding.rtsbuilding.entity.RtsCameraEntity;
+import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraAnchorPayload;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraStatePayload;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
@@ -228,6 +229,10 @@ public final class RtsCameraManager {
             return;
         }
 
+        // Update anchor to follow the player entity's current position
+        Vec3 playerPos = player.position();
+        Vec3 newAnchor = new Vec3(Math.floor(playerPos.x) + 0.5D, playerPos.y, Math.floor(playerPos.z) + 0.5D);
+
         RtsCameraEntity camera = getOrRestoreCamera(player, session);
 
         float safeRotateX = Mth.clamp(rotateX, -ROT_INPUT_CLAMP, ROT_INPUT_CLAMP);
@@ -283,18 +288,24 @@ public final class RtsCameraManager {
             targetZ += lookZ * dolly;
         }
 
+        // Clamp camera movement relative to the updated player-following anchor
         double halfExtent = actionHalfExtent(player, session);
-        targetX = Mth.clamp(targetX, session.anchor().x - halfExtent, session.anchor().x + halfExtent);
-        targetZ = Mth.clamp(targetZ, session.anchor().z - halfExtent, session.anchor().z + halfExtent);
+        targetX = Mth.clamp(targetX, newAnchor.x - halfExtent, newAnchor.x + halfExtent);
+        targetZ = Mth.clamp(targetZ, newAnchor.z - halfExtent, newAnchor.z + halfExtent);
 
-        targetY = Mth.clamp(targetY, session.anchor().y + MIN_HEIGHT, session.anchor().y + MAX_HEIGHT);
+        targetY = Mth.clamp(targetY, newAnchor.y + MIN_HEIGHT, newAnchor.y + MAX_HEIGHT);
 
         // Keep movement bounds square so they match the visible build boundary.
 
         camera.snapTo(targetX, targetY, targetZ, yaw, pitch);
 
-        SESSIONS.put(player.getUUID(), new Session(camera.getUUID(), session.anchor(), new Vec3(targetX, targetY, targetZ),
-                yaw, pitch, targetY - session.anchor().y, session.homeSelection(), session.maxRadius(), session.closeRangeAllowed()));
+        double heightOffset = targetY - newAnchor.y;
+        SESSIONS.put(player.getUUID(), new Session(camera.getUUID(), newAnchor, new Vec3(targetX, targetY, targetZ),
+                yaw, pitch, heightOffset, session.homeSelection(), session.maxRadius(), session.closeRangeAllowed()));
+
+        // Notify the client about the updated anchor position so visual bounds stay in sync
+        PacketDistributor.sendToPlayer(player, new S2CRtsCameraAnchorPayload(
+                newAnchor.x, newAnchor.y, newAnchor.z, maxRadius(player, session)));
     }
 
     private static RtsCameraEntity getOrRestoreCamera(ServerPlayer player, Session session) {

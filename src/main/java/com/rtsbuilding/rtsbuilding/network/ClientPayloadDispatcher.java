@@ -2,6 +2,7 @@ package com.rtsbuilding.rtsbuilding.network;
 
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers;
 import com.rtsbuilding.rtsbuilding.network.builder.*;
+import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraAnchorPayload;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraStatePayload;
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftablesPayload;
@@ -39,6 +40,8 @@ public final class ClientPayloadDispatcher {
         switch (payload) {
             case S2CRtsCameraStatePayload p ->
                     RtsClientNetworkHandlers.handleCameraState(p, ctx);
+            case S2CRtsCameraAnchorPayload p ->
+                    RtsClientNetworkHandlers.handleCameraAnchor(p, ctx);
             default -> {}
         }
     }
