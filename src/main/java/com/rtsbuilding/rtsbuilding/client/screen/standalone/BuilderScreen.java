@@ -1302,7 +1302,9 @@ public final class BuilderScreen extends Screen {
             return;
         }
         this.topBarPanel.render(guiGraphics, mouseX, mouseY);
-        this.playerStatusRenderer.render(guiGraphics);
+        if (this.controller.isPlayerStatusOverlayEnabled()) {
+            this.playerStatusRenderer.render(guiGraphics);
+        }
         this.storageLinkDetailHandler.updateVisibility(mouseX, mouseY);
         this.bottomPanel.render(guiGraphics, mouseX, mouseY, partialTick);
         this.funnelBufferPanel.render(guiGraphics, mouseX, mouseY);

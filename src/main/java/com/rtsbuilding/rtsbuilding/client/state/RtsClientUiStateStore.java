@@ -177,6 +177,7 @@ public final class RtsClientUiStateStore {
         public boolean startCameraAtPlayerHead = false;
         public boolean allowPlacedBlockRecovery = false;
         public boolean toolProtectionEnabled = true;
+        public boolean playerStatusOverlayEnabled = true;
         public boolean invertPanDragX = false;
         public boolean invertPanDragY = false;
         public boolean smoothCamera = true;
@@ -238,6 +239,7 @@ public final class RtsClientUiStateStore {
             clean.startCameraAtPlayerHead = this.startCameraAtPlayerHead;
             clean.allowPlacedBlockRecovery = this.allowPlacedBlockRecovery;
             clean.toolProtectionEnabled = this.toolProtectionEnabled;
+            clean.playerStatusOverlayEnabled = this.playerStatusOverlayEnabled;
             clean.invertPanDragX = this.invertPanDragX;
             clean.invertPanDragY = this.invertPanDragY;
             clean.smoothCamera = this.smoothCamera;

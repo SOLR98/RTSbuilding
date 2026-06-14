@@ -94,6 +94,8 @@
   "screen.rtsbuilding.settings.tool_protection.hint": "Stop batch mining when a damageable tool has about 5% durability left.",
   "screen.rtsbuilding.settings.debug_button": "Top debug button",
   "screen.rtsbuilding.settings.debug_button.hint": "Shows a top button that copies RTS state.",
+  "screen.rtsbuilding.settings.player_status_overlay": "Player status bars",
+  "screen.rtsbuilding.settings.player_status_overlay.hint": "Show HP, food, armor, and absorption bars in RTS mode.",
   "screen.rtsbuilding.settings.container_overlay": "Container overlay",
   "screen.rtsbuilding.settings.container_overlay.hint": "Show RTS overlay on chests, worktables, and machines.",
   "screen.rtsbuilding.settings.shift_import": "Shift import to storage",

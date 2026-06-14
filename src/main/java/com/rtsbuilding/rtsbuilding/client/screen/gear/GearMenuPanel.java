@@ -192,6 +192,11 @@ public final class GearMenuPanel extends RtsWindowPanel {
                     this.debugButtonVisible());
             rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.debug_button.hint");
             drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.player_status_overlay",
+                    "screen.rtsbuilding.settings.player_status_overlay.hint",
+                    this.controller.isPlayerStatusOverlayEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.player_status_overlay.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
                     "screen.rtsbuilding.settings.container_overlay",
                     "screen.rtsbuilding.settings.container_overlay.hint",
                     RtsClientUiStateStore.isContainerOverlayEnabled());
@@ -448,6 +453,17 @@ public final class GearMenuPanel extends RtsWindowPanel {
                 return;
             }
             rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.debug_button.hint");
+            if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.player_status_overlay.hint")) {
+                return;
+            }
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                    hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.player_status_overlay.hint"))) {
+                this.controller.togglePlayerStatusOverlayEnabled();
+                screen.persistUiState();
+                return;
+            }
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.player_status_overlay.hint");
             if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
                     "screen.rtsbuilding.settings.container_overlay.hint")) {
                 return;
@@ -711,6 +727,7 @@ public final class GearMenuPanel extends RtsWindowPanel {
         height += sectionHeight(this.displayExpanded,
                 SCALE_ROW_H
                         + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.debug_button.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.player_status_overlay.hint")
                         + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.container_overlay.hint")
                         + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.shift_import.hint"));
         height += SECTION_GAP;

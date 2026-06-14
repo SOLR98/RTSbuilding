@@ -94,6 +94,8 @@
   "screen.rtsbuilding.settings.tool_protection.hint": "批量挖掘会在工具耐久约 5% 时停止，避免挖坏工具。",
   "screen.rtsbuilding.settings.debug_button": "顶部 debug 按钮",
   "screen.rtsbuilding.settings.debug_button.hint": "显示一个可复制 RTS 状态的顶部按钮。",
+  "screen.rtsbuilding.settings.player_status_overlay": "玩家状态条",
+  "screen.rtsbuilding.settings.player_status_overlay.hint": "在 RTS 模式显示生命、饥饿、护甲和吸收状态。",
   "screen.rtsbuilding.settings.container_overlay": "容器 RTS overlay",
   "screen.rtsbuilding.settings.container_overlay.hint": "在箱子、工作台和机器界面显示 RTS overlay。",
   "screen.rtsbuilding.settings.shift_import": "Shift 存入储存",

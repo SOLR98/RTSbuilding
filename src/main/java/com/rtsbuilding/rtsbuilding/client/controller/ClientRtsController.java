@@ -71,6 +71,7 @@ public final class ClientRtsController {
     private boolean startCameraAtPlayerHead;
     private boolean allowPlacedBlockRecovery;
     private boolean toolProtectionEnabled = true;
+    private boolean playerStatusOverlayEnabled = true;
     private boolean damageSoundEnabled = true;
     private boolean damageAutoReturnEnabled = true;
 
@@ -103,6 +104,7 @@ public final class ClientRtsController {
         this.startCameraAtPlayerHead = uiState.startCameraAtPlayerHead;
         this.allowPlacedBlockRecovery = uiState.allowPlacedBlockRecovery;
         this.toolProtectionEnabled = uiState.toolProtectionEnabled;
+        this.playerStatusOverlayEnabled = uiState.playerStatusOverlayEnabled;
         this.cameraOrbitService.setInvertPanDragX(uiState.invertPanDragX);
         this.cameraOrbitService.setInvertPanDragY(uiState.invertPanDragY);
         this.cameraOrbitService.setSmoothCamera(uiState.smoothCamera);
@@ -614,6 +616,18 @@ public final class ClientRtsController {
 
     public void toggleToolProtectionEnabled() {
         this.toolProtectionEnabled = !this.toolProtectionEnabled;
+    }
+
+    public boolean isPlayerStatusOverlayEnabled() {
+        return this.playerStatusOverlayEnabled;
+    }
+
+    public void setPlayerStatusOverlayEnabled(boolean playerStatusOverlayEnabled) {
+        this.playerStatusOverlayEnabled = playerStatusOverlayEnabled;
+    }
+
+    public void togglePlayerStatusOverlayEnabled() {
+        this.playerStatusOverlayEnabled = !this.playerStatusOverlayEnabled;
     }
 
     public boolean isInvertPanDragX() {

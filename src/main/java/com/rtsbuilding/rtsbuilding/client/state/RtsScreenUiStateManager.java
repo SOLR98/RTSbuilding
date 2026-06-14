@@ -166,6 +166,7 @@ public final class RtsScreenUiStateManager {
         state.startCameraAtPlayerHead = this.controller.isStartCameraAtPlayerHead();
         state.allowPlacedBlockRecovery = this.controller.isAllowPlacedBlockRecovery();
         state.toolProtectionEnabled = this.controller.isToolProtectionEnabled();
+        state.playerStatusOverlayEnabled = this.controller.isPlayerStatusOverlayEnabled();
         state.invertPanDragX = this.controller.isInvertPanDragX();
         state.invertPanDragY = this.controller.isInvertPanDragY();
         state.smoothCamera = this.controller.isSmoothCamera();
@@ -199,6 +200,7 @@ public final class RtsScreenUiStateManager {
         this.controller.setStartCameraAtPlayerHead(state.startCameraAtPlayerHead);
         this.controller.setAllowPlacedBlockRecovery(state.allowPlacedBlockRecovery);
         this.controller.setToolProtectionEnabled(state.toolProtectionEnabled);
+        this.controller.setPlayerStatusOverlayEnabled(state.playerStatusOverlayEnabled);
         this.controller.setSmoothCamera(state.smoothCamera);
         this.controller.setDamageSoundEnabled(state.damageSoundEnabled);
         this.controller.setDamageAutoReturnEnabled(state.damageAutoReturnEnabled);
