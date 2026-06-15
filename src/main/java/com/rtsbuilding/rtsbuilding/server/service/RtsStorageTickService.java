@@ -107,8 +107,8 @@ public final class RtsStorageTickService {
 
             if (existingCacheMap.containsKey(handler)) {
                 cache = existingCacheMap.get(handler);
-            } else if (refKey != null) {
-                // 共享缓存: 多个玩家链接同一容器时复用
+            } else if (refKey != null && !isNetworkHandler(handler)) {
+                // 共享缓存: 多个玩家链接同一普通容器时复用
                 cache = sharedCaches.acquire(refKey, handler);
                 sharedCaches.addRef(refKey);
                 if (!cache.hasData()) {
@@ -116,7 +116,7 @@ public final class RtsStorageTickService {
                 }
                 storage.mount(handlers.size() - i, handler, cache);
             } else {
-                // 无 refKey 的处理器 (如 BD 网络) — 仍创建私有缓存
+                // 私有缓存: AE2/BD 网络处理器或无 refKey 的处理器
                 cache = new RtsHandlerCache();
                 cache.update(handler);
                 storage.mount(handlers.size() - i, handler, cache);
@@ -214,6 +214,12 @@ public final class RtsStorageTickService {
         sharedCaches.tickAll(sharedTrackers,
                 RtsServiceConstants.IDLE_THRESHOLD,
                 RtsServiceConstants.MAX_TICK_RATE);
+    }
+
+    /** AE2 和 BD 网络处理器不共享缓存 — 每玩家独立实例。 */
+    private static boolean isNetworkHandler(IItemHandler handler) {
+        return handler instanceof com.rtsbuilding.rtsbuilding.compat.AnySlotInsertItemHandler
+                || handler instanceof com.rtsbuilding.rtsbuilding.compat.bd.RtsBdCompat.DirectExtractHandler;
     }
 
     // ---- alert (like AE2's alertDevice) ----------------------------------------

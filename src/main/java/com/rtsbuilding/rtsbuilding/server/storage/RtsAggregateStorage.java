@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.storage;
 
 import com.rtsbuilding.rtsbuilding.compat.AnySlotInsertItemHandler;
+import com.rtsbuilding.rtsbuilding.compat.SlotlessItemHandler;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.items.IItemHandler;
@@ -375,10 +376,14 @@ public final class RtsAggregateStorage {
         }
 
         // Optimization for AnySlotInsertItemHandler (e.g. AE2 network):
-        // skip the slot iteration since insert is slot-independent, avoiding
-        // O(slots) wasted calls on large storage networks (10000+ slots).
         if (handler instanceof AnySlotInsertItemHandler anySlot) {
             return anySlot.insertItemAnywhere(stack, simulate);
+        }
+
+        // Slotless handler fast path (e.g. Sophisticated containers):
+        // single call replaces per-slot scan
+        if (handler instanceof SlotlessItemHandler slotless) {
+            return slotless.insertItemSlotless(stack, simulate);
         }
 
         ItemStack remain = stack.copy();
@@ -397,6 +402,15 @@ public final class RtsAggregateStorage {
         // Bulk-extraction fast path for AnySlotInsertItemHandler (AE2, BD, etc.):
         if ((preferred == null || preferred.isEmpty()) && handler instanceof AnySlotInsertItemHandler anySlot) {
             return anySlot.extractItemAnywhere(targetItem, limit, false);
+        }
+
+        // Slotless handler fast path (e.g. Sophisticated containers):
+        // single call replaces per-slot scan
+        if ((preferred == null || preferred.isEmpty())
+                && handler instanceof SlotlessItemHandler slotless) {
+            ItemStack toExtract = new ItemStack(targetItem, limit);
+            ItemStack result = slotless.extractItemSlotless(toExtract, false);
+            if (!result.isEmpty()) return result;
         }
 
         int remaining = limit;
