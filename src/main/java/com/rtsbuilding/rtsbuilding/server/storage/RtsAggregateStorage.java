@@ -41,6 +41,9 @@ public final class RtsAggregateStorage {
     /** Recursion guard for insert/extract. */
     private volatile boolean inUse;
 
+    /** itemId → 最优插入目标缓存。每次 tickUpdate 后重建。 */
+    private final Map<String, CachedHandlerSlot> insertionCache = new HashMap<>();
+
     /**
      * Pending mount/unmount operations queued during inUse=true.
      * Applied at the end of the current insert/extract cycle so
@@ -106,6 +109,44 @@ public final class RtsAggregateStorage {
         if (stack == null || stack.isEmpty() || this.flatOrdered.isEmpty()) {
             return stack == null ? ItemStack.EMPTY : stack;
         }
+        if (inUse) return stack;
+
+        inUse = true;
+        try {
+            ItemStack remain = stack.copy();
+
+            // ── 缓存路径: O(1) 查找最优插入目标 ──
+            String itemId = stack.getItem().toString();
+            CachedHandlerSlot cached = this.insertionCache.get(itemId);
+            if (cached != null) {
+                remain = insertToHandler(cached.handler, remain, simulate);
+                if (remain.isEmpty()) return remain;
+            }
+
+            // ── Fallback: 全扫描 ──
+            List<CachedHandlerSlot> remaining = new ArrayList<>();
+            for (CachedHandlerSlot cs : this.flatOrdered) {
+                if (remain.isEmpty()) break;
+                if (cs == cached) continue;  // 已尝试
+                if (cs.cache.getCount(stack.getItem()) > 0) {
+                    remain = insertToHandler(cs.handler, remain, simulate);
+                    trackChange(stack.getItem(), remain, stack, simulate);
+                } else {
+                    remaining.add(cs);
+                }
+            }
+            for (CachedHandlerSlot cs : remaining) {
+                if (remain.isEmpty()) break;
+                remain = insertToHandler(cs.handler, remain, simulate);
+                trackChange(stack.getItem(), remain, stack, simulate);
+            }
+
+            return remain;
+        } finally {
+            inUse = false;
+            applyPendingMutations();
+        }
+    }
         if (inUse) return stack; // Prevent recursive use
 
         inUse = true;
@@ -134,11 +175,22 @@ public final class RtsAggregateStorage {
             return remain;
         } finally {
             inUse = false;
-            applyPendingMutations();
-        }
+        applyPendingMutations();
+        rebuildInsertionCache();
+        return changes;
     }
 
-    // ---- extract ---------------------------------------------------------------
+    /** 从各容器的 hasItemType 和 emptySlotCount 重建插入目标缓存。 */
+    private void rebuildInsertionCache() {
+        this.insertionCache.clear();
+        for (CachedHandlerSlot cs : this.flatOrdered) {
+            int emptySlots = cs.cache.getEmptySlotCount();
+            if (emptySlots <= 0) continue;
+            for (String itemId : cs.cache.getHasItemTypes()) {
+                this.insertionCache.putIfAbsent(itemId, cs);
+            }
+        }
+    }
 
     /**
      * Extracts items matching the given predicate from the aggregate storage.
@@ -173,7 +225,7 @@ public final class RtsAggregateStorage {
                 // Skip handlers whose cache reports zero for this item —
                 // avoids O(slots) scan on 10000+ AE2 networks.
                 if (cs.cache.getCount(targetItem) <= 0L) continue;
-                ItemStack part = extractOneHandler(cs.handler, targetItem, preferred, remaining);
+                ItemStack part = extractOneHandler(cs, targetItem, preferred, remaining);
                 if (part.isEmpty()) continue;
 
                 if (out.isEmpty()) {
@@ -336,20 +388,45 @@ public final class RtsAggregateStorage {
         return remain;
     }
 
-    private static ItemStack extractOneHandler(IItemHandler handler, Item targetItem, ItemStack preferred, int limit) {
+    private static ItemStack extractOneHandler(CachedHandlerSlot cs, Item targetItem, ItemStack preferred, int limit) {
+        IItemHandler handler = cs.handler;
         if (handler == null || targetItem == null || limit <= 0) {
             return ItemStack.EMPTY;
         }
 
         // Bulk-extraction fast path for AnySlotInsertItemHandler (AE2, BD, etc.):
-        // skip the per-slot scan and let the handler do a bulk extract.
-        // Only safe when preferred is empty (no NBT variant required).
         if ((preferred == null || preferred.isEmpty()) && handler instanceof AnySlotInsertItemHandler anySlot) {
             return anySlot.extractItemAnywhere(targetItem, limit, false);
         }
 
         int remaining = limit;
         ItemStack out = ItemStack.EMPTY;
+
+        // ── 索引路径: 直接从缓存索引跳转到目标槽位 ──
+        String targetId = targetItem.toString();
+        List<Integer> indexSlots = cs.cache.getSlotsFor(targetId);
+        if (!indexSlots.isEmpty()) {
+            for (int slot : indexSlots) {
+                if (remaining <= 0) break;
+                ItemStack extracted = handler.extractItem(slot, remaining, false);
+                if (extracted.isEmpty()) continue;
+                if (preferred != null && !preferred.isEmpty()
+                        && !ItemStack.isSameItemSameComponents(extracted, preferred)) {
+                    // Wrong variant — put it back
+                    handler.insertItem(slot, extracted, false);
+                    continue;
+                }
+                if (out.isEmpty()) {
+                    out = extracted;
+                } else if (ItemStack.isSameItemSameComponents(out, extracted)) {
+                    out.grow(extracted.getCount());
+                }
+                remaining -= extracted.getCount();
+            }
+            if (remaining <= 0 || !out.isEmpty()) return out;
+        }
+
+        // ── Fallback: full slot scan ──
         for (int slot = 0; slot < handler.getSlots() && remaining > 0; slot++) {
             ItemStack slotStack = handler.getStackInSlot(slot);
             if (slotStack.isEmpty() || slotStack.getItem() != targetItem) {

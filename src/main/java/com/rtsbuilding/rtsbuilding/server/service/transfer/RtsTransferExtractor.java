@@ -20,21 +20,9 @@ public final class RtsTransferExtractor {
 
     // ---- single-item extraction --------------------------------------------------
 
+    /** 委托给 {@link #extractMatching} 使用批量提取路径。 */
     public static ItemStack extractOne(IItemHandler handler, Item targetItem) {
-        if (handler instanceof RtsBdCompat.DirectExtractHandler de) {
-            return de.tryExtractItem(targetItem, 1, false);
-        }
-        for (int slot = 0; slot < handler.getSlots(); slot++) {
-            ItemStack stack = handler.getStackInSlot(slot);
-            if (stack.isEmpty() || stack.getItem() != targetItem) {
-                continue;
-            }
-            ItemStack extracted = handler.extractItem(slot, 1, false);
-            if (!extracted.isEmpty()) {
-                return extracted;
-            }
-        }
-        return ItemStack.EMPTY;
+        return extractMatching(handler, targetItem, 1);
     }
 
     public static ItemStack extractMatching(IItemHandler handler, Item targetItem, int limit) {
