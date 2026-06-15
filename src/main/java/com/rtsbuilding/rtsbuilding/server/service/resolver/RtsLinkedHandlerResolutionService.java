@@ -120,16 +120,7 @@ public final class RtsLinkedHandlerResolutionService {
             RtsStorageTickService.INSTANCE.unregisterPlayer(player);
             return;
         }
-        List<IItemHandler> rawHandlers = new ArrayList<>(handlers.size());
-        for (LinkedHandler lh : handlers) {
-            IItemHandler h = lh.handler();
-            if (h instanceof LinkedItemHandlerView view) {
-                rawHandlers.add(view.getRawHandler());
-            } else {
-                rawHandlers.add(h);
-            }
-        }
-        RtsStorageTickService.INSTANCE.registerPlayer(player, rawHandlers);
+        RtsStorageTickService.INSTANCE.registerPlayerWithRefs(player, handlers);
     }
 
     // ======================================================================

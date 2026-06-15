@@ -266,6 +266,11 @@ public final class RtsHandlerCache {
         return this.front.length;
     }
 
+    /** 缓存是否已有数据（非首次使用）。 */
+    public boolean hasData() {
+        return !this.countsByItem.isEmpty() || this.front.length > 0;
+    }
+
     /** 返回持有该物品的所有槽位号列表。无则返回空列表。 */
     public List<Integer> getSlotsFor(String itemId) {
         List<Integer> slots = this.itemToSlots.get(itemId);
@@ -277,9 +282,9 @@ public final class RtsHandlerCache {
         return this.hasItemType.contains(itemId);
     }
 
-    /** 该容器内所有物品类型集合（只读）。 */
+    /** 该容器内所有物品类型集合（只读快照）。 */
     public Set<String> getHasItemTypes() {
-        return this.hasItemType;
+        return this.hasItemType.isEmpty() ? Set.of() : new HashSet<>(this.hasItemType);
     }
 
     /** 该容器当前空槽位数。 */
