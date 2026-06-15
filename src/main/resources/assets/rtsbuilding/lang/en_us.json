@@ -668,5 +668,7 @@
   "screen.rtsbuilding.tooltip.shape_wall": "Wall",
   "screen.rtsbuilding.tooltip.shape_circle": "Circle",
   "screen.rtsbuilding.tooltip.shape_box": "Cube",
-  "screen.rtsbuilding.tooltip.shape_chain": "Chain"
+  "screen.rtsbuilding.tooltip.shape_chain": "Chain",
+  "screen.rtsbuilding.player_inventory": "Inventory",
+  "screen.rtsbuilding.vanilla_inventory": "Inventory"
 }

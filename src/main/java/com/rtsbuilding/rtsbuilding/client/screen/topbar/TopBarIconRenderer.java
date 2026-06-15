@@ -53,6 +53,8 @@ public final class TopBarIconRenderer {
             case CHUNK_VIEW -> drawChunkCurtainIcon(g, cx, cy, color, active);
             case DEBUG -> drawDebugIcon(g, cx, cy, color, font);
             case GEAR -> drawGearIcon(g, cx, cy, color);
+            case INVENTORY -> drawInventoryIcon(g, cx, cy, color, active);
+            case INVENTORY_VANILLA -> drawVanillaInventoryIcon(g, cx, cy, color, active);
             default -> {
                 // No icon defined for this button type (e.g. GUIDE is rendered as plain text elsewhere)
             }
@@ -268,6 +270,37 @@ public final class TopBarIconRenderer {
         g.fill(cx - 5, cy - 5, cx + 5, cy + 5, color);
         g.fill(cx - 2, cy - 2, cx + 2, cy + 2, 0xFF1B222C);
         g.drawCenteredString(font, "D", cx, cy - 4, 0xFF1B222C);
+    }
+
+    /**
+     * Draws an inventory/backpack icon: a rectangular container shape with a
+     * top flap (lighter upper segment) and a bottom body (darker).
+     */
+    private static void drawInventoryIcon(GuiGraphics g, int cx, int cy, int color, boolean active) {
+        int bg = active ? 0x3326C56D : 0xFF1B222C;
+        // body
+        g.fill(cx - 5, cy - 2, cx + 5, cy + 6, color);
+        g.fill(cx - 4, cy - 1, cx + 4, cy + 5, bg);
+        // flap
+        g.fill(cx - 5, cy - 3, cx + 5, cy - 2, color);
+        g.fill(cx - 4, cy - 3, cx + 4, cy - 2, bg);
+        // clasp
+        g.fill(cx - 1, cy - 1, cx + 1, cy + 1, color);
+    }
+
+    /**
+     * Draws a vanilla-inventory icon: a chest shape with a distinguishable
+     * latch, visually distinct from the compact backpack icon.
+     */
+    private static void drawVanillaInventoryIcon(GuiGraphics g, int cx, int cy, int color, boolean active) {
+        int bg = active ? 0x3326C56D : 0xFF1B222C;
+        // outer chest body
+        g.fill(cx - 5, cy - 3, cx + 5, cy + 5, color);
+        g.fill(cx - 4, cy - 2, cx + 4, cy + 4, bg);
+        // lid
+        g.fill(cx - 4, cy - 4, cx + 4, cy - 3, color);
+        // latch
+        g.fill(cx - 2, cy - 2, cx + 2, cy, color);
     }
 
     // ======================== Internal Helper ========================

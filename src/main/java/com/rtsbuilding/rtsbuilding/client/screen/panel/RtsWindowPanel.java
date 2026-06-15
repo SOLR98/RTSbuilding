@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.client.screen.panel;
 
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
+import com.rtsbuilding.rtsbuilding.client.render.layer.RenderLayer;
 import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
 import com.rtsbuilding.rtsbuilding.client.widget.WindowButton;
@@ -46,6 +47,12 @@ public abstract class RtsWindowPanel implements RtsPanel {
     protected boolean draggable = true;
     protected boolean resizable = false;
     protected boolean closable = true;
+
+    /** 该窗口的渲染层，管理裁剪区域和渲染状态。子类可直接调用其物品图标渲染方法。 */
+    protected RenderLayer renderLayer;
+
+    /** 窗口标题，可由子类在 init 中设置或运行时通过 {@link #setTitle} 动态修改。 */
+    protected Component title = Component.empty();
 
     private int defaultWidth;
     private int defaultHeight;
@@ -114,8 +121,21 @@ public abstract class RtsWindowPanel implements RtsPanel {
      */
     protected abstract void handleContentClick(double mouseX, double mouseY, int button);
 
-    /** Returns the localized title shown in the window title bar. */
-    protected abstract Component getTitle();
+    /**
+     * 返回窗口标题栏显示的文本。
+     * 默认返回 {@link #title} 字段，子类可覆盖此方法或通过 {@link #setTitle} 动态修改。
+     */
+    protected Component getTitle() {
+        return this.title;
+    }
+
+    /**
+     * 动态修改窗口标题。调用后标题栏会自动在下一次渲染时更新。
+     * 子类在 {@link #init} 中可以调用此方法设置初始标题，替代覆盖 {@link #getTitle}。
+     */
+    public void setTitle(Component title) {
+        this.title = title == null ? Component.empty() : title;
+    }
 
     /** Default size used the first time the window opens or when reset. */
     protected abstract int getDefaultWidth();
@@ -133,6 +153,43 @@ public abstract class RtsWindowPanel implements RtsPanel {
         this.defaultWidth = Math.max(getMinWindowWidth(), getDefaultWidth());
         this.defaultHeight = Math.max(getMinWindowHeight(), getDefaultHeight());
         this.closeButton = createCloseButton();
+        this.renderLayer = createRenderLayer();
+    }
+
+    /**
+     * 工厂方法：创建该窗口使用的渲染层。
+     * 子类可覆盖此方法返回自定义的 {@link RenderLayer} 实现。
+     * 默认返回一个带裁剪区域控制的层。
+     */
+    protected RenderLayer createRenderLayer() {
+        return new RenderLayer(0) {
+
+            @Override
+            public void begin(GuiGraphics g) {
+                if (shouldClipContent()) {
+                    int cx = contentX(), cy = contentY();
+                    int cw = contentWidth(), ch = contentHeight();
+                    if (screen != null) {
+                        screen.enableRtsScissor(g, cx, cy, cx + cw, cy + ch);
+                    } else {
+                        g.enableScissor(cx, cy, cx + cw, cy + ch);
+                    }
+                }
+            }
+
+            @Override
+            public void end(GuiGraphics g) {
+                g.flush();
+                if (shouldClipContent()) {
+                    g.disableScissor();
+                }
+            }
+
+            @Override
+            protected void renderContent(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+                RtsWindowPanel.this.renderContent(g, mouseX, mouseY, partialTick);
+            }
+        };
     }
 
     @Override
@@ -145,33 +202,20 @@ public abstract class RtsWindowPanel implements RtsPanel {
         clampWindowToScreen();
         this.mouseHovering = !this.skipHoverDetection && isInsideWindow(mouseX, mouseY);
 
-        // When the window is covered, globally suppress hover effects on all child buttons
-        // Must be set before renderWindowFrame because the close button renders there
         if (this.skipHoverDetection) {
             WindowButton.setGlobalSkipHover(true);
         }
         try {
             renderWindowFrame(g, mouseX, mouseY);
-            // Flush the window frame first (no scissor) so the border is not clipped
-            // by the content scissor that follows.
-            // Must be flushed separately from content because the window border lies
-            // outside the content clipping region.
             g.flush();
 
-            if (shouldClipContent()) {
-                enableContentScissor(g);
-            }
+            // 内容由该窗口的渲染层管理裁剪与刷新
+            this.renderLayer.begin(g);
             renderContent(g, mouseX, mouseY, partialTick);
-            // Flush content while scissor is still active, so item icons (renderItem) and
-            // text batched vertices are clipped to the content region at rasterisation time,
-            // preventing visual bleed-through to adjacent panels.
-            g.flush();
+            this.renderLayer.end(g);
         } finally {
             if (this.skipHoverDetection) {
                 WindowButton.setGlobalSkipHover(false);
-            }
-            if (shouldClipContent()) {
-                g.disableScissor();
             }
         }
     }

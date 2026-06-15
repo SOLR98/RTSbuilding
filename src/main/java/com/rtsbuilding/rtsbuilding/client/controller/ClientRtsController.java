@@ -1168,11 +1168,6 @@ public final class ClientRtsController {
     public RtsClientInventoryCache getInventoryCache() {
         return inventoryCache;
     }
-    }
-
-
-
-
 
     private void refreshSelectedItemPreviewFromStorage() {
         this.buildPlacementService.syncSelectedPreviewFromStorage(

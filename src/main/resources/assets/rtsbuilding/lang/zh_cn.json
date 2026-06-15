@@ -668,5 +668,7 @@
   "screen.rtsbuilding.tooltip.shape_wall": "墙",
   "screen.rtsbuilding.tooltip.shape_circle": "圆",
   "screen.rtsbuilding.tooltip.shape_box": "体",
-  "screen.rtsbuilding.tooltip.shape_chain": "连锁"
+  "screen.rtsbuilding.tooltip.shape_chain": "连锁",
+  "screen.rtsbuilding.player_inventory": "背包",
+  "screen.rtsbuilding.vanilla_inventory": "物品栏"
 }

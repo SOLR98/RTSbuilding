@@ -28,12 +28,17 @@ import com.rtsbuilding.rtsbuilding.client.screen.overlay.PlayerStatusRenderer;
 import com.rtsbuilding.rtsbuilding.client.screen.overlay.RtsScreenOverlayRenderer;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.BottomPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsFloatingWindowLayer;
+import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
+import com.rtsbuilding.rtsbuilding.client.render.layer.RenderLayer;
+import com.rtsbuilding.rtsbuilding.client.render.layer.RenderLayerManager;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildMode;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeDataRecords;
 import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeGeometryUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.storage.LinkedStoragePanel;
+import com.rtsbuilding.rtsbuilding.client.screen.storage.PlayerInventoryPanel;
+import com.rtsbuilding.rtsbuilding.client.screen.storage.VanillaInventoryPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarTypes;
 import com.rtsbuilding.rtsbuilding.client.service.MiningOperationService;
@@ -118,6 +123,12 @@ public final class BuilderScreen extends Screen {
     private final BlueprintNameWindowPanel blueprintNameWindowPanel = new BlueprintNameWindowPanel();
     /** Windowed blueprint material details prompt. */
     private final BlueprintMaterialWindowPanel blueprintMaterialWindowPanel = new BlueprintMaterialWindowPanel();
+    /** Floating player inventory panel showing backpack contents and hotbar selection. */
+    private final PlayerInventoryPanel playerInventoryPanel = new PlayerInventoryPanel();
+    /** Floating vanilla-style inventory panel with armour, offhand, and player preview. */
+    private final VanillaInventoryPanel vanillaInventoryPanel = new VanillaInventoryPanel();
+    /** Whether to use the vanilla Minecraft inventory screen instead of the custom RTS panel. */
+    private boolean useVanillaInventory;
     /** Top bar panel with mode buttons, shape selection, and action controls. */
     private final TopBarPanel topBarPanel = new TopBarPanel();
     /** Bottom panel containing storage grid, crafting, blueprints, and pin slots. */
@@ -164,6 +175,8 @@ public final class BuilderScreen extends Screen {
      * to bind it to the specified slot. Reset to -1 after binding or on cancel.
      */
     private int pendingGuiBindSlot = -1;
+    /** 渲染层级管理器，管理 RTS 模式下所有界面层的渲染顺序。 */
+    private final RenderLayerManager renderLayerManager = new RenderLayerManager();
     /**
      * Constructs the main RTS Builder screen.
      *
@@ -185,7 +198,9 @@ public final class BuilderScreen extends Screen {
                 this.craftQuantityWindowPanel,
                 this.gearMenuPanel,
                 this.guidePanel,
-                this.quickBuildPanel);
+                this.quickBuildPanel,
+                this.playerInventoryPanel,
+                this.vanillaInventoryPanel);
         this.uiStateManager.registerWindowPanel("settings", this.gearMenuPanel);
         this.uiStateManager.registerWindowPanel("blueprints", this.blueprintWindowPanel);
         this.uiStateManager.registerWindowPanel("guide", this.guidePanel);
@@ -193,6 +208,8 @@ public final class BuilderScreen extends Screen {
         this.uiStateManager.registerWindowPanel("craft_quantity", this.craftQuantityWindowPanel);
         this.uiStateManager.registerWindowPanel("blueprint_name", this.blueprintNameWindowPanel);
         this.uiStateManager.registerWindowPanel("blueprint_materials", this.blueprintMaterialWindowPanel);
+        this.uiStateManager.registerWindowPanel("player_inventory", this.playerInventoryPanel);
+        this.uiStateManager.registerWindowPanel("vanilla_inventory", this.vanillaInventoryPanel);
         this.storageLinkDetailHandler.init(this, this.controller);
         this.guidePanel.init(this, this.controller);
         this.gearMenuPanel.init(this, this.controller);
@@ -203,12 +220,128 @@ public final class BuilderScreen extends Screen {
         this.funnelBufferPanel.init(this, this.controller);
         this.quickBuildPanel.init(this, this.controller);
         this.linkedStoragePanel.init(this, this.controller);
+        this.playerInventoryPanel.init(this, this.controller);
+        this.vanillaInventoryPanel.init(this, this.controller);
         this.topBarPanel.init(this, this.controller);
         this.bottomPanel.init(this, this.controller);
         this.shapeController.init(this, this.controller);
         this.cursorPicker.init(this, this.controller, this.shapeController);
         this.cameraInput.init(this, this.controller);
+        initRenderLayers();
     }
+
+    /** 注册所有固定 UI 元素的渲染层到管理器。 */
+    private void initRenderLayers() {
+        // Z-index 布局:
+        //   0   背景遮罩
+        //   10  TopBarPanel
+        //   20  PlayerStatusRenderer
+        //   30  BottomPanel
+        //   40  FunnelBufferPanel
+        //   50  浮动窗口 (RtsFloatingWindowLayer 自行管理每窗口的层)
+        //   60  浮动窗口遮罩层 (tooltip)
+        //   70  QuestDetect / StorageScan 弹窗
+        //   80  物品提示 Tooltips
+        //   90  CraftFeedback
+        //  100  DamageFlash
+
+        renderLayerManager.addLayer(new RenderLayer(10) {
+            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
+                topBarPanel.render(g, mx, my);
+            }
+        });
+
+        renderLayerManager.addLayer(new RenderLayer(20) {
+            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
+                if (controller.isPlayerStatusOverlayEnabled()) {
+                    playerStatusRenderer.render(g);
+                }
+            }
+        });
+
+        renderLayerManager.addLayer(new RenderLayer(30) {
+            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
+                bottomPanel.render(g, mx, my, pt);
+            }
+        });
+
+        renderLayerManager.addLayer(new RenderLayer(40) {
+            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
+                funnelBufferPanel.render(g, mx, my);
+            }
+        });
+
+        renderLayerManager.addLayer(new RenderLayer(50) {
+            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
+                floatingWindowLayer.renderFloatingWindows(g, mx, my);
+            }
+        });
+
+        renderLayerManager.addLayer(new RenderLayer(60) {
+            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
+                floatingWindowLayer.renderFloatingWindowOverlays(g, mx, my);
+            }
+        });
+
+        renderLayerManager.addLayer(new RenderLayer(70) {
+            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
+                overlayRenderer.renderQuestDetectPopup(g);
+                overlayRenderer.renderStorageScanPopup(g);
+            }
+        });
+
+        renderLayerManager.addLayer(new RenderLayer(80) {
+            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
+                renderHoveredItemTooltips(g, mx, my);
+            }
+        });
+
+        renderLayerManager.addLayer(new RenderLayer(90) {
+            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
+                bottomPanel.renderCraftFeedback(g);
+            }
+        });
+
+        renderLayerManager.addLayer(new RenderLayer(100) {
+            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
+                overlayRenderer.renderDamageFlash(g);
+            }
+        });
+    }
+
+    /**
+     * 通用悬浮窗口开关方法。
+     *
+     * <p>这是所有悬浮窗口打开的<b>唯一入口</b>。无论是 TopBar 按钮、键盘快捷键还是
+     * 任何其他触发来源，都应调用此方法，而不是在每个调用处重复 open/close 的样板代码。
+     *
+     * <p>调用时需要确保面板已通过 {@link #init初始化} 并已添加到
+     * {@link RtsFloatingWindowLayer}。
+     *
+     * <p>窗口已打开 → 调用 {@link RtsWindowPanel#toggleOpen()} 关闭；
+     * 窗口已关闭 → 调用 {@link RtsWindowPanel#setOpen(boolean)} 打开并
+     * {@link RtsWindowPanel#markBroughtToFront()} 置顶。
+     *
+     * <p>如果面板每次打开时需要额外初始化（如重置滚动条、折叠状态等），
+     * 应在面板自身的 open 方法中处理，而不是在这里添加特殊判断。
+     * 参见 {@link com.rtsbuilding.rtsbuilding.client.screen.gear.GearMenuPanel#open()}
+     *
+     * @param panel 要切换开关的悬浮面板
+     */
+    public void toggleWindow(RtsWindowPanel panel) {
+        if (panel.isOpen()) {
+            panel.toggleOpen();
+        } else {
+            panel.setOpen(true);
+            panel.markBroughtToFront();
+        }
+    }
+
+    /** 切换紧凑型玩家背包悬浮面板。 */
+    public void togglePlayerInventory() {
+        toggleWindow(this.playerInventoryPanel);
+    }
+
     /** Returns the Minecraft font renderer for use by sub-panels and utilities. */
     public Font font() {
         return this.font;
@@ -1222,19 +1355,18 @@ public final class BuilderScreen extends Screen {
         this.lastMouseX = mouseX;
         this.lastMouseY = mouseY;
         resetHoverStates();
+
+        // 背景
         guiGraphics.fill(0, 0, this.width, TOP_H, 0xC0101116);
+
+        // 出生点选择模式 — 只渲染覆盖层
         if (this.controller.isHomeSelectionMode()) {
             this.overlayRenderer.renderHomeSelectionOverlay(guiGraphics, mouseX, mouseY);
             this.overlayRenderer.renderDamageFlash(guiGraphics);
             return;
         }
-        this.topBarPanel.render(guiGraphics, mouseX, mouseY);
-        if (this.controller.isPlayerStatusOverlayEnabled()) {
-            this.playerStatusRenderer.render(guiGraphics);
-        }
-        this.storageLinkDetailHandler.updateVisibility(mouseX, mouseY);
-        this.bottomPanel.render(guiGraphics, mouseX, mouseY, partialTick);
-        this.funnelBufferPanel.render(guiGraphics, mouseX, mouseY);
+
+        // 蓝图状态同步 (非渲染)
         if (this.bottomPanel.bottomPanelTab == BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS && BlueprintPanel.isCaptureModeActive()) {
             BlockHitResult hit = isWorldArea(mouseX, mouseY) ? this.cursorPicker.pickBlockHit() : null;
             BlueprintPanel.updateCaptureHoverPoint(hit == null ? null : hit.getBlockPos());
@@ -1242,14 +1374,15 @@ public final class BuilderScreen extends Screen {
         this.blueprintWindowPanel.syncWithBlueprintState();
         this.blueprintMaterialWindowPanel.syncWithBlueprintState();
         this.blueprintNameWindowPanel.syncWithBlueprintState();
-        this.floatingWindowLayer.renderFloatingWindows(guiGraphics, mouseX, mouseY);
-        this.floatingWindowLayer.renderFloatingWindowOverlays(guiGraphics, mouseX, mouseY);
-        this.overlayRenderer.renderQuestDetectPopup(guiGraphics);
-        this.overlayRenderer.renderStorageScanPopup(guiGraphics);
-        renderHoveredItemTooltips(guiGraphics, mouseX, mouseY);
+
+        // 存储链接详情更新 (非渲染)
+        this.storageLinkDetailHandler.updateVisibility(mouseX, mouseY);
+
+        // 所有 UI 渲染层 — 由 RenderLayerManager 按 z 顺序统一管理
+        renderLayerManager.renderAll(guiGraphics, mouseX, mouseY, partialTick);
+
+        // 光标更新 (非渲染层)
         this.overlayRenderer.updateNativeCursor(this.floatingWindowLayer.resizeCursorAt(mouseX, mouseY));
-        this.bottomPanel.renderCraftFeedback(guiGraphics);
-        this.overlayRenderer.renderDamageFlash(guiGraphics);
     }
 
     /** Resets all panel hover states before each render frame. */
@@ -1569,8 +1702,9 @@ public final class BuilderScreen extends Screen {
         this.pendingGuiBindSlot = -1;
     }
     /** Toggles the quick-build panel open/closed. */
+    /** 切换快速建造悬浮面板。 */
     public void toggleQuickBuild() {
-        this.quickBuildPanel.toggleOpen();
+        toggleWindow(this.quickBuildPanel);
     }
 
     /** Opens the window-layer craft quantity picker for a craftable entry. */
@@ -1616,7 +1750,11 @@ public final class BuilderScreen extends Screen {
     public void closeGearMenu() {
         this.gearMenuPanel.close();
     }
-    /** Toggles the gear (settings) menu open/closed. */
+    /**
+     * 切换设置面板。不能直接用 {@link #toggleWindow}，因为
+     * {@link GearMenuPanel#open()} 有额外的初始化逻辑
+     * （重置滚动条、折叠状态等）。
+     */
     public void toggleGearMenu() {
         if (this.gearMenuPanel.isOpen()) {
             this.gearMenuPanel.close();
@@ -1635,7 +1773,39 @@ public final class BuilderScreen extends Screen {
             this.guidePanel.open(GuideTypes.GuideContext.TOP, x, y);
         }
     }
-    /** Opens the bottom guide panel at the given position. */
+
+    /**
+     * 根据当前模式切换背包显示。
+     * 原版模式 → 原版风格悬浮窗口；否则 → 紧凑格子面板。
+     */
+    public void toggleInventory() {
+        toggleWindow(useVanillaInventory ? this.vanillaInventoryPanel : this.playerInventoryPanel);
+    }
+
+    /** 切换原版风格背包悬浮窗口。 */
+    public void toggleVanillaInventory() {
+        toggleWindow(this.vanillaInventoryPanel);
+    }
+
+    /** 原版风格背包面板是否打开。 */
+    public boolean isVanillaInventoryOpen() {
+        return this.vanillaInventoryPanel.isOpen();
+    }
+
+    public boolean isInventoryPanelOpen() {
+        return useVanillaInventory
+                ? this.vanillaInventoryPanel.isOpen()
+                : this.playerInventoryPanel.isOpen();
+    }
+
+    public void setUseVanillaInventory(boolean vanilla) {
+        this.useVanillaInventory = vanilla;
+    }
+
+    public boolean isUseVanillaInventory() {
+        return this.useVanillaInventory;
+    }
+
     public void openBottomGuide(int x, int y) {
         this.guidePanel.open(GuideTypes.GuideContext.BOTTOM, x, y);
     }

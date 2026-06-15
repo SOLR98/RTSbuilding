@@ -64,12 +64,11 @@ public final class RtsLinkedItemInteractor {
 
         ItemStack previousMainHand = player.getMainHandItem();
         if (!previousMainHand.isEmpty()) {
-            ItemStack stored = RtsTransferInserter.storeToLinkedWithFallbackPreferExisting(insertHandlers, player, previousMainHand.copy());
-            if (!stored.isEmpty()) {
-                return InteractionResult.PASS;
-            }
+            RtsTransferInserter.storeToLinkedWithFallbackPreferExisting(insertHandlers, player, previousMainHand.copy());
+            player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+        } else {
+            player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, extracted);
         }
-        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, extracted);
 
         Vec3 interactionPos = InteractionHelper.resolveInteractionPosition(targetEntity, blockHit, hit);
         UseOnOutcome outcome = TemporaryContextSwitcher.withTemporaryUseItemContext(
