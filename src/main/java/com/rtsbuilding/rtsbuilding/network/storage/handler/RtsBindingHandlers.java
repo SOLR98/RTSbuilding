@@ -1,6 +1,8 @@
 package com.rtsbuilding.rtsbuilding.network.storage.handler;
 
 import com.rtsbuilding.rtsbuilding.server.service.RtsBindingService;
+import com.rtsbuilding.rtsbuilding.server.service.RtsFunnelService;
+import com.rtsbuilding.rtsbuilding.server.service.RtsInventorySyncService;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
@@ -117,6 +119,22 @@ public final class RtsBindingHandlers {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer serverPlayer) {
                 RtsBindingService.closeRemoteMenu(serverPlayer);
+            }
+        });
+    }
+
+    public static void handleFunnelCollect(com.rtsbuilding.rtsbuilding.network.storage.C2SRtsFunnelCollectPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                RtsFunnelService.processClientCollectPayload(serverPlayer, payload);
+            }
+        });
+    }
+
+    public static void handleInventoryFullRequest(com.rtsbuilding.rtsbuilding.network.storage.C2SRtsRequestInventoryFullPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                RtsInventorySyncService.handleFullRequest(serverPlayer, payload.clientVersion());
             }
         });
     }

@@ -14,6 +14,8 @@ import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftablesPayload;
 import com.rtsbuilding.rtsbuilding.network.feedback.S2CRtsDamageFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsProgressionStatePayload;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsQuestDetectStatusPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsInventoryDeltaPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsInventoryFullPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsRemoteMenuHintPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStorageDirtyPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
@@ -87,5 +89,13 @@ public final class RtsClientNetworkHandlers {
 
     public static void handleHistorySync(S2CRtsHistorySyncPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> PlacementHistoryManager.syncHistoryState(payload.undoSize()));
+    }
+
+    public static void handleInventoryDelta(S2CRtsInventoryDeltaPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> ClientRtsController.get().applyInventoryDelta(payload));
+    }
+
+    public static void handleInventoryFull(S2CRtsInventoryFullPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> ClientRtsController.get().applyInventoryFull(payload));
     }
 }

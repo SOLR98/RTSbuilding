@@ -257,24 +257,37 @@ public final class RtsMiningStateMachine {
      * Computes the per-tick destroy progress for the given block/tool
      * combination, applying underwater penalty cancellation.
      *
+     * <p>The tool is read from the player's main hand when no linkedTool is
+     * provided, or computed from the linkedTool's destroy-speed attribute directly
+     * without swapping the main hand.
+     *
      * @return a float in (0.0, 1.0] representing progress per tick, or
      *         ≤ 0.0 if the block cannot be mined
      */
     public static float computeRemoteDestroyStep(ServerPlayer player, BlockState state, BlockPos pos, int toolSlot,
             ItemStack linkedTool, boolean selectedToolRequested) {
+        float baseStep;
         if (linkedTool != null && !linkedTool.isEmpty()) {
-            return withTemporaryOnGround(player, true, () -> withTemporaryMainHandItem(
-                    player,
-                    linkedTool,
-                    () -> removeMiningSpeedPenalty(player, state.getDestroyProgress(player, player.serverLevel(), pos))));
-        }
-        if (selectedToolRequested) {
+            float destroySpeed = linkedTool.getItem().getDestroySpeed(linkedTool, state);
+            if (destroySpeed <= 0.0F) {
+                return 0.0F;
+            }
+            float hardness = state.getDestroySpeed(player.serverLevel(), pos);
+            if (hardness < 0.0F) {
+                return 0.0F;
+            }
+            boolean canHarvest = !state.requiresCorrectToolForDrops()
+                    || linkedTool.isCorrectToolForDrops(state);
+            baseStep = canHarvest ? destroySpeed / hardness / 30.0F : destroySpeed / hardness / 100.0F;
+            if (baseStep > 1.0F) {
+                baseStep = 1.0F;
+            }
+        } else if (selectedToolRequested) {
             return 0.0F;
+        } else {
+            baseStep = state.getDestroyProgress(player, player.serverLevel(), pos);
         }
-        return withTemporaryOnGround(player, true, () -> withTemporarySelectedSlot(
-                player,
-                toolSlot,
-                () -> removeMiningSpeedPenalty(player, state.getDestroyProgress(player, player.serverLevel(), pos))));
+        return removeMiningSpeedPenalty(player, baseStep);
     }
 
     // =========================================================================

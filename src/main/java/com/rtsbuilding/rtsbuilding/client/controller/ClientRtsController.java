@@ -2,6 +2,7 @@ package com.rtsbuilding.rtsbuilding.client.controller;
 
 
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
+import com.rtsbuilding.rtsbuilding.client.cache.RtsClientInventoryCache;
 import com.rtsbuilding.rtsbuilding.client.compat.RtsClientRemoteMenuCompat;
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
 import com.rtsbuilding.rtsbuilding.client.record.*;
@@ -28,6 +29,8 @@ import com.rtsbuilding.rtsbuilding.network.feedback.S2CRtsDamageFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsProgressionStatePayload;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsQuestDetectStatusPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
+import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsInventoryDeltaPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsInventoryFullPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsRemoteMenuHintPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStorageDirtyPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
@@ -84,6 +87,7 @@ public final class ClientRtsController {
     private int questDetectCompletedTasks;
     private boolean chunkCurtainVisible;
 
+    private final RtsClientInventoryCache inventoryCache = new RtsClientInventoryCache();
     private final StorageStateManager storageStateManager = new StorageStateManager();
     private final ProgressionStateManager progressionStateManager = new ProgressionStateManager();
     private final CameraOrbitService cameraOrbitService = new CameraOrbitService();
@@ -1143,6 +1147,27 @@ public final class ClientRtsController {
 
     public void applyStorageDirty(S2CRtsStorageDirtyPayload payload) {
         this.storageStateManager.applyStorageDirty(payload);
+        if (payload.dirty()) {
+            this.inventoryCache.markDirty();
+        }
+    }
+
+    public void applyInventoryDelta(S2CRtsInventoryDeltaPayload payload) {
+        this.inventoryCache.applyDelta(payload);
+    }
+
+    public void applyInventoryFull(S2CRtsInventoryFullPayload payload) {
+        this.inventoryCache.applyFull(payload);
+    }
+
+    public void requestInventoryFullRefresh() {
+        long version = this.inventoryCache.getVersion();
+        RtsClientPacketGateway.sendInventoryFullRequest(version);
+    }
+
+    public RtsClientInventoryCache getInventoryCache() {
+        return inventoryCache;
+    }
     }
 
 

@@ -9,6 +9,8 @@ import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftablesPayload;
 import com.rtsbuilding.rtsbuilding.network.feedback.S2CRtsDamageFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsProgressionStatePayload;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsQuestDetectStatusPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsInventoryDeltaPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsInventoryFullPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsRemoteMenuHintPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStorageDirtyPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
@@ -57,6 +59,10 @@ public final class ClientPayloadDispatcher {
                     RtsClientNetworkHandlers.handleStoragePage(p, ctx);
             case S2CRtsStorageDirtyPayload p ->
                     RtsClientNetworkHandlers.handleStorageDirty(p, ctx);
+            case S2CRtsInventoryDeltaPayload p ->
+                    RtsClientNetworkHandlers.handleInventoryDelta(p, ctx);
+            case S2CRtsInventoryFullPayload p ->
+                    RtsClientNetworkHandlers.handleInventoryFull(p, ctx);
             case S2CRtsRemoteMenuHintPayload p ->
                     RtsClientNetworkHandlers.handleRemoteMenuHint(p, ctx);
             default -> {}

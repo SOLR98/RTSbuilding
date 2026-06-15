@@ -33,6 +33,42 @@ final class RtsCraftingAvailability {
     }
 
     /**
+     * Finds a valid ingredient assignment and computes how many times it
+     * can be repeated with the currently available stacks.
+     *
+     * @return a {@link BatchPlan} or {@code null} if no single craft is possible
+     */
+    static BatchPlan resolveBatchPlan(CraftingRecipe recipe, List<AvailableCraftItem> availableStacks) {
+        CraftIngredientPlan plan = resolveCraftIngredientPlan(recipe, availableStacks);
+        if (plan == null) {
+            return null;
+        }
+        long maxMultiplier = Long.MAX_VALUE;
+        Ingredient[] required = RtsCraftingUtils.mapCraftingIngredients(recipe);
+        Map<Integer, Long> slotCounts = new java.util.HashMap<>();
+        for (int i = 0; i < 9; i++) {
+            if (plan.prototypeAt(i) == null || plan.prototypeAt(i).isEmpty()) continue;
+            long totalForSlot = 0L;
+            for (AvailableCraftItem item : availableStacks) {
+                if (item.count() > 0L && ItemStack.isSameItemSameComponents(item.prototype(), plan.prototypeAt(i))) {
+                    totalForSlot += item.count();
+                }
+            }
+            slotCounts.put(i, totalForSlot);
+            if (totalForSlot <= 0L) {
+                maxMultiplier = 0;
+                break;
+            }
+        }
+        if (maxMultiplier > 0) {
+            for (long count : slotCounts.values()) {
+                maxMultiplier = Math.min(maxMultiplier, count);
+            }
+        }
+        return new BatchPlan(plan, Math.max(0, (int) Math.min(maxMultiplier, 999L)));
+    }
+
+    /**
      * Attempts to find a valid ingredient assignment for the recipe from the available stacks.
      * Returns a plan if successful, or {@code null} if ingredients are insufficient.
      */

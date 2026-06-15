@@ -104,6 +104,10 @@ public final class RtsClientPacketGateway {
                 buildLocalizedSearchMatches(search, pinyinSearchEnabled)));
     }
 
+    public static void sendInventoryFullRequest(long clientVersion) {
+        PacketDistributor.sendToServer(new C2SRtsRequestInventoryFullPayload(clientVersion));
+    }
+
     public static void sendSetAutoStoreMinedDrops(boolean enabled) {
         PacketDistributor.sendToServer(new C2SRtsSetAutoStorePayload(enabled));
     }

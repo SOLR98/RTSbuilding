@@ -77,6 +77,23 @@ public class Config {
             .translation("rtsbuilding.configuration.useRangeDestroySkeleton")
             .define("useRangeDestroySkeleton", true);
 
+    // ---- Inventory sync configuration ----
+
+    public static final ModConfigSpec.IntValue INVENTORY_DELTA_MERGE_WINDOW_TICKS = BUILDER
+            .comment("Maximum ticks to coalesce delta changes for the same item before pushing to the client. Higher values reduce network traffic but increase client staleness.")
+            .translation("rtsbuilding.configuration.inventoryDeltaMergeWindowTicks")
+            .defineInRange("inventoryDeltaMergeWindowTicks", 3, 1, 20);
+
+    public static final ModConfigSpec.IntValue INVENTORY_FULL_PUSH_COOLDOWN_MS = BUILDER
+            .comment("Minimum cooldown in milliseconds between server-side full inventory snapshot pushes. Protects against client spam.")
+            .translation("rtsbuilding.configuration.inventoryFullPushCooldownMs")
+            .defineInRange("inventoryFullPushCooldownMs", 2000, 500, 10000);
+
+    public static final ModConfigSpec.IntValue INVENTORY_FULL_REQUEST_COOLDOWN_MS = BUILDER
+            .comment("Minimum cooldown in milliseconds between client-initiated full inventory snapshot requests. Enforced on server side.")
+            .translation("rtsbuilding.configuration.inventoryFullRequestCooldownMs")
+            .defineInRange("inventoryFullRequestCooldownMs", 3000, 1000, 30000);
+
     public static final ModConfigSpec SPEC = BUILDER.build();
 
     public static void setSurvivalProgressionEnabled(boolean enabled) {

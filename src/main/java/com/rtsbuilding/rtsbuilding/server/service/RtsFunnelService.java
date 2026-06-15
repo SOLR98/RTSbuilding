@@ -1,16 +1,19 @@
 package com.rtsbuilding.rtsbuilding.server.service;
 
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
+import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsFunnelCollectPayload;
 import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
 import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
 import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.items.IItemHandler;
 
 import java.util.ArrayList;
@@ -74,7 +77,9 @@ public final class RtsFunnelService {
     }
 
     /**
-     * Tick 处理漏斗逻辑。
+     * Tick 处理漏斗逻辑 — only flushes the buffer; item collection
+     * is handled via {@link #processClientCollectPayload} triggered by
+     * the client.
      */
     public static void tick(ServerPlayer player, RtsStorageSession session) {
         if (!session.funnel.funnelEnabled || session.mode != BuilderMode.FUNNEL) return;
@@ -96,10 +101,83 @@ public final class RtsFunnelService {
         }
 
         boolean changed = flushBuffer(handlers, player, session);
-        changed |= absorbDrops(player, session.funnel.funnelTarget, handlers, session);
         if (changed) {
             RtsSessionService.markStorageViewDirty(player, session);
-            QuestService.runQuestDetect(player, session, false);
+        }
+    }
+
+    /**
+     * Processes a client-calculated funnel collect payload.
+     *
+     * <p>The client pre-scans {@code ItemEntity}s within the funnel radius
+     * and sends their IDs, item IDs and counts.  The server validates each
+     * entity (alive, in-radius, item matches, count matches) before absorbing.
+     */
+    public static void processClientCollectPayload(ServerPlayer player, C2SRtsFunnelCollectPayload payload) {
+        if (player == null || payload == null || payload.isEmpty()) return;
+        RtsStorageSession session = RtsSessionService.getIfPresent(player);
+        if (session == null) return;
+        if (!session.funnel.funnelEnabled || session.mode != BuilderMode.FUNNEL) return;
+        if (session.funnel.funnelTarget == null) return;
+
+        RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
+        if (!RtsLinkedStorageResolver.canAccessWorldTarget(player, session.funnel.funnelTarget)) return;
+        if (!RtsCameraManager.isWithinActionRadius(player, session.funnel.funnelTarget)) return;
+
+        List<LinkedHandler> linked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
+        List<IItemHandler> handlers = new ArrayList<>(linked.size());
+        for (LinkedHandler lh : linked) {
+            handlers.add(lh.handler());
+        }
+
+        var level = player.serverLevel();
+        BlockPos funnelPos = session.funnel.funnelTarget;
+        int processed = 0;
+        boolean changed = false;
+
+        for (int i = 0; i < payload.entityIds().size() && processed < RtsServiceConstants.FUNNEL_MAX_ENTITIES_PER_TICK; i++) {
+            int entityId = payload.entityIds().get(i);
+            String itemId = payload.itemIds().get(i);
+            int reportedCount = payload.counts().get(i);
+            if (reportedCount <= 0) continue;
+
+            Entity entity = level.getEntity(entityId);
+            if (!(entity instanceof ItemEntity drop) || !drop.isAlive()) continue;
+
+            double distSq = drop.position().distanceToSqr(funnelPos.getCenter());
+            if (distSq > RtsServiceConstants.FUNNEL_RADIUS * RtsServiceConstants.FUNNEL_RADIUS + 1.0) continue;
+
+            ItemStack worldStack = drop.getItem();
+            if (worldStack.isEmpty()) continue;
+
+            ResourceLocation rl = BuiltInRegistries.ITEM.getKey(worldStack.getItem());
+            if (rl == null || !rl.toString().equals(itemId)) continue;
+
+            int actualCount = Math.min(worldStack.getCount(), reportedCount);
+            ItemStack toStore = worldStack.copy();
+            toStore.setCount(actualCount);
+            ItemStack remain = RtsTransferInserter.storeToLinkedOnlyPreferExisting(handlers, toStore);
+            if (!remain.isEmpty()) {
+                remain = RtsTransferInserter.moveToPlayerInventoryOnly(player, remain);
+            }
+            if (!remain.isEmpty()) {
+                remain = addToBuffer(session, remain);
+            }
+            int consumed = actualCount - remain.getCount();
+            if (consumed > 0) {
+                worldStack.shrink(consumed);
+                processed++;
+                changed = true;
+            }
+            if (worldStack.isEmpty()) {
+                drop.discard();
+            } else {
+                drop.setItem(worldStack);
+            }
+        }
+
+        if (changed) {
+            RtsSessionService.markStorageViewDirty(player, session);
         }
     }
 
@@ -127,51 +205,6 @@ public final class RtsFunnelService {
             } else if (remain.getCount() != buffered.getCount()) {
                 session.funnel.funnelBuffer.set(i, remain);
                 changed = true;
-            }
-        }
-        return changed;
-    }
-
-    private static boolean absorbDrops(ServerPlayer player, BlockPos target, List<IItemHandler> handlers, RtsStorageSession session) {
-        AABB box = new AABB(target).inflate(RtsServiceConstants.FUNNEL_RADIUS);
-        List<ItemEntity> drops = player.serverLevel().getEntitiesOfClass(
-                ItemEntity.class, box,
-                e -> e != null && e.isAlive() && !e.getItem().isEmpty());
-
-        int processedEntities = 0;
-        int processedItems = 0;
-        boolean changed = false;
-
-        for (ItemEntity drop : drops) {
-            if (processedEntities >= RtsServiceConstants.FUNNEL_MAX_ENTITIES_PER_TICK || processedItems >= RtsServiceConstants.FUNNEL_MAX_ITEMS_PER_TICK) {
-                break;
-            }
-            processedEntities++;
-            ItemStack worldStack = drop.getItem();
-            if (worldStack.isEmpty()) continue;
-
-            int remainingBudget = RtsServiceConstants.FUNNEL_MAX_ITEMS_PER_TICK - processedItems;
-            int iterations = Math.min(worldStack.getCount(), remainingBudget);
-            for (int i = 0; i < iterations; i++) {
-                ItemStack one = worldStack.copy();
-                one.setCount(1);
-                ItemStack remain = RtsTransferInserter.storeToLinkedOnlyPreferExisting(handlers, one);
-                if (!remain.isEmpty()) {
-                    remain = RtsTransferInserter.moveToPlayerInventoryOnly(player, remain);
-                }
-                if (!remain.isEmpty()) {
-                    remain = addToBuffer(session, remain);
-                }
-                if (!remain.isEmpty()) break;
-                worldStack.shrink(1);
-                processedItems++;
-                changed = true;
-                if (worldStack.isEmpty()) break;
-            }
-            if (worldStack.isEmpty()) {
-                drop.discard();
-            } else {
-                drop.setItem(worldStack);
             }
         }
         return changed;

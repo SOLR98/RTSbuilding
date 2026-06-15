@@ -4,7 +4,6 @@ import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
-import com.rtsbuilding.rtsbuilding.server.service.QuestService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsCraftingService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
@@ -78,7 +77,6 @@ public final class RtsTransferPlayerIntegration {
         RtsStorageTickService.INSTANCE.forceRefresh(player);
         session.transfer.pageDataVersion.incrementAndGet();
         RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
-        QuestService.runQuestDetect(player, session, false);
     }
 
     public static void quickDropLinkedItem(ServerPlayer player, RtsStorageSession session, String itemId,
@@ -224,7 +222,6 @@ public final class RtsTransferPlayerIntegration {
         RtsStorageTickService.INSTANCE.forceRefresh(player);
         session.transfer.pageDataVersion.incrementAndGet();
         RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
-        QuestService.runQuestDetect(player, session, false);
     }
 
     public static void pickupLinkedToCarried(ServerPlayer player, RtsStorageSession session, ItemStack prototype, int amount) {
@@ -265,7 +262,7 @@ public final class RtsTransferPlayerIntegration {
             return;
         }
         if (carried.isEmpty()) {
-            player.containerMenu.setCarried(extracted);
+            player.getInventory().setItem(player.getInventory().selected, extracted);
         } else {
             carried.grow(extracted.getCount());
             player.containerMenu.setCarried(carried);
@@ -315,7 +312,6 @@ public final class RtsTransferPlayerIntegration {
         RtsStorageTickService.INSTANCE.forceRefresh(player);
         session.transfer.pageDataVersion.incrementAndGet();
         RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
-        QuestService.runQuestDetect(player, session, false);
     }
 
     public static void fillPlayerInventoryFromLinked(ServerPlayer player, RtsStorageSession session) {

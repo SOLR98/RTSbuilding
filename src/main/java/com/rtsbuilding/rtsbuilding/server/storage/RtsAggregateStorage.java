@@ -207,6 +207,23 @@ public final class RtsAggregateStorage {
         }
     }
 
+    /**
+     * Populates both count map and prototype map from all cached handlers.
+     */
+    public void collectAllItems(Map<String, Long> counts, Map<String, ItemStack> protos) {
+        for (CachedHandlerSlot cs : this.flatOrdered) {
+            cs.cache.getAvailableItems(counts);
+            for (var entry : counts.entrySet()) {
+                if (!protos.containsKey(entry.getKey())) {
+                    ItemStack proto = cs.cache.getPrototype(entry.getKey());
+                    if (proto != null && !proto.isEmpty()) {
+                        protos.put(entry.getKey(), proto);
+                    }
+                }
+            }
+        }
+    }
+
     // ---- tick update -----------------------------------------------------------
 
     /**

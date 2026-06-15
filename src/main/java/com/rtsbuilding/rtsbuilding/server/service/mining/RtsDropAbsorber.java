@@ -1,6 +1,5 @@
 package com.rtsbuilding.rtsbuilding.server.service.mining;
 
-import com.rtsbuilding.rtsbuilding.server.service.QuestService;
 import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
 import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
@@ -82,8 +81,6 @@ public final class RtsDropAbsorber {
         if (player == null || session == null || pos == null) {
             return;
         }
-        if (absorbNearbyMinedDrops(player, pos, session)) {
-            QuestService.runQuestDetect(player, session, false);
-        }
+        absorbNearbyMinedDrops(player, pos, session);
     }
 }

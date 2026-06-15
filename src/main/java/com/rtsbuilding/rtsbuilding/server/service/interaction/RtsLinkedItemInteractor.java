@@ -27,8 +27,9 @@ import java.util.List;
  * Handles RTS remote interaction using a pinned item extracted from the
  * player's linked storage system.
  *
- * <p>Extracts one item from the linked network, uses it against the target,
- * and refunds any remainder back to the network.
+ * <p>Extracts one item from the linked network, stores the current main-hand
+ * item back to the network, places the extracted item on the main hand, then
+ * uses it against the target.  The remainder naturally stays on the main hand.
  */
 public final class RtsLinkedItemInteractor {
 
@@ -37,11 +38,6 @@ public final class RtsLinkedItemInteractor {
     private RtsLinkedItemInteractor() {
     }
 
-    /**
-     * Interacts with a target block or entity using a pinned/linked item.
-     * The item is extracted from the player's linked storage, used, and
-     * any remainder is refunded.
-     */
     public static InteractionResult interactWithLinkedItem(ServerPlayer player, ServerLevel level, RtsStorageSession session,
             Entity targetEntity, BlockHitResult blockHit, Vec3 hit, String itemId, RayContext rayContext) {
         if (itemId == null || itemId.isBlank() || !RtsLinkedStorageResolver.hasAnyStorage(player, session)) {
@@ -66,6 +62,15 @@ public final class RtsLinkedItemInteractor {
             return InteractionResult.PASS;
         }
 
+        ItemStack previousMainHand = player.getMainHandItem();
+        if (!previousMainHand.isEmpty()) {
+            ItemStack stored = RtsTransferInserter.storeToLinkedWithFallbackPreferExisting(insertHandlers, player, previousMainHand.copy());
+            if (!stored.isEmpty()) {
+                return InteractionResult.PASS;
+            }
+        }
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, extracted);
+
         Vec3 interactionPos = InteractionHelper.resolveInteractionPosition(targetEntity, blockHit, hit);
         UseOnOutcome outcome = TemporaryContextSwitcher.withTemporaryUseItemContext(
                 player,
@@ -77,30 +82,29 @@ public final class RtsLinkedItemInteractor {
             if (targetEntity != null) {
                 return InteractionHelper.useItemOnEntityWithMainHand(player, level, extracted, targetEntity, hit);
             }
-            // Alt interaction: normal item interaction first, build-like secondary interaction later.
-            UseOnOutcome primaryOn = InteractionHelper.useItemOnWithMainHand(player, level, extracted, blockHit, false);
+            UseOnOutcome primaryOn = InteractionHelper.useMainHandItemOnBlock(player, level, blockHit, false);
             if (primaryOn.result().consumesAction()) {
                 return primaryOn;
             }
-            ItemStack afterPrimaryOn = primaryOn.remainder().isEmpty() ? extracted.copy() : primaryOn.remainder().copy();
+            ItemStack afterPrimaryOn = player.getMainHandItem().isEmpty()
+                    ? extracted.copy() : player.getMainHandItem().copy();
 
-            UseOnOutcome primaryUse = InteractionHelper.useItemWithMainHand(player, level, afterPrimaryOn, false);
+            UseOnOutcome primaryUse = InteractionHelper.useMainHandItemInAir(player, level, false);
             if (primaryUse.result().consumesAction()) {
                 return primaryUse;
             }
-            ItemStack afterPrimaryUse = primaryUse.remainder().isEmpty() ? afterPrimaryOn : primaryUse.remainder().copy();
+            ItemStack afterPrimaryUse = player.getMainHandItem().isEmpty()
+                    ? afterPrimaryOn : player.getMainHandItem().copy();
 
-            UseOnOutcome secondaryOn = InteractionHelper.useItemOnWithMainHand(player, level, afterPrimaryUse, blockHit, true);
+            UseOnOutcome secondaryOn = InteractionHelper.useMainHandItemOnBlock(player, level, blockHit, true);
             if (secondaryOn.result().consumesAction()) {
                 return secondaryOn;
             }
-            ItemStack afterSecondaryOn = secondaryOn.remainder().isEmpty() ? afterPrimaryUse : secondaryOn.remainder().copy();
-            return InteractionHelper.useItemWithMainHand(player, level, afterSecondaryOn, true);
+            ItemStack afterSecondaryOn = player.getMainHandItem().isEmpty()
+                    ? afterPrimaryUse : player.getMainHandItem().copy();
+            return InteractionHelper.useMainHandItemInAir(player, level, true);
                 });
-        if (!outcome.remainder().isEmpty()) {
-            RtsTransferInserter.refundToLinked(insertHandlers, player, outcome.remainder());
-        }
-        // Force-refresh slot cache and invalidate page cache after linked-item interaction
+
         RtsStorageTickService.INSTANCE.forceRefresh(player);
         session.transfer.pageDataVersion.incrementAndGet();
         return outcome.result();

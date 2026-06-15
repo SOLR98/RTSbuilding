@@ -189,7 +189,6 @@ public final class RtsBindingService {
         RtsStorageTickService.INSTANCE.forceRefresh(player);
         session.transfer.pageDataVersion.incrementAndGet();
         RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
-        QuestService.runQuestDetect(player, session, false);
     }
 
     public static void closeRemoteMenu(ServerPlayer player) {

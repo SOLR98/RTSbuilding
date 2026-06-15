@@ -105,7 +105,7 @@ public final class RtsSessionService {
     public static void onRtsEnabled(ServerPlayer player) {
         RtsStorageSession session = getOrCreate(player);
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
-        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending, false);
+        RtsInventorySyncService.pushFull(player, session);
         ServerHistoryManager.sendSync(player);
     }
 
@@ -141,9 +141,9 @@ public final class RtsSessionService {
             saveToPlayerNbt(player, session);
         }
         SESSIONS.remove(player.getUUID());
-        // Clean up storage cache
         RtsStorageTickService.INSTANCE.unregisterPlayer(player);
         RtsPageCore.clearCache(player.getUUID());
+        RtsInventorySyncService.clear(player);
     }
 
     public static void onPlayerTickPost(ServerPlayer player) {
@@ -182,22 +182,18 @@ public final class RtsSessionService {
     }
 
     public static void tickMining(MinecraftServer server) {
-        // Tick storage cache refresh (every N ticks per player)
         var changes = RtsStorageTickService.INSTANCE.tick();
 
-        // When cache detects item changes, push updated page to the client
         if (!changes.isEmpty()) {
             for (var entry : changes.entrySet()) {
                 ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
                 if (player == null) continue;
                 RtsStorageSession session = SESSIONS.get(entry.getKey());
                 if (session == null) continue;
-                // Increment data version so the page cache in RtsPageCore
-                // knows the storage data has changed and should rebuild.
                 session.transfer.pageDataVersion.incrementAndGet();
                 if (!RtsProgressionManager.canUse(player, RtsFeature.STORAGE_BROWSER)) continue;
-                RtsPageService.requestPage(player, session.browser.page, session.browser.search,
-                        session.browser.category, session.browser.sort, session.browser.ascending);
+                RtsInventorySyncService.flushDelta(player, session);
+                session.transfer.storageViewDirty = false;
             }
         }
 

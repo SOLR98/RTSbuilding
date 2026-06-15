@@ -106,6 +106,26 @@ public final class RtsStoragePackets {
                 C2SRtsCloseRemoteMenuPayload.STREAM_CODEC,
                 RtsBindingHandlers::handleCloseRemoteMenu);
 
+        registrar.playToServer(
+                C2SRtsFunnelCollectPayload.TYPE,
+                C2SRtsFunnelCollectPayload.STREAM_CODEC,
+                RtsBindingHandlers::handleFunnelCollect);
+
+        registrar.playToServer(
+                C2SRtsRequestInventoryFullPayload.TYPE,
+                C2SRtsRequestInventoryFullPayload.STREAM_CODEC,
+                RtsBindingHandlers::handleInventoryFullRequest);
+
+        registrar.playToClient(
+                S2CRtsInventoryDeltaPayload.TYPE,
+                S2CRtsInventoryDeltaPayload.STREAM_CODEC,
+                ClientPayloadDispatcher::dispatchStorage);
+
+        registrar.playToClient(
+                S2CRtsInventoryFullPayload.TYPE,
+                S2CRtsInventoryFullPayload.STREAM_CODEC,
+                ClientPayloadDispatcher::dispatchStorage);
+
         registrar.playToClient(
                 S2CRtsStoragePagePayload.TYPE,
                 S2CRtsStoragePagePayload.STREAM_CODEC,

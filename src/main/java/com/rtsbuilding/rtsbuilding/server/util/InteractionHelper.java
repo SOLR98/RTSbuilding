@@ -13,7 +13,7 @@ import net.minecraft.world.phys.Vec3;
  * 远程交互辅助工具集。
  *
  * <p>封装 RTS 模式下远程使用物品/与方块交互/与实体交互的通用操作。
- * 每个方法临时替换玩家的主手物品、处理 Shift 右键等，执行后自动恢复。
+ * 当物品已在玩家主手上时直接使用；当物品不在主手上时临时交换后恢复。
  */
 public final class InteractionHelper {
 
@@ -21,7 +21,37 @@ public final class InteractionHelper {
     }
 
     // ======================================================================
-    //  Block Interaction (useItemOn)
+    //  Block Interaction — item already on main hand (preferred path)
+    // ======================================================================
+
+    /**
+     * Uses the item already on the player's main hand against the given block
+     * hit.  The item is consumed, damaged, or returned by vanilla logic
+     * naturally — the remainder stays on the main hand.
+     */
+    public static TemporaryContextSwitcher.UseOnOutcome useMainHandItemOnBlock(
+            ServerPlayer player, ServerLevel level, BlockHitResult hit, boolean forceSecondaryUse) {
+        InteractionResult result = TemporaryContextSwitcher.withTemporaryShiftKey(
+                player, forceSecondaryUse,
+                () -> player.gameMode.useItemOn(
+                        player, level, player.getMainHandItem(), InteractionHand.MAIN_HAND, hit));
+        return new TemporaryContextSwitcher.UseOnOutcome(result, player.getMainHandItem().copy());
+    }
+
+    /**
+     * Uses the item already on the player's main hand in-air.
+     */
+    public static TemporaryContextSwitcher.UseOnOutcome useMainHandItemInAir(
+            ServerPlayer player, ServerLevel level, boolean forceSecondaryUse) {
+        InteractionResult result = TemporaryContextSwitcher.withTemporaryShiftKey(
+                player, forceSecondaryUse,
+                () -> player.gameMode.useItem(
+                        player, level, player.getMainHandItem(), InteractionHand.MAIN_HAND));
+        return new TemporaryContextSwitcher.UseOnOutcome(result, player.getMainHandItem().copy());
+    }
+
+    // ======================================================================
+    //  Block Interaction — temporary swap (for items NOT on main hand)
     // ======================================================================
 
     /**
