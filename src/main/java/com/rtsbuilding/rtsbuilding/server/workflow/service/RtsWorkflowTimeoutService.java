@@ -2,6 +2,9 @@ package com.rtsbuilding.rtsbuilding.server.workflow.service;
 
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.server.workflow.core.IWorkflowEngine;
+import com.rtsbuilding.rtsbuilding.server.workflow.service.RtsWorkflowSlotManager;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.Level;
 
 import java.time.Duration;
 import java.util.Map;
@@ -26,7 +29,7 @@ import java.util.concurrent.TimeUnit;
 public final class RtsWorkflowTimeoutService {
 
     private final IWorkflowEngine engine;
-    private final Map<UUID, RtsWorkflowSlotManager> slotManagers;
+    private final Map<UUID, Map<ResourceKey<Level>, RtsWorkflowSlotManager>> slotManagers;
 
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> task;
@@ -36,7 +39,7 @@ public final class RtsWorkflowTimeoutService {
      * @param slotManagers the slot managers to scan (same map the engine uses)
      */
     public RtsWorkflowTimeoutService(IWorkflowEngine engine,
-                                     Map<UUID, RtsWorkflowSlotManager> slotManagers) {
+                                     Map<UUID, Map<ResourceKey<Level>, RtsWorkflowSlotManager>> slotManagers) {
         this.engine = engine;
         this.slotManagers = slotManagers;
     }

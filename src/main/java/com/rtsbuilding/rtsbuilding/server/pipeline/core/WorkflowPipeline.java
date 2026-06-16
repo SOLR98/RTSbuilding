@@ -3,6 +3,7 @@ package com.rtsbuilding.rtsbuilding.server.pipeline.core;
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.server.pipeline.tool.ToolBorrowPipe;
 import com.rtsbuilding.rtsbuilding.server.pipeline.tool.ToolReturnPipe;
+import com.rtsbuilding.rtsbuilding.server.pipeline.validation.SessionValidatePipe;
 import com.rtsbuilding.rtsbuilding.server.pipeline.workflow.WorkflowCompletePipe;
 import com.rtsbuilding.rtsbuilding.server.pipeline.workflow.WorkflowStartPipe;
 import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
@@ -124,8 +125,6 @@ public final class WorkflowPipeline<C extends PipelineContext> {
      */
     public PipelineResult execute(C ctx) {
         Objects.requireNonNull(ctx, "ctx");
-        RtsbuildingMod.LOGGER.debug("[Pipeline] Executing pipeline '{}' with {} pipe(s)",
-                type, pipes.size());
 
         for (int i = 0; i < pipes.size(); i++) {
             PipelinePipe<? super C> pipe = pipes.get(i);
@@ -136,8 +135,6 @@ public final class WorkflowPipeline<C extends PipelineContext> {
                 switch (result) {
                     case PipelineResult.Success s -> {
                         // Continue to next pipe
-                        RtsbuildingMod.LOGGER.trace("[Pipeline] Pipe[{}] '{}' succeeded",
-                                i, pipe.getClass().getSimpleName());
                     }
                     case PipelineResult.Failure f -> {
                         RtsbuildingMod.LOGGER.warn("[Pipeline] Pipe[{}] '{}' failed: {}",
@@ -166,8 +163,6 @@ public final class WorkflowPipeline<C extends PipelineContext> {
             }
         }
 
-        RtsbuildingMod.LOGGER.debug("[Pipeline] Pipeline '{}' sync phase completed successfully", type);
-
         // Fire SYNC_PHASE_COMPLETED event for sync-only pipelines.
         // For async-completion pipelines (mining with tickable phase or
         // explicitly marked), the COMPLETED event is fired by the async
@@ -178,11 +173,17 @@ public final class WorkflowPipeline<C extends PipelineContext> {
             firePipelineResultEvent(ctx, PipelineResult.success());
         }
 
-        // If this pipeline has tickable pipes, register them for per-tick execution
+        // If this pipeline has tickable pipes, register them for per-tick execution.
+        // Before registering, strip transient sync-phase data from the context to
+        // free memory (queue mode flags, intermediate results, etc.) — only core
+        // data needed by the tickable phase and eventual cleanup is preserved.
         if (!tickablePipes.isEmpty()) {
+            ctx.retainOnly(
+                    PipelineContext.KEY_WORKFLOW_ENTRY_ID,
+                    SessionValidatePipe.KEY_SESSION,
+                    ToolBorrowPipe.KEY_TOOL_LEASE
+            );
             TickablePipelineRegistry.register(ctx.player(), ctx, tickablePipes.get(0));
-            RtsbuildingMod.LOGGER.debug("[Pipeline] Registered {} tickable pipe(s) for pipeline '{}'",
-                    tickablePipes.size(), type);
         }
 
         return PipelineResult.success();
@@ -300,19 +301,23 @@ public final class WorkflowPipeline<C extends PipelineContext> {
      * is gated by {@code hasData()}, making it a no-op if nothing was set.</p>
      */
     private static void rollbackIfNeeded(PipelineContext ctx) {
-        // 1. Cancel workflow entry (prevents slot leak)
-        if (ctx.hasData(PipelineContext.KEY_WORKFLOW_ENTRY_ID)) {
-            int entryId = ctx.getData(PipelineContext.KEY_WORKFLOW_ENTRY_ID);
-            RtsWorkflowEngine.getInstance().from(ctx.player(), entryId)
-                    .ifPresent(token -> token.cancel());
-        }
-        // 2. Return borrowed tool (prevents tool leak)
+        // Rollback in reverse order of pipe execution:
+        // tool lease first (non-critical, no side-effect if skipped),
+        // then workflow entry (critical, removes slot).
+
+        // 1. Return borrowed tool first (prevents tool leak)
         if (ctx.hasData(ToolBorrowPipe.KEY_TOOL_LEASE)) {
             try {
                 new ToolReturnPipe().execute(ctx);
             } catch (Exception e) {
                 RtsbuildingMod.LOGGER.error("[Pipeline] ToolReturnPipe rollback failed", e);
             }
+        }
+        // 2. Cancel workflow entry (prevents slot leak)
+        if (ctx.hasData(PipelineContext.KEY_WORKFLOW_ENTRY_ID)) {
+            int entryId = ctx.getData(PipelineContext.KEY_WORKFLOW_ENTRY_ID);
+            RtsWorkflowEngine.getInstance().from(ctx.player(), entryId)
+                    .ifPresent(token -> token.cancel());
         }
     }
 

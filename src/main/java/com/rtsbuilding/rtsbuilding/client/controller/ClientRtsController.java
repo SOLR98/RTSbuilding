@@ -600,6 +600,20 @@ public final class ClientRtsController {
     }
 
     /**
+     * Clears all cached workflow data on the client side.
+     * Called when the client disconnects from a server / leaves a world,
+     * so stale workflow entries from a previous save do not linger in the UI
+     * when the player joins a different world.
+     */
+    public void clearWorkflowData() {
+        for (int i = 0; i < CLIENT_MAX_WORKFLOWS; i++) {
+            this.workflowStatuses[i] = null;
+        }
+        this.workflowActiveCount = 0;
+        this.hasPendingJobs = false;
+    }
+
+    /**
      * Returns the total number of active workflows.
      */
     public int getWorkflowActiveCount() {

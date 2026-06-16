@@ -5,7 +5,9 @@ import com.rtsbuilding.rtsbuilding.server.workflow.event.WorkflowEventType;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowPriority;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowType;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.Level;
 
 import java.time.Duration;
 import java.util.List;
@@ -131,8 +133,27 @@ public interface IWorkflowEngine {
      */
     void deleteWorkflow(ServerPlayer player, int entryId);
 
-    /** Cancels all workflows for the given player. */
+    /** Cancels all workflows for the given player in the current dimension. */
     void cancelAll(ServerPlayer player);
+
+    // ======================================================================
+    //  World-switch cleanup
+    // ======================================================================
+
+    /**
+     * Removes all workflow data for a player across all dimensions.
+     * Called on player logout to prevent stale workflow entries from
+     * carrying over when the player joins a different world (save).
+     *
+     * @param playerId the player's UUID
+     */
+    void clearPlayerData(UUID playerId);
+
+    /**
+     * Removes all workflow data for all players.
+     * Called on server stopped to fully reset the engine state.
+     */
+    void clearAllData();
 
     // ======================================================================
     //  Pause / Resume — per-entry valve
@@ -140,8 +161,12 @@ public interface IWorkflowEngine {
 
     /**
      * Returns {@code true} if the specific workflow entry is paused.
+     *
+     * @param playerId  the player's UUID
+     * @param dimension the dimension where the workflow was created
+     * @param entryId   the immutable workflow entry ID
      */
-    boolean isEntryPaused(UUID playerId, int entryId);
+    boolean isEntryPaused(UUID playerId, ResourceKey<Level> dimension, int entryId);
 
     /**
      * Cleans up workflows that have been idle (no updates) beyond the

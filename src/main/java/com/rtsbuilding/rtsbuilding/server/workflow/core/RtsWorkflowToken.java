@@ -2,6 +2,8 @@ package com.rtsbuilding.rtsbuilding.server.workflow.core;
 
 import com.rtsbuilding.rtsbuilding.server.workflow.event.WorkflowEventType;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.Level;
 
 import javax.annotation.Nullable;
 import java.util.List;
@@ -57,15 +59,17 @@ public final class RtsWorkflowToken {
 
     private final UUID playerId;
     private final int entryId;
+    private final ResourceKey<Level> dimension;
     private final RtsWorkflowEngine engine;
 
     // ──────────────────────────────────────────────────────────────────
     //  Construction (package-private — only engine creates tokens)
     // ──────────────────────────────────────────────────────────────────
 
-    RtsWorkflowToken(UUID playerId, int entryId, RtsWorkflowEngine engine) {
+    RtsWorkflowToken(UUID playerId, int entryId, ResourceKey<Level> dimension, RtsWorkflowEngine engine) {
         this.playerId = Objects.requireNonNull(playerId, "playerId");
         this.entryId = entryId;
+        this.dimension = Objects.requireNonNull(dimension, "dimension");
         this.engine = Objects.requireNonNull(engine, "engine");
     }
 
@@ -81,6 +85,11 @@ public final class RtsWorkflowToken {
     /** Returns the UUID of the player who owns this workflow. */
     public UUID getPlayerId() {
         return playerId;
+    }
+
+    /** Returns the dimension this workflow belongs to. */
+    public ResourceKey<Level> getDimension() {
+        return dimension;
     }
 
     /**
@@ -103,7 +112,7 @@ public final class RtsWorkflowToken {
         RtsWorkflowEntry entry = resolveEntry();
         if (entry != null) {
             entry.addCompletedBlocks(1);
-            engine.notifyPlayer(playerId);
+            engine.notifyPlayer(playerId, dimension);
         }
     }
 
@@ -118,7 +127,7 @@ public final class RtsWorkflowToken {
         if (entry != null) {
             entry.addCompletedBlocks(completedDelta);
             entry.addMissingItems(missingItems);
-            engine.notifyPlayer(playerId);
+            engine.notifyPlayer(playerId, dimension);
         }
     }
 
@@ -131,7 +140,7 @@ public final class RtsWorkflowToken {
         RtsWorkflowEntry entry = resolveEntry();
         if (entry != null) {
             entry.setCompletedBlocks(absoluteValue);
-            engine.notifyPlayer(playerId);
+            engine.notifyPlayer(playerId, dimension);
         }
     }
 
@@ -144,7 +153,7 @@ public final class RtsWorkflowToken {
         RtsWorkflowEntry entry = resolveEntry();
         if (entry != null) {
             entry.setTotalBlocks(totalBlocks);
-            engine.notifyPlayer(playerId);
+            engine.notifyPlayer(playerId, dimension);
         }
     }
 
@@ -155,7 +164,7 @@ public final class RtsWorkflowToken {
         RtsWorkflowEntry entry = resolveEntry();
         if (entry != null) {
             entry.addFailedBlocks(1);
-            engine.notifyPlayer(playerId);
+            engine.notifyPlayer(playerId, dimension);
         }
     }
 
@@ -166,7 +175,7 @@ public final class RtsWorkflowToken {
         RtsWorkflowEntry entry = resolveEntry();
         if (entry != null) {
             entry.setDetailMessage(message);
-            engine.notifyPlayer(playerId);
+            engine.notifyPlayer(playerId, dimension);
         }
     }
 
@@ -179,7 +188,7 @@ public final class RtsWorkflowToken {
             entry.setSuspended(true);
             entry.setDetailMessage("等待物品...");
             engine.fireEvent(WorkflowEventType.SUSPENDED, playerId, entryId, entry);
-            engine.notifyPlayer(playerId);
+            engine.notifyPlayer(playerId, dimension);
         }
     }
 
@@ -191,7 +200,7 @@ public final class RtsWorkflowToken {
         if (entry != null) {
             entry.setPaused(true);
             engine.fireEvent(WorkflowEventType.PAUSED, playerId, entryId, entry);
-            engine.notifyPlayer(playerId);
+            engine.notifyPlayer(playerId, dimension);
         }
     }
 
@@ -205,7 +214,7 @@ public final class RtsWorkflowToken {
         if (entry != null && entry.paused()) {
             entry.setPaused(false);
             engine.fireEvent(WorkflowEventType.UNPAUSED, playerId, entryId, entry);
-            engine.notifyPlayer(playerId);
+            engine.notifyPlayer(playerId, dimension);
             return true;
         }
         return false;
@@ -230,7 +239,7 @@ public final class RtsWorkflowToken {
             entry.setSuspended(false);
             entry.setDetailMessage("");
             engine.fireEvent(WorkflowEventType.RESUMED, playerId, entryId, entry);
-            engine.notifyPlayer(playerId);
+            engine.notifyPlayer(playerId, dimension);
             return true;
         }
         return false;
@@ -240,14 +249,14 @@ public final class RtsWorkflowToken {
      * Completes this workflow — removes the entry and notifies the client.
      *
      * <p>Network notification is handled internally by
-     * {@link RtsWorkflowEngine#removeEntry(UUID, int)}, so there is no
+     * {@link RtsWorkflowEngine#removeEntry(UUID, ResourceKey, int)}, so there is no
      * need to call {@code engine.notifyPlayer()} here.</p>
      */
     public void complete() {
         RtsWorkflowEntry entry = resolveEntry();
         if (entry != null) {
             engine.fireEvent(WorkflowEventType.COMPLETED, playerId, entryId, entry);
-            engine.removeEntry(playerId, entryId);
+            engine.removeEntry(playerId, dimension, entryId);
         }
     }
 
@@ -256,14 +265,14 @@ public final class RtsWorkflowToken {
      * completed.
      *
      * <p>Network notification is handled internally by
-     * {@link RtsWorkflowEngine#removeEntry(UUID, int)}, so there is no
+     * {@link RtsWorkflowEngine#removeEntry(UUID, ResourceKey, int)}, so there is no
      * need to call {@code engine.notifyPlayer()} here.</p>
      */
     public void cancel() {
         RtsWorkflowEntry entry = resolveEntry();
         if (entry != null) {
             engine.fireEvent(WorkflowEventType.CANCELLED, playerId, entryId, entry);
-            engine.removeEntry(playerId, entryId);
+            engine.removeEntry(playerId, dimension, entryId);
         }
     }
 
@@ -290,7 +299,7 @@ public final class RtsWorkflowToken {
     // ──────────────────────────────────────────────────────────────────
 
     private RtsWorkflowEntry resolveEntry() {
-        return engine.findEntry(playerId, entryId);
+        return engine.findEntry(playerId, dimension, entryId);
     }
 
     @Override

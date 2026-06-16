@@ -156,7 +156,6 @@ public final class RtsMiningStateMachine {
     public static void tickActiveMining(ServerPlayer player, RtsStorageSession session) {
         // 工作流状态检查：已关闭则停止挖掘，已暂停则跳过此 tick
         int entryId = getWorkflowEntryId(player.getUUID());
-        RtsbuildingMod.LOGGER.debug("[RtsMiningStateMachine] tickActiveMining: entryId={} for {}", entryId, player.getGameProfile().getName());
         if (entryId >= 0) {
             var tokenOpt = RtsWorkflowEngine.getInstance().from(player, entryId);
             if (tokenOpt.isEmpty()) {
@@ -175,7 +174,6 @@ public final class RtsMiningStateMachine {
             if (!session.mining.ultimineTargets.isEmpty()) {
                 RtsUltimineProcessor.processUltimineTargets(player, session);
             } else if (!session.mining.ultimineJobQueue.isEmpty()) {
-                RtsbuildingMod.LOGGER.debug("[RtsMiningStateMachine] tickActiveMining: activating queued job, {} jobs remaining for {}", session.mining.ultimineJobQueue.size(), player.getGameProfile().getName());
                 // 当前作业已完成，激活下一个排队作业
                 activateNextJob(player, session);
                 // ultimineTargets 现在非空，立即处理这个 tick 内的方块
@@ -281,14 +279,21 @@ public final class RtsMiningStateMachine {
      * Stops all active mining/ultimine activity for the given session,
      * clears break-stage particles on the client, returns the borrowed tool,
      * and resets the session's mining state.
+     *
+     * @param preserveEntry if {@code true}, the workflow entry is <b>not</b>
+     *                       cancelled — only the runtime mining state is
+     *                       cleared. Use when the entry was already paused
+     *                       (e.g. RTS mode disabled) and should remain
+     *                       visible in the UI.
      */
-    public static void stopActiveMining(ServerPlayer player, RtsStorageSession session) {
+    public static void stopActiveMining(ServerPlayer player, RtsStorageSession session, boolean preserveEntry) {
         int queueSize = session.mining.ultimineJobQueue.size();
-        RtsbuildingMod.LOGGER.info("[RtsMiningStateMachine] stopActiveMining: player={}, miningPos={}, ultimineTargets={}, queueSize={}",
+        RtsbuildingMod.LOGGER.info("[RtsMiningStateMachine] stopActiveMining: player={}, miningPos={}, ultimineTargets={}, queueSize={}, preserveEntry={}",
                 player.getGameProfile().getName(),
                 session.mining.miningPos,
                 session.mining.ultimineTargets.size(),
-                queueSize);
+                queueSize,
+                preserveEntry);
         boolean hadMiningState = session.mining.miningPos != null
                 || session.mining.ultimineProgressPos != null
                 || !session.mining.ultimineTargets.isEmpty()
@@ -305,17 +310,19 @@ public final class RtsMiningStateMachine {
             RtsMiningNetworkHelper.sendUltimineProgress(player, -1, 0);
         }
 
-        // Cancel the workflow entry (if any) before returning tool
-        int entryId = removeWorkflowEntryId(player.getUUID());
-        if (entryId >= 0) {
-            RtsWorkflowEngine.getInstance().from(player, entryId)
-                    .ifPresent(token -> token.cancel());
-        }
+        if (!preserveEntry) {
+            // Cancel the workflow entry (if any) before returning tool
+            int entryId = removeWorkflowEntryId(player.getUUID());
+            if (entryId >= 0) {
+                RtsWorkflowEngine.getInstance().from(player, entryId)
+                        .ifPresent(token -> token.cancel());
+            }
 
-        // 取消所有排队作业的工作流 entry
-        for (MiningJob queued : session.mining.ultimineJobQueue) {
-            RtsWorkflowEngine.getInstance().from(player, queued.workflowEntryId())
-                    .ifPresent(token -> token.cancel());
+            // 取消所有排队作业的工作流 entry
+            for (MiningJob queued : session.mining.ultimineJobQueue) {
+                RtsWorkflowEngine.getInstance().from(player, queued.workflowEntryId())
+                        .ifPresent(token -> token.cancel());
+            }
         }
         session.mining.ultimineJobQueue.clear();
 
@@ -324,6 +331,58 @@ public final class RtsMiningStateMachine {
             RtsPageService.markStorageViewDirty(player, session);
         }
         resetMiningState(session);
+    }
+
+    /**
+     * Stops all active mining/ultimine activity, cancelling the workflow
+     * entries. Equivalent to {@code stopActiveMining(player, session, false)}.
+     *
+     * @see #stopActiveMining(ServerPlayer, RtsStorageSession, boolean)
+     */
+    public static void stopActiveMining(ServerPlayer player, RtsStorageSession session) {
+        stopActiveMining(player, session, false);
+    }
+
+    /**
+     * Releases mining resources (borrowed tool, break-stage particles) without
+     * cancelling the workflow entry or clearing the runtime mining state.
+     *
+     * <p>Use this when RTS mode is disabled — the workflow entries are paused
+     * separately via {@code pauseAllActive()}, and when the player re-enables
+     * RTS mode and unpauses, the mining operation can continue from where it
+     * left off because the mining state ({@code miningPos},
+     * {@code ultimineTargets}, etc.) is preserved.</p>
+     *
+     * <p>This is intentionally <b>not</b> equivalent to
+     * {@code stopActiveMining(player, session, true)} — that method still
+     * clears the runtime mining state via {@code resetMiningState()} and
+     * {@code ultimineJobQueue.clear()}, making resumption impossible.</p>
+     */
+    public static void releaseMiningResources(ServerPlayer player, RtsStorageSession session) {
+        // Clear break-stage particles on the client
+        BlockPos progressPos = session.mining.miningPos != null
+                ? session.mining.miningPos
+                : session.mining.ultimineProgressPos;
+        if (progressPos != null) {
+            player.serverLevel().destroyBlockProgress(player.getId(), progressPos, -1);
+            RtsMiningNetworkHelper.sendMineProgress(player, progressPos, -1);
+        }
+        boolean hadUltimine = session.mining.ultimineProgressPos != null
+                || !session.mining.ultimineTargets.isEmpty();
+        if (hadUltimine) {
+            RtsMiningNetworkHelper.sendUltimineProgress(player, -1, 0);
+        }
+
+        // Return the borrowed tool (if any) — player gets their item back
+        RtsToolLeaseManager.returnMiningTool(player, session, session.mining.miningToolLease);
+
+        // Keep the mining state intact — do NOT reset miningPos, ultimineTargets,
+        // ultimineJobQueue, or workflow entry IDs. The workflow entry is paused
+        // by the caller (pauseAllActive), and tickActiveMining() will skip
+        // paused entries. When unpaused, mining resumes from where it stopped.
+        // We only reset the tool lease since we already returned it.
+        session.mining.miningToolLease = RtsToolLease.empty();
+        session.mining.miningSelectedToolRequested = false;
     }
 
     // =========================================================================

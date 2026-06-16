@@ -108,6 +108,9 @@ public final class RtsClientInputGate {
     public static void onClientLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         overlayBootstrapRequested = false;
         activeOverlayScreen = null;
+        // Clear stale workflow data so it does not linger in the UI
+        // when the player joins a different world (save).
+        ClientRtsController.get().clearWorkflowData();
     }
 
     public static List<Rect2i> getJeiOverlayExtraAreas(Screen screen) {

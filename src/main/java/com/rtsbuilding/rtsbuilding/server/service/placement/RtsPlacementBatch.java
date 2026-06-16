@@ -13,6 +13,9 @@ import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
 import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
@@ -396,6 +399,109 @@ public final class RtsPlacementBatch {
         /** 返回所有点击位置列表（不可修改） */
         public List<BlockPos> clickedPositions() {
             return java.util.Collections.unmodifiableList(this.clickedPositions);
+        }
+
+        // ──────────────────────────────────────────────────────────
+        //  NBT serialization — used for session persistence
+        // ──────────────────────────────────────────────────────────
+
+        private static final String NBT_POSITIONS = "positions";
+        private static final String NBT_FACE = "face";
+        private static final String NBT_HIT_OFFSET_X = "hitOffsetX";
+        private static final String NBT_HIT_OFFSET_Y = "hitOffsetY";
+        private static final String NBT_HIT_OFFSET_Z = "hitOffsetZ";
+        private static final String NBT_ROTATE_STEPS = "rotateSteps";
+        private static final String NBT_FORCE_PLACE = "forcePlace";
+        private static final String NBT_SKIP_IF_OCCUPIED = "skipIfOccupied";
+        private static final String NBT_ITEM_ID = "itemId";
+        private static final String NBT_ITEM_PROTOTYPE = "itemPrototype";
+        private static final String NBT_RAY_ORIGIN_X = "rayOriginX";
+        private static final String NBT_RAY_ORIGIN_Y = "rayOriginY";
+        private static final String NBT_RAY_ORIGIN_Z = "rayOriginZ";
+        private static final String NBT_RAY_DIR_X = "rayDirX";
+        private static final String NBT_RAY_DIR_Y = "rayDirY";
+        private static final String NBT_RAY_DIR_Z = "rayDirZ";
+        private static final String NBT_QUICK_BUILD = "quickBuild";
+        private static final String NBT_FORCE_EMPTY_HAND = "forceEmptyHand";
+        private static final String NBT_SEND_REMOTE_HINT = "sendRemoteHint";
+        private static final String NBT_WORKFLOW_ENTRY_ID = "workflowEntryId";
+        private static final String NBT_INDEX = "index";
+
+        /**
+         * Serialises this batch job to a {@link CompoundTag} for persistent storage.
+         */
+        public CompoundTag toNbt(net.minecraft.core.RegistryAccess registryAccess) {
+            CompoundTag tag = new CompoundTag();
+            long[] posArray = new long[clickedPositions.size()];
+            for (int i = 0; i < clickedPositions.size(); i++) {
+                posArray[i] = clickedPositions.get(i).asLong();
+            }
+            tag.putLongArray(NBT_POSITIONS, posArray);
+            tag.putByte(NBT_FACE, (byte) face.get3DDataValue());
+            tag.putDouble(NBT_HIT_OFFSET_X, hitOffsetX);
+            tag.putDouble(NBT_HIT_OFFSET_Y, hitOffsetY);
+            tag.putDouble(NBT_HIT_OFFSET_Z, hitOffsetZ);
+            tag.putByte(NBT_ROTATE_STEPS, rotateSteps);
+            tag.putBoolean(NBT_FORCE_PLACE, forcePlace);
+            tag.putBoolean(NBT_SKIP_IF_OCCUPIED, skipIfOccupied);
+            tag.putString(NBT_ITEM_ID, itemId);
+            if (!itemPrototype.isEmpty()) {
+                tag.put(NBT_ITEM_PROTOTYPE, itemPrototype.save(registryAccess));
+            }
+            tag.putDouble(NBT_RAY_ORIGIN_X, rayOriginX);
+            tag.putDouble(NBT_RAY_ORIGIN_Y, rayOriginY);
+            tag.putDouble(NBT_RAY_ORIGIN_Z, rayOriginZ);
+            tag.putDouble(NBT_RAY_DIR_X, rayDirX);
+            tag.putDouble(NBT_RAY_DIR_Y, rayDirY);
+            tag.putDouble(NBT_RAY_DIR_Z, rayDirZ);
+            tag.putBoolean(NBT_QUICK_BUILD, quickBuild);
+            tag.putBoolean(NBT_FORCE_EMPTY_HAND, forceEmptyHand);
+            tag.putBoolean(NBT_SEND_REMOTE_HINT, sendRemoteHint);
+            tag.putInt(NBT_WORKFLOW_ENTRY_ID, workflowEntryId);
+            tag.putInt(NBT_INDEX, index);
+            return tag;
+        }
+
+        /**
+         * Deserialises a {@link PlaceBatchJob} from a {@link CompoundTag}.
+         */
+        public static PlaceBatchJob fromNbt(CompoundTag tag, net.minecraft.core.RegistryAccess registryAccess) {
+            long[] posArray = tag.getLongArray(NBT_POSITIONS);
+            List<BlockPos> positions = new ArrayList<>(posArray.length);
+            for (long l : posArray) {
+                positions.add(BlockPos.of(l));
+            }
+            Direction face = Direction.from3DDataValue(tag.getByte(NBT_FACE));
+            double hitOffsetX = tag.getDouble(NBT_HIT_OFFSET_X);
+            double hitOffsetY = tag.getDouble(NBT_HIT_OFFSET_Y);
+            double hitOffsetZ = tag.getDouble(NBT_HIT_OFFSET_Z);
+            byte rotateSteps = tag.getByte(NBT_ROTATE_STEPS);
+            boolean forcePlace = tag.getBoolean(NBT_FORCE_PLACE);
+            boolean skipIfOccupied = tag.getBoolean(NBT_SKIP_IF_OCCUPIED);
+            String itemId = tag.getString(NBT_ITEM_ID);
+            ItemStack itemPrototype = ItemStack.EMPTY;
+            if (tag.contains(NBT_ITEM_PROTOTYPE, Tag.TAG_COMPOUND)) {
+                itemPrototype = ItemStack.parseOptional(registryAccess, tag.getCompound(NBT_ITEM_PROTOTYPE));
+            }
+            double rayOriginX = tag.getDouble(NBT_RAY_ORIGIN_X);
+            double rayOriginY = tag.getDouble(NBT_RAY_ORIGIN_Y);
+            double rayOriginZ = tag.getDouble(NBT_RAY_ORIGIN_Z);
+            double rayDirX = tag.getDouble(NBT_RAY_DIR_X);
+            double rayDirY = tag.getDouble(NBT_RAY_DIR_Y);
+            double rayDirZ = tag.getDouble(NBT_RAY_DIR_Z);
+            boolean quickBuild = tag.getBoolean(NBT_QUICK_BUILD);
+            boolean forceEmptyHand = tag.getBoolean(NBT_FORCE_EMPTY_HAND);
+            boolean sendRemoteHint = tag.getBoolean(NBT_SEND_REMOTE_HINT);
+            int workflowEntryId = tag.getInt(NBT_WORKFLOW_ENTRY_ID);
+            int index = tag.getInt(NBT_INDEX);
+
+            PlaceBatchJob job = new PlaceBatchJob(
+                    positions, face, hitOffsetX, hitOffsetY, hitOffsetZ,
+                    rotateSteps, forcePlace, skipIfOccupied, itemId, itemPrototype,
+                    rayOriginX, rayOriginY, rayOriginZ, rayDirX, rayDirY, rayDirZ,
+                    quickBuild, forceEmptyHand, sendRemoteHint, workflowEntryId);
+            job.index = index;
+            return job;
         }
 
         BlockPos templatePosition() {

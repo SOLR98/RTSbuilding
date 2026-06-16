@@ -13,6 +13,7 @@ import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.service.RtsPathfindingService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsSessionService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
+import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EntityType;
@@ -30,6 +31,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.registries.DeferredHolder;
@@ -89,6 +91,13 @@ public class RtsbuildingMod {
                 RtsCameraManager.cleanupOrphanCameras(serverPlayer.getServer());
                 RtsDamageFeedbackManager.remember(serverPlayer);
                 RtsProgressionManager.onPlayerLogin(serverPlayer);
+
+                // Restore any persisted workflow entries from the world save file.
+                // This lets the player continue their previous threads after reconnecting.
+                // Passing the ServerPlayer allows the engine to notify the client
+                // of restored entries immediately.
+                RtsWorkflowEngine.getInstance().loadPlayerFromStore(
+                        serverPlayer.getServer(), serverPlayer);
             }
         }
 
@@ -96,6 +105,19 @@ public class RtsbuildingMod {
         static void onServerStarted(ServerStartedEvent event) {
             RtsSessionService.warmCreativeTabCaches(event.getServer());
             RtsCameraManager.cleanupOrphanCameras(event.getServer());
+        }
+
+        @SubscribeEvent
+        static void onServerStopped(ServerStoppedEvent event) {
+            // Persist all workflow entries before fully resetting the engine.
+            // This ensures that when the player reloads this save, their
+            // previous threads are restored from the world save file.
+            RtsWorkflowEngine.getInstance().saveAll(event.getServer());
+
+            // Fully reset the workflow engine when the server stops.
+            // This ensures workflows from one save (world) do not leak
+            // into the next save when switching worlds in singleplayer.
+            RtsWorkflowEngine.getInstance().clearAllData();
         }
 
         @SubscribeEvent

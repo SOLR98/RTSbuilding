@@ -4,6 +4,11 @@ import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowPriority;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowType;
 
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.StringTag;
+import net.minecraft.nbt.Tag;
+
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,7 +34,7 @@ public final class RtsWorkflowEntry {
     // ──────────────────────────────────────────────────────────────────
 
     private final int id;
-    private final long createdAt;
+    private long createdAt;
     private long lastUpdatedAt;
 
     // ──────────────────────────────────────────────────────────────────
@@ -228,6 +233,115 @@ public final class RtsWorkflowEntry {
     /** Marks the entry as updated (refreshes the idle-timeout clock). */
     void touch() {
         this.lastUpdatedAt = System.currentTimeMillis();
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    //  NBT serialisation
+    // ──────────────────────────────────────────────────────────────────
+
+    private static final String NBT_ID = "id";
+    private static final String NBT_TYPE = "type";
+    private static final String NBT_PRIORITY = "priority";
+    private static final String NBT_TOTAL_BLOCKS = "total_blocks";
+    private static final String NBT_COMPLETED_BLOCKS = "completed_blocks";
+    private static final String NBT_FAILED_BLOCKS = "failed_blocks";
+    private static final String NBT_MISSING_ITEMS = "missing_items";
+    private static final String NBT_DETAIL = "detail";
+    private static final String NBT_SUSPENDED = "suspended";
+    private static final String NBT_PAUSED = "paused";
+    private static final String NBT_CREATED_AT = "created_at";
+    private static final String NBT_LAST_UPDATED_AT = "last_updated_at";
+
+    /**
+     * Serialises this entry into a {@link CompoundTag}.
+     */
+    public CompoundTag toNbt() {
+        CompoundTag tag = new CompoundTag();
+        tag.putInt(NBT_ID, id);
+        if (type != null) {
+            tag.putString(NBT_TYPE, type.name());
+        }
+        tag.putInt(NBT_PRIORITY, priority.rank());
+        tag.putInt(NBT_TOTAL_BLOCKS, totalBlocks);
+        tag.putInt(NBT_COMPLETED_BLOCKS, completedBlocks);
+        tag.putInt(NBT_FAILED_BLOCKS, failedBlocks);
+        if (!missingItems.isEmpty()) {
+            ListTag items = new ListTag();
+            for (String item : missingItems) {
+                items.add(StringTag.valueOf(item));
+            }
+            tag.put(NBT_MISSING_ITEMS, items);
+        }
+        if (!detailMessage.isEmpty()) {
+            tag.putString(NBT_DETAIL, detailMessage);
+        }
+        tag.putBoolean(NBT_SUSPENDED, suspended);
+        tag.putBoolean(NBT_PAUSED, paused);
+        tag.putLong(NBT_CREATED_AT, createdAt);
+        tag.putLong(NBT_LAST_UPDATED_AT, lastUpdatedAt);
+        return tag;
+    }
+
+    /**
+     * Deserialises an entry from a {@link CompoundTag}.
+     *
+     * @param tag the NBT tag previously produced by {@link #toNbt()}
+     * @return a new entry with all fields restored
+     */
+    public static RtsWorkflowEntry fromNbt(CompoundTag tag) {
+        int id = tag.getInt(NBT_ID);
+        RtsWorkflowEntry entry = new RtsWorkflowEntry(id);
+
+        if (tag.contains(NBT_TYPE, Tag.TAG_STRING)) {
+            try {
+                entry.type = RtsWorkflowType.valueOf(tag.getString(NBT_TYPE));
+            } catch (IllegalArgumentException ignored) {
+                // Unknown type — leave as null (idle)
+            }
+        }
+
+        // Priority is stored as rank; find the matching enum
+        int priorityRank = tag.getInt(NBT_PRIORITY);
+        for (RtsWorkflowPriority p : RtsWorkflowPriority.values()) {
+            if (p.rank() == priorityRank) {
+                entry.priority = p;
+                break;
+            }
+        }
+
+        entry.totalBlocks = Math.max(0, tag.getInt(NBT_TOTAL_BLOCKS));
+        entry.completedBlocks = Math.max(0, tag.getInt(NBT_COMPLETED_BLOCKS));
+        entry.failedBlocks = Math.max(0, tag.getInt(NBT_FAILED_BLOCKS));
+
+        if (tag.contains(NBT_MISSING_ITEMS, Tag.TAG_LIST)) {
+            ListTag items = tag.getList(NBT_MISSING_ITEMS, Tag.TAG_STRING);
+            for (int i = 0; i < items.size(); i++) {
+                String item = items.getString(i);
+                if (item != null && !item.isBlank()) {
+                    entry.missingItems.add(item);
+                }
+            }
+        }
+
+        entry.detailMessage = tag.contains(NBT_DETAIL, Tag.TAG_STRING)
+                ? tag.getString(NBT_DETAIL) : "";
+        entry.suspended = tag.getBoolean(NBT_SUSPENDED);
+        entry.paused = tag.getBoolean(NBT_PAUSED);
+
+        // Restore timestamps — only override if present
+        if (tag.contains(NBT_CREATED_AT, Tag.TAG_ANY_NUMERIC)) {
+            entry.setCreatedAtRaw(tag.getLong(NBT_CREATED_AT));
+        }
+        if (tag.contains(NBT_LAST_UPDATED_AT, Tag.TAG_ANY_NUMERIC)) {
+            entry.lastUpdatedAt = tag.getLong(NBT_LAST_UPDATED_AT);
+        }
+
+        return entry;
+    }
+
+    /** Package-private setter to override the created-at timestamp on deserialisation. */
+    void setCreatedAtRaw(long createdAt) {
+        this.createdAt = createdAt;
     }
 
     // ──────────────────────────────────────────────────────────────────

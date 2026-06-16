@@ -1,6 +1,5 @@
 package com.rtsbuilding.rtsbuilding.server.pipeline.mining;
 
-import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.server.pipeline.context.MiningContext;
 import com.rtsbuilding.rtsbuilding.server.pipeline.core.PipelineContext;
 import com.rtsbuilding.rtsbuilding.server.pipeline.core.TickResult;
@@ -112,7 +111,6 @@ public final class UltimineTickPipe implements TickablePipe {
                 int delta = currentBroken - lastReported;
                 accumulateDelta(ctx, delta);
                 setLastReported(ctx, currentBroken);
-                RtsbuildingMod.LOGGER.trace("[UltimineTickPipe] Accumulated {} progress delta", delta);
             } else if (currentBroken < lastReported) {
                 // ultimineBrokenTargets was reset (activateNextJob resets it
                 // to 0 when loading a queued job).  Reset our tracking too so
@@ -151,8 +149,6 @@ public final class UltimineTickPipe implements TickablePipe {
             setAccumulatedDelta(ctx, 0);
         }
 
-        RtsbuildingMod.LOGGER.debug("[UltimineTickPipe] Ultimine batch completed for player {}",
-                mctx.player().getGameProfile().getName());
         return TickResult.done();
     }
 

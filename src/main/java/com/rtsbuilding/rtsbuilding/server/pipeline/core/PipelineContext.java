@@ -155,6 +155,32 @@ public class PipelineContext {
     // ── Deprecated String-based overloads ───────────────────────────
 
     /**
+     * Removes all shared data except the specified keys.
+     * Called after the sync phase completes to free intermediate data
+     * before the tickable phase begins.
+     *
+     * <p>Only values associated with the given keys are preserved; all
+     * other entries in the shared data map are discarded.  This prevents
+     * transient sync-phase data (queue mode flags, intermediate results)
+     * from lingering in memory for the duration of a long tickable phase.</p>
+     *
+     * @param keys the keys whose values should be retained
+     */
+    public void retainOnly(TypedKey<?>... keys) {
+        Map<String, Object> retained = new HashMap<>();
+        for (TypedKey<?> key : keys) {
+            Object value = data.get(key.name());
+            if (value != null) {
+                retained.put(key.name(), value);
+            }
+        }
+        data.clear();
+        data.putAll(retained);
+    }
+
+    // ── Deprecated String-based overloads ───────────────────────────
+
+    /**
      * @deprecated Use {@link #setData(TypedKey, Object)} for compile-time
      *             type safety.  This method accepts any {@code Object} and
      *             will not validate the type at runtime.

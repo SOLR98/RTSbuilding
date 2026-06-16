@@ -484,10 +484,6 @@ public final class RtsUltimineProcessor {
         int processedThisTick = 0;
         int brokenBeforeThisTick = session.mining.ultimineBrokenTargets;
 
-        RtsbuildingMod.LOGGER.debug("[RtsUltimineProcessor] processUltimineTargets: {} remaining, {} already broken for {}",
-                session.mining.ultimineTargets.size(), session.mining.ultimineBrokenTargets,
-                player.getGameProfile().getName());
-
         while (processedThisTick < RtsMiningValidator.ULTIMINE_BLOCKS_PER_TICK && !session.mining.ultimineTargets.isEmpty()) {
             if (RtsMiningValidator.isToolNearBreak(player, session)) {
                 finishUltimineBatch(player, session);
@@ -536,9 +532,6 @@ public final class RtsUltimineProcessor {
         // progress bar updates in real time instead of staying at 0 until
         // the entire batch finishes.
         int brokenDelta = session.mining.ultimineBrokenTargets - brokenBeforeThisTick;
-        RtsbuildingMod.LOGGER.debug("[RtsUltimineProcessor] processUltimineTargets: processed {} this tick, {} broken delta, {} remaining for {}",
-                processedThisTick, brokenDelta, session.mining.ultimineTargets.size(),
-                player.getGameProfile().getName());
         if (brokenDelta > 0) {
             // 连锁挖掘中途进度：触发储存页面刷新以保证GUI实时更新
             RtsStorageTickService.INSTANCE.forceRefresh(player);

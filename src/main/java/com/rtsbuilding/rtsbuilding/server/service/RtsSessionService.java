@@ -15,6 +15,7 @@ import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
+import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -112,8 +113,24 @@ public final class RtsSessionService {
 
     public static void onRtsDisabled(ServerPlayer player) {
         RtsStorageSession session = getOrCreate(player);
-        RtsMiningStateMachine.stopActiveMining(player, session);
-        session.placement.placeBatchJobs.clear();
+
+        // Release mining resources (borrowed tool, break-stage particles)
+        // WITHOUT cancelling the workflow entry or clearing the runtime mining
+        // state. We want the mining operation to be resumable when the player
+        // re-enables RTS mode and unpauses their thread.
+        RtsMiningStateMachine.releaseMiningResources(player, session);
+
+        // Pause any active (non-suspended, non-paused) workflow threads.
+        // This ensures the player's in-progress operations are preserved
+        // rather than silently abandoned when RTS mode is turned off.
+        RtsWorkflowEngine.getInstance().pauseAllActive(player.getUUID(), true);
+
+        // Do NOT clear placeBatchJobs here — the workflow entries are now
+        // paused, and tickPlaceBatchJobs() skips paused entries. Keeping the
+        // jobs in memory ensures that when the player re-enables RTS mode
+        // and unpauses their threads, the placement work continues seamlessly.
+        // If we cleared the jobs, they would be lost since the session stays
+        // in SESSIONS and loadFromPersistentStorage() is only called once.
         RtsPathfindingService.cancel(player);
         RtsFunnelService.disableAndFlush(player, session);
         RtsMenuRemoteService.closeTracked(player, session);
@@ -132,7 +149,24 @@ public final class RtsSessionService {
     public static void onPlayerLogout(ServerPlayer player) {
         RtsPathfindingService.cancel(player);
         RtsStorageSession session = SESSIONS.get(player.getUUID());
+
+        // Release mining resources (borrowed tool, break-stage particles)
+        // without cancelling the workflow entries. The entries will be paused
+        // below so the player sees them on rejoin.
         if (session != null) {
+            RtsMiningStateMachine.releaseMiningResources(player, session);
+        }
+
+        // Pause any active (non-suspended, non-paused) workflow threads before
+        // saving. When the player re-joins, these threads will appear paused
+        // rather than silently missing — the player can unpause them to continue.
+        RtsWorkflowEngine.getInstance().pauseAllActive(player.getUUID(), false);
+
+        if (session != null) {
+            // Save session data (including placement jobs) BEFORE clearing
+            // active jobs. This ensures active placement jobs are persisted
+            // and can be resumed when the player logs back in.
+            saveToPlayerNbt(player, session);
             session.placement.placeBatchJobs.clear();
             RtsFunnelService.disableAndFlush(player, session);
             RtsMenuRemoteService.closeTracked(player, session);
@@ -141,7 +175,6 @@ public final class RtsSessionService {
             // GC'd before the session object is dropped.
             session.cachedBdHandler = null;
             session.cachedBdFluidHandler = null;
-            saveToPlayerNbt(player, session);
         }
         SESSIONS.remove(player.getUUID());
         // Clean up storage cache
@@ -150,6 +183,14 @@ public final class RtsSessionService {
 
         // Clean up any active tickable pipelines for this player
         TickablePipelineRegistry.removeAll(player.getUUID());
+
+        // Save workflow entries to the world save file so they survive
+        // logout/login cycles within the same world save. We do NOT clear
+        // the in-memory data here — that is handled by clearAllData() on
+        // ServerStoppedEvent. Clearing now would cause the subsequent
+        // saveAll() in onServerStopped to overwrite the file with empty
+        // data, since all player entries would already be gone from memory.
+        RtsWorkflowEngine.getInstance().saveAll(player.getServer());
     }
 
     public static void onPlayerTickPost(ServerPlayer player) {

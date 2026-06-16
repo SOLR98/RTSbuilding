@@ -87,8 +87,6 @@ public final class ActivePipeline {
                 case TickResult.Done d -> {
                     completed = true;
                     completeWorkflow();
-                    RtsbuildingMod.LOGGER.debug("[ActivePipeline] Tickable pipe completed for player {}",
-                            player.getGameProfile().getName());
                     yield Optional.of(PipelineResult.success());
                 }
                 case TickResult.Error e -> {
@@ -133,8 +131,6 @@ public final class ActivePipeline {
         RtsWorkflowEngine.getInstance().from(player, entryId)
                 .ifPresent(token -> {
                     token.complete();
-                    RtsbuildingMod.LOGGER.debug("[ActivePipeline] Completed workflow #{} for player {}",
-                            entryId, player.getGameProfile().getName());
                 });
     }
 

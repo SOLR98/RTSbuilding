@@ -73,8 +73,6 @@ public final class WorkflowStartPipe implements PipelinePipe<PipelineContext> {
         }
 
         ctx.setData(KEY_WORKFLOW_ENTRY_ID, token.getEntryId());
-        RtsbuildingMod.LOGGER.debug("[WorkflowStartPipe] Started workflow #{}: {} ({} blocks)",
-                token.getEntryId(), type, totalBlocks);
         return PipelineResult.success();
     }
 }

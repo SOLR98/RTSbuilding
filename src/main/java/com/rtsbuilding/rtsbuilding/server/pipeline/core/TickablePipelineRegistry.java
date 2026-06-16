@@ -1,8 +1,9 @@
 package com.rtsbuilding.rtsbuilding.server.pipeline.core;
 
-import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.Level;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,8 +25,8 @@ public final class TickablePipelineRegistry {
 
     private static final TickablePipelineRegistry INSTANCE = new TickablePipelineRegistry();
 
-    /** Per-player list of active tickable pipelines. */
-    private final Map<UUID, List<ActivePipeline>> activePipelines = new ConcurrentHashMap<>();
+    /** Per-player, per-dimension list of active tickable pipelines. */
+    private final Map<UUID, Map<ResourceKey<Level>, List<ActivePipeline>>> activePipelines = new ConcurrentHashMap<>();
 
     private TickablePipelineRegistry() {
     }
@@ -55,13 +56,30 @@ public final class TickablePipelineRegistry {
     }
 
     /**
-     * Removes all active pipelines for a given player.  Called on player logout.
+     * Removes all active pipelines for a given player across all dimensions.
+     * Called on player logout.
      *
      * @param playerId the player's UUID
      */
     public static void removeAll(UUID playerId) {
         INSTANCE.activePipelines.remove(playerId);
-        RtsbuildingMod.LOGGER.debug("[TickablePipelineRegistry] Removed all pipelines for player {}", playerId);
+    }
+
+    /**
+     * Removes all active pipelines for a given player in a specific dimension.
+     * Called when the player leaves a dimension.
+     *
+     * @param playerId  the player's UUID
+     * @param dimension the dimension to clean up
+     */
+    public static void removeAll(UUID playerId, ResourceKey<Level> dimension) {
+        Map<ResourceKey<Level>, List<ActivePipeline>> dimMap = INSTANCE.activePipelines.get(playerId);
+        if (dimMap != null) {
+            dimMap.remove(dimension);
+            if (dimMap.isEmpty()) {
+                INSTANCE.activePipelines.remove(playerId);
+            }
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -84,11 +102,11 @@ public final class TickablePipelineRegistry {
     // ──────────────────────────────────────────────────────────────────
 
     private void doRegister(ServerPlayer player, PipelineContext ctx, TickablePipe pipe) {
-        List<ActivePipeline> list = activePipelines.computeIfAbsent(
-                player.getUUID(), k -> new ArrayList<>());
+        ResourceKey<Level> dimension = player.level().dimension();
+        Map<ResourceKey<Level>, List<ActivePipeline>> dimMap = activePipelines.computeIfAbsent(
+                player.getUUID(), k -> new ConcurrentHashMap<>());
+        List<ActivePipeline> list = dimMap.computeIfAbsent(dimension, k -> new ArrayList<>());
         list.add(new ActivePipeline(player, ctx, pipe));
-        RtsbuildingMod.LOGGER.debug("[TickablePipelineRegistry] Registered tickable pipeline for player {} (total: {})",
-                player.getGameProfile().getName(), list.size());
     }
 
     private void doTickAll() {
@@ -96,34 +114,63 @@ public final class TickablePipelineRegistry {
             return;
         }
 
-        Iterator<Map.Entry<UUID, List<ActivePipeline>>> entryIt = activePipelines.entrySet().iterator();
-        while (entryIt.hasNext()) {
-            Map.Entry<UUID, List<ActivePipeline>> entry = entryIt.next();
-            UUID playerId = entry.getKey();
+        Iterator<Map.Entry<UUID, Map<ResourceKey<Level>, List<ActivePipeline>>>> playerIt =
+                activePipelines.entrySet().iterator();
 
-            List<ActivePipeline> pipelines = entry.getValue();
+        while (playerIt.hasNext()) {
+            Map.Entry<UUID, Map<ResourceKey<Level>, List<ActivePipeline>>> playerEntry = playerIt.next();
+            UUID playerId = playerEntry.getKey();
+            Map<ResourceKey<Level>, List<ActivePipeline>> dimPipelines = playerEntry.getValue();
 
-            pipelines.removeIf(ap -> {
-                // Per-entry pause valve: skip this pipeline if its workflow entry is paused
-                if (ap.context().hasData(PipelineContext.KEY_WORKFLOW_ENTRY_ID)) {
-                    int eid = ap.context().getData(PipelineContext.KEY_WORKFLOW_ENTRY_ID);
-                    if (RtsWorkflowEngine.getInstance().isEntryPaused(playerId, eid)) {
-                        return false; // keep registered but skip tick
+            Iterator<Map.Entry<ResourceKey<Level>, List<ActivePipeline>>> dimIt =
+                    dimPipelines.entrySet().iterator();
+
+            while (dimIt.hasNext()) {
+                Map.Entry<ResourceKey<Level>, List<ActivePipeline>> dimEntry = dimIt.next();
+                ResourceKey<Level> pipelineDim = dimEntry.getKey();
+                List<ActivePipeline> pipelines = dimEntry.getValue();
+
+                // Only tick pipelines in the player's current dimension.
+                // Pipelines from other dimensions remain registered but are
+                // skipped — they will be ticked when the player returns, or
+                // cleaned up by timeout / on dimension change.
+                if (pipelines.isEmpty()) {
+                    dimIt.remove();
+                    continue;
+                }
+
+                // Check if any pipeline in this dimension list matches the
+                // player's current dimension (all pipelines in the same dim
+                // list share the same dimension key).
+                ActivePipeline first = pipelines.get(0);
+                ResourceKey<Level> playerCurrentDim = first.player().level().dimension();
+                if (!pipelineDim.equals(playerCurrentDim)) {
+                    continue; // skip this dimension entirely
+                }
+
+                pipelines.removeIf(ap -> {
+                    // Per-entry pause valve: skip this pipeline if its workflow entry is paused
+                    if (ap.context().hasData(PipelineContext.KEY_WORKFLOW_ENTRY_ID)) {
+                        int eid = ap.context().getData(PipelineContext.KEY_WORKFLOW_ENTRY_ID);
+                        if (RtsWorkflowEngine.getInstance().isEntryPaused(playerId, pipelineDim, eid)) {
+                            return false; // keep registered but skip tick
+                        }
                     }
-                }
 
-                var result = ap.tick();
-                if (result.isPresent()) {
-                    RtsbuildingMod.LOGGER.debug("[TickablePipelineRegistry] Pipeline completed for player {}: {}",
-                            ap.player().getGameProfile().getName(),
-                            result.get() instanceof PipelineResult.Success ? "success" : "failure");
-                    return true; // remove from list
-                }
-                return false;
-            });
+                    var result = ap.tick();
+                    if (result.isPresent()) {
+                        return true; // remove from list
+                    }
+                    return false;
+                });
 
-            if (pipelines.isEmpty()) {
-                entryIt.remove();
+                if (pipelines.isEmpty()) {
+                    dimIt.remove();
+                }
+            }
+
+            if (dimPipelines.isEmpty()) {
+                playerIt.remove();
             }
         }
     }

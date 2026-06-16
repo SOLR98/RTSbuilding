@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.workflow.core;
 
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
+import com.rtsbuilding.rtsbuilding.server.data.RtsWorkflowStore;
 import com.rtsbuilding.rtsbuilding.server.workflow.event.RtsWorkflowEventBus;
 import com.rtsbuilding.rtsbuilding.server.workflow.event.WorkflowEvent;
 import com.rtsbuilding.rtsbuilding.server.workflow.event.WorkflowEventListener;
@@ -12,8 +13,10 @@ import com.rtsbuilding.rtsbuilding.server.workflow.service.RtsWorkflowSlotManage
 import com.rtsbuilding.rtsbuilding.server.workflow.service.RtsWorkflowSyncService;
 import com.rtsbuilding.rtsbuilding.server.workflow.service.RtsWorkflowTimeoutService;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.Level;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 import javax.annotation.Nullable;
@@ -55,8 +58,8 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
     //  State
     // ──────────────────────────────────────────────────────────────────
 
-    /** Per-player slot managers, lazily created. */
-    private final Map<UUID, RtsWorkflowSlotManager> playerSlots = new ConcurrentHashMap<>();
+    /** Per-player, per-dimension slot managers, lazily created. */
+    private final Map<UUID, Map<ResourceKey<Level>, RtsWorkflowSlotManager>> playerSlots = new ConcurrentHashMap<>();
 
     /**
      * Tracks the most recent valid {@link ServerPlayer} reference per UUID.
@@ -78,11 +81,6 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
     // ──────────────────────────────────────────────────────────────────
 
     private RtsWorkflowEngine() {
-        // Default logging listener for all workflow lifecycle events
-        addListener(event -> RtsbuildingMod.LOGGER.debug(
-                "[WorkflowEvent] {} entry#{}: {}",
-                event.type(), event.entryId(),
-                event.status() != null ? event.status().type() : "?"));
     }
 
     /** Returns the singleton engine instance. */
@@ -118,18 +116,18 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
     // ──────────────────────────────────────────────────────────────────
 
     /**
-     * Finds an entry by player UUID and entry ID.
+     * Finds an entry by player UUID, dimension, and entry ID.
      * Package-private — called by {@link RtsWorkflowToken}.
      */
     @Nullable
-    RtsWorkflowEntry findEntry(UUID playerId, int entryId) {
-        RtsWorkflowSlotManager slots = playerSlots.get(playerId);
+    RtsWorkflowEntry findEntry(UUID playerId, ResourceKey<Level> dimension, int entryId) {
+        RtsWorkflowSlotManager slots = getSlots(playerId, dimension);
         if (slots == null) return null;
         return slots.findEntryById(entryId);
     }
 
     /**
-     * Removes an entry by player UUID and entry ID, then notifies the
+     * Removes an entry by player UUID, dimension, and entry ID, then notifies the
      * client and fires an event.
      * Package-private — called by {@link RtsWorkflowToken}.
      *
@@ -139,8 +137,8 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
      * {@code idle()} when no entries remain, so the caller does not need
      * to check {@code occupiedCount()} beforehand.</p>
      */
-    void removeEntry(UUID playerId, int entryId) {
-        RtsWorkflowSlotManager slots = playerSlots.get(playerId);
+    void removeEntry(UUID playerId, ResourceKey<Level> dimension, int entryId) {
+        RtsWorkflowSlotManager slots = getSlots(playerId, dimension);
         if (slots == null) return;
 
         boolean removed = slots.removeEntryById(entryId);
@@ -154,11 +152,11 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
     }
 
     /**
-     * Sends a full workflow state update to the player.
+     * Sends a full workflow state update to the player for the given dimension.
      * Package-private — called by {@link RtsWorkflowToken}.
      */
-    void notifyPlayer(UUID playerId) {
-        RtsWorkflowSlotManager slots = playerSlots.get(playerId);
+    void notifyPlayer(UUID playerId, ResourceKey<Level> dimension) {
+        RtsWorkflowSlotManager slots = getSlots(playerId, dimension);
         if (slots == null) return;
 
         ServerPlayer player = findPlayerByUUID(playerId);
@@ -203,7 +201,8 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
         // Track the player reference for later notification
         playerRefs.put(player.getUUID(), player);
 
-        RtsWorkflowToken token = new RtsWorkflowToken(player.getUUID(), entry.id(), this);
+        ResourceKey<Level> dimension = player.level().dimension();
+        RtsWorkflowToken token = new RtsWorkflowToken(player.getUUID(), entry.id(), dimension, this);
         fireEvent(WorkflowEventType.STARTED, player.getUUID(), entry.id(), entry);
         syncService.notifyPlayer(player, slots);
 
@@ -220,22 +219,24 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
     public Optional<RtsWorkflowToken> from(ServerPlayer player, int entryId) {
         if (player == null) return Optional.empty();
         playerRefs.put(player.getUUID(), player);
-        RtsWorkflowSlotManager slots = playerSlots.get(player.getUUID());
+        ResourceKey<Level> dimension = player.level().dimension();
+        RtsWorkflowSlotManager slots = getSlots(player.getUUID(), dimension);
         if (slots == null || slots.findEntryById(entryId) == null) {
             return Optional.empty();
         }
-        return Optional.of(new RtsWorkflowToken(player.getUUID(), entryId, this));
+        return Optional.of(new RtsWorkflowToken(player.getUUID(), entryId, dimension, this));
     }
 
     @Override
     public Optional<RtsWorkflowToken> lastActive(ServerPlayer player) {
         if (player == null) return Optional.empty();
         playerRefs.put(player.getUUID(), player);
-        RtsWorkflowSlotManager slots = playerSlots.get(player.getUUID());
+        ResourceKey<Level> dimension = player.level().dimension();
+        RtsWorkflowSlotManager slots = getSlots(player.getUUID(), dimension);
         if (slots == null) return Optional.empty();
         RtsWorkflowEntry entry = slots.lastActive();
         if (entry == null) return Optional.empty();
-        return Optional.of(new RtsWorkflowToken(player.getUUID(), entry.id(), this));
+        return Optional.of(new RtsWorkflowToken(player.getUUID(), entry.id(), dimension, this));
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -264,7 +265,8 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
     @Override
     public RtsWorkflowStatus getProgress(ServerPlayer player, int entryId) {
         if (player == null) return RtsWorkflowStatus.idle();
-        RtsWorkflowSlotManager slots = playerSlots.get(player.getUUID());
+        ResourceKey<Level> dimension = player.level().dimension();
+        RtsWorkflowSlotManager slots = getSlots(player.getUUID(), dimension);
         if (slots == null) return RtsWorkflowStatus.idle();
         RtsWorkflowEntry entry = slots.findEntryById(entryId);
         if (entry == null || !entry.isOccupied()) return RtsWorkflowStatus.idle();
@@ -274,7 +276,8 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
     @Override
     public List<RtsWorkflowStatus> getAllProgress(ServerPlayer player) {
         if (player == null) return List.of();
-        RtsWorkflowSlotManager slots = playerSlots.get(player.getUUID());
+        ResourceKey<Level> dimension = player.level().dimension();
+        RtsWorkflowSlotManager slots = getSlots(player.getUUID(), dimension);
         if (slots == null) return List.of();
         return slots.occupiedEntries().stream()
                 .map(RtsWorkflowEntry::snapshot)
@@ -284,28 +287,32 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
     @Override
     public boolean hasActiveWorkflow(ServerPlayer player) {
         if (player == null) return false;
-        RtsWorkflowSlotManager slots = playerSlots.get(player.getUUID());
+        ResourceKey<Level> dimension = player.level().dimension();
+        RtsWorkflowSlotManager slots = getSlots(player.getUUID(), dimension);
         return slots != null && slots.hasActiveWorkflow();
     }
 
     @Override
     public int activeWorkflowCount(ServerPlayer player) {
         if (player == null) return 0;
-        RtsWorkflowSlotManager slots = playerSlots.get(player.getUUID());
+        ResourceKey<Level> dimension = player.level().dimension();
+        RtsWorkflowSlotManager slots = getSlots(player.getUUID(), dimension);
         return slots != null ? slots.activeCount() : 0;
     }
 
     @Override
     public int occupiedSlotCount(ServerPlayer player) {
         if (player == null) return 0;
-        RtsWorkflowSlotManager slots = playerSlots.get(player.getUUID());
+        ResourceKey<Level> dimension = player.level().dimension();
+        RtsWorkflowSlotManager slots = getSlots(player.getUUID(), dimension);
         return slots != null ? slots.occupiedCount() : 0;
     }
 
     @Override
     public boolean isFull(ServerPlayer player) {
         if (player == null) return false;
-        RtsWorkflowSlotManager slots = playerSlots.get(player.getUUID());
+        ResourceKey<Level> dimension = player.level().dimension();
+        RtsWorkflowSlotManager slots = getSlots(player.getUUID(), dimension);
         return slots != null && slots.isFull();
     }
 
@@ -332,7 +339,8 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
      */
     public void firePipelineEvent(ServerPlayer player, int entryId, WorkflowEventType type) {
         if (player == null) return;
-        RtsWorkflowSlotManager slots = playerSlots.get(player.getUUID());
+        ResourceKey<Level> dimension = player.level().dimension();
+        RtsWorkflowSlotManager slots = getSlots(player.getUUID(), dimension);
         if (slots == null) return;
         RtsWorkflowEntry entry = slots.findEntryById(entryId);
         if (entry == null) return;
@@ -344,22 +352,61 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
     // ──────────────────────────────────────────────────────────────────
 
     // ──────────────────────────────────────────────────────────────────
-    //  IWorkflowEngine — Pause / Resume (per-entry valve)
+    //  Pause / Resume — per-entry valve
     // ──────────────────────────────────────────────────────────────────
 
     @Override
-    public boolean isEntryPaused(UUID playerId, int entryId) {
-        if (playerId == null) return false;
-        RtsWorkflowSlotManager slots = playerSlots.get(playerId);
+    public boolean isEntryPaused(UUID playerId, ResourceKey<Level> dimension, int entryId) {
+        if (playerId == null || dimension == null) return false;
+        RtsWorkflowSlotManager slots = getSlots(playerId, dimension);
         if (slots == null) return false;
         RtsWorkflowEntry entry = slots.findEntryById(entryId);
         return entry != null && entry.paused();
     }
 
+    /**
+     * Pauses all active (non-suspended, non-paused) workflow entries for the
+     * given player across all dimensions.
+     *
+     * <p>Used when the player disables RTS mode or disconnects without manually
+     * pausing their threads. Already-paused and suspended entries are left
+     * untouched.</p>
+     *
+     * @param playerId the player's UUID
+     * @param notify   whether to send a network sync to the player (no-op if offline)
+     */
+    public void pauseAllActive(UUID playerId, boolean notify) {
+        if (playerId == null) return;
+        Map<ResourceKey<Level>, RtsWorkflowSlotManager> dimMap = playerSlots.get(playerId);
+        if (dimMap == null) return;
+
+        for (Map.Entry<ResourceKey<Level>, RtsWorkflowSlotManager> dimEntry : dimMap.entrySet()) {
+            ResourceKey<Level> dimension = dimEntry.getKey();
+            RtsWorkflowSlotManager slots = dimEntry.getValue();
+            boolean anyChanged = false;
+
+            for (RtsWorkflowEntry entry : slots.occupiedEntries()) {
+                if (!entry.suspended() && !entry.paused()) {
+                    entry.setPaused(true);
+                    fireEvent(WorkflowEventType.PAUSED, playerId, entry.id(), entry);
+                    anyChanged = true;
+                }
+            }
+
+            if (anyChanged && notify) {
+                ServerPlayer player = findPlayerByUUID(playerId);
+                if (player != null) {
+                    syncService.notifyPlayer(player, slots);
+                }
+            }
+        }
+    }
+
     @Override
     public void deleteWorkflow(ServerPlayer player, int entryId) {
         if (player == null) return;
-        RtsWorkflowSlotManager slots = playerSlots.get(player.getUUID());
+        ResourceKey<Level> dimension = player.level().dimension();
+        RtsWorkflowSlotManager slots = getSlots(player.getUUID(), dimension);
         if (slots == null) return;
 
         RtsWorkflowEntry entry = slots.findEntryById(entryId);
@@ -381,7 +428,8 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
     @Override
     public void cancelAll(ServerPlayer player) {
         if (player == null) return;
-        RtsWorkflowSlotManager slots = playerSlots.get(player.getUUID());
+        ResourceKey<Level> dimension = player.level().dimension();
+        RtsWorkflowSlotManager slots = getSlots(player.getUUID(), dimension);
         if (slots == null) return;
 
         for (RtsWorkflowEntry entry : slots.occupiedEntries()) {
@@ -391,34 +439,123 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
         syncService.sendIdle(player);
     }
 
+    // ──────────────────────────────────────────────────────────────────
+    //  IWorkflowEngine — World-switch cleanup
+    // ──────────────────────────────────────────────────────────────────
+
+    @Override
+    public void clearPlayerData(UUID playerId) {
+        if (playerId == null) return;
+        playerSlots.remove(playerId);
+        playerRefs.remove(playerId);
+    }
+
+    @Override
+    public void clearAllData() {
+        int totalPlayers = playerSlots.size();
+        playerSlots.clear();
+        playerRefs.clear();
+        RtsbuildingMod.LOGGER.info("[Workflow] Cleared all workflow data ({} players)", totalPlayers);
+    }
+
     @Override
     public int cleanupStaleWorkflows(Duration maxIdleTime) {
         int total = 0;
         long maxIdleMs = maxIdleTime.toMillis();
 
-        for (Map.Entry<UUID, RtsWorkflowSlotManager> entry : playerSlots.entrySet()) {
-            UUID playerId = entry.getKey();
-            RtsWorkflowSlotManager slots = entry.getValue();
+        for (Map.Entry<UUID, Map<ResourceKey<Level>, RtsWorkflowSlotManager>> playerEntry : playerSlots.entrySet()) {
+            UUID playerId = playerEntry.getKey();
 
-            List<Integer> staleIds = slots.removeStaleEntries(maxIdleMs);
-            for (int staleId : staleIds) {
-                fireEvent(WorkflowEventType.TIMEOUT, playerId, staleId, null);
-                total++;
-            }
+            for (Map.Entry<ResourceKey<Level>, RtsWorkflowSlotManager> dimEntry : playerEntry.getValue().entrySet()) {
+                RtsWorkflowSlotManager slots = dimEntry.getValue();
 
-            if (!staleIds.isEmpty()) {
-                // Notify the player if they're still online
-                ServerPlayer player = findPlayerByUUID(playerId);
-                if (player != null) {
-                    if (slots.occupiedCount() > 0) {
-                        syncService.notifyPlayer(player, slots);
-                    } else {
-                        syncService.sendIdle(player);
+                List<Integer> staleIds = slots.removeStaleEntries(maxIdleMs);
+                for (int staleId : staleIds) {
+                    fireEvent(WorkflowEventType.TIMEOUT, playerId, staleId, null);
+                    total++;
+                }
+
+                if (!staleIds.isEmpty()) {
+                    // Notify the player if they're still online
+                    ServerPlayer player = findPlayerByUUID(playerId);
+                    if (player != null) {
+                        if (slots.occupiedCount() > 0) {
+                            syncService.notifyPlayer(player, slots);
+                        } else {
+                            syncService.sendIdle(player);
+                        }
                     }
                 }
             }
+
+            // Remove empty dimension maps
+            playerEntry.getValue().entrySet().removeIf(e -> e.getValue().occupiedCount() == 0 && e.getValue().size() == 0);
         }
+
+        // Remove players with no dimensions
+        playerSlots.values().removeIf(Map::isEmpty);
         return total;
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    //  Persistence — save / load workflow entries
+    // ──────────────────────────────────────────────────────────────────
+
+    /**
+     * Saves all workflow entries for all players to the world save file.
+     * Call before server stop or periodically to persist workflow state.
+     *
+     * @param server the Minecraft server (used to derive the world save path)
+     */
+    public void saveAll(MinecraftServer server) {
+        if (server == null) return;
+        RtsWorkflowStore.saveAll(server, playerSlots);
+    }
+
+    /**
+     * Loads workflow entries for a specific player from the world save file
+     * and merges them into the in-memory slot managers.
+     *
+     * <p>Loaded entries are restored with their original state (suspended/paused),
+     * so the player will see their previous threads. The player is notified
+     * immediately so their UI reflects the restored entries.</p>
+     *
+     * @param server   the Minecraft server
+     * @param player the player whose entries to load
+     */
+    public void loadPlayerFromStore(MinecraftServer server, ServerPlayer player) {
+        if (server == null || player == null) return;
+        UUID playerId = player.getUUID();
+
+        Map<ResourceKey<Level>, RtsWorkflowSlotManager> loaded =
+                RtsWorkflowStore.loadPlayer(server, playerId);
+
+        if (loaded.isEmpty()) return;
+
+        // Merge loaded slot managers into the engine's in-memory map
+        Map<ResourceKey<Level>, RtsWorkflowSlotManager> dimMap = playerSlots
+                .computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+
+        for (Map.Entry<ResourceKey<Level>, RtsWorkflowSlotManager> entry : loaded.entrySet()) {
+            ResourceKey<Level> dimension = entry.getKey();
+            if (!dimMap.containsKey(dimension)) {
+                dimMap.put(dimension, entry.getValue());
+            }
+            // If a slot manager already exists for this dimension (e.g. the
+            // player had active workflows when they disconnected), skip merging
+            // to avoid duplicating entries.
+        }
+
+        // Notify the client so the UI shows the restored entries
+        ResourceKey<Level> currentDim = player.level().dimension();
+        RtsWorkflowSlotManager currentSlots = getSlots(playerId, currentDim);
+        if (currentSlots != null && currentSlots.occupiedCount() > 0) {
+            syncService.notifyPlayer(player, currentSlots);
+        }
+
+        RtsbuildingMod.LOGGER.info("[Workflow] Loaded {} workflow entries for player {} from store",
+                loaded.values().stream().mapToInt(RtsWorkflowSlotManager::occupiedCount).sum(),
+                playerId);
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -426,12 +563,24 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
     // ──────────────────────────────────────────────────────────────────
 
     /**
-     * Gets or creates a slot manager for the given player.
+     * Gets or creates a slot manager for the given player in the player's current dimension.
      */
     private RtsWorkflowSlotManager getOrCreateSlots(ServerPlayer player) {
         playerRefs.put(player.getUUID(), player);
-        return playerSlots.computeIfAbsent(
-                player.getUUID(), k -> new RtsWorkflowSlotManager());
+        ResourceKey<Level> dimension = player.level().dimension();
+        return playerSlots
+                .computeIfAbsent(player.getUUID(), k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(dimension, k -> new RtsWorkflowSlotManager());
+    }
+
+    /**
+     * Gets the slot manager for the given player and dimension, or {@code null} if none exists.
+     */
+    @Nullable
+    private RtsWorkflowSlotManager getSlots(UUID playerId, ResourceKey<Level> dimension) {
+        Map<ResourceKey<Level>, RtsWorkflowSlotManager> dimMap = playerSlots.get(playerId);
+        if (dimMap == null) return null;
+        return dimMap.get(dimension);
     }
 
     /**
