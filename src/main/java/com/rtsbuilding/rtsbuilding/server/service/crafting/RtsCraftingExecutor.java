@@ -5,6 +5,7 @@ import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.menu.RtsCraftTerminalMenu;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
+import com.rtsbuilding.rtsbuilding.server.service.QuestService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsRemoteMenuService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsSessionService;
@@ -82,7 +83,6 @@ public final class RtsCraftingExecutor {
 
     /**
      * Crafts a recipe into linked storage, up to {@code craftCount} times.
-     * Uses batch extraction for efficiency.
      */
     public static void craftRecipeToLinked(ServerPlayer player, RtsStorageSession session, String recipeId, int craftCount) {
         if (!RtsProgressionManager.canUse(player, RtsFeature.CRAFT_TERMINAL)) {
@@ -123,104 +123,29 @@ public final class RtsCraftingExecutor {
         List<IItemHandler> extractHandlers = RtsLinkedStorageResolver.itemHandlersForExtract(activeLinked);
         List<IItemHandler> insertHandlers = RtsLinkedStorageResolver.itemHandlersForInsert(activeLinked);
 
-        boolean includePlayerFallback = !(player.containerMenu instanceof RtsCraftTerminalMenu);
-        int requestedCrafts = Math.max(1, Math.min(999, craftCount));
-
-        Ingredient[] required = RtsCraftingUtils.mapCraftingIngredients(craftingRecipe);
-        if (required.length != 9) {
-            return;
-        }
-
-        List<AvailableCraftItem> available = RtsCraftingAvailability.snapshotAvailable(
-                player, extractHandlers, includePlayerFallback);
-        BatchPlan batch = RtsCraftingAvailability.resolveBatchPlan(craftingRecipe, available);
-        if (batch == null || !batch.canCraft()) {
-            player.displayClientMessage(Component.literal("Craft: missing ingredients."), true);
-            RtsCraftingSearch.refreshCraftables(player, session);
-            return;
-        }
-
-        int batchSize = Math.min(requestedCrafts, batch.maxMultiplier());
-        ExtractedIngredient[] batchExtracted = extractBatchForCraft(
-                extractHandlers, player, required, batch.plan(), batchSize, includePlayerFallback);
-        if (batchExtracted == null) {
-            player.displayClientMessage(Component.literal("Craft: failed to extract ingredients."), true);
-            return;
-        }
-
         ItemStack previewResult = resolveCraftablePreviewResult(craftingRecipe, player);
         String resultLabel = previewResult.isEmpty() ? "item" : previewResult.getHoverName().getString();
         ResourceLocation previewResultId = previewResult.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(previewResult.getItem());
-
+        int requestedCrafts = Math.max(1, Math.min(999, craftCount));
         int completedCrafts = 0;
         int totalCraftedCount = 0;
         boolean storageFull = false;
         String craftedItemId = previewResultId == null ? "" : previewResultId.toString();
         Map<String, Integer> consumedCounts = new java.util.LinkedHashMap<>();
 
-        for (int i = 0; i < batchSize; i++) {
-            List<ItemStack> inputStacks = new ArrayList<>(9);
-            for (int slot = 0; slot < 9; slot++) {
-                if (batchExtracted[slot] == null || i >= batchExtracted[slot].stack().getCount()) {
-                    inputStacks.add(ItemStack.EMPTY);
-                    continue;
-                }
-                inputStacks.add(batchExtracted[slot].stack().copyWithCount(1));
-            }
-
-            CraftingInput input = CraftingInput.of(3, 3, inputStacks);
-            if (!craftingRecipe.matches(input, player.serverLevel())) {
+        for (int i = 0; i < requestedCrafts; i++) {
+            CraftExecutionResult result = craftSingleRecipeToLinked(
+                    player, extractHandlers, insertHandlers, craftingRecipe);
+            if (!result.success()) {
+                storageFull = result.storageFull();
                 break;
             }
-            ItemStack result = craftingRecipe.assemble(input, player.registryAccess());
-            if (result.isEmpty()) {
-                break;
-            }
-
-            List<ItemStack> outputs = new ArrayList<>();
-            outputs.add(result.copy());
-            NonNullList<ItemStack> remaining = craftingRecipe.getRemainingItems(input);
-            for (ItemStack remain : remaining) {
-                if (!remain.isEmpty()) {
-                    outputs.add(remain.copy());
-                }
-            }
-
-            boolean allStored = true;
-            for (ItemStack stack : outputs) {
-                if (stack.isEmpty()) continue;
-                ItemStack remain = RtsTransferInserter.storeToLinkedOnlyPreferExisting(insertHandlers, stack);
-                if (!remain.isEmpty()) {
-                    storageFull = true;
-                    allStored = false;
-                    break;
-                }
-            }
-            if (!allStored) {
-                for (ItemStack stack : outputs) {
-                    if (stack.isEmpty()) continue;
-                    RtsTransferExtractor.extractOneMatchingPrototypeFromLinked(insertHandlers, stack);
-                }
-                break;
-            }
-
             completedCrafts++;
-            totalCraftedCount += result.getCount();
-            if (!previewResultId.toString().isBlank()) {
-                craftedItemId = previewResultId.toString();
+            totalCraftedCount += result.resultCount();
+            if (!result.resultItemId().isBlank()) {
+                craftedItemId = result.resultItemId();
             }
-            RtsCraftingUtils.mergeConsumedCounts(consumedCounts, RtsCraftingUtils.collectConsumedCounts(batchExtracted));
-        }
-
-        for (int slot = 0; slot < 9; slot++) {
-            if (batchExtracted[slot] == null) continue;
-            int remaining = batchExtracted[slot].stack().getCount() - completedCrafts;
-            if (remaining > 0) {
-                rollbackCraftIngredients(insertHandlers, player,
-                        new ExtractedIngredient[]{new ExtractedIngredient(
-                                batchExtracted[slot].stack().copyWithCount(remaining),
-                                batchExtracted[slot].fromPlayer())});
-            }
+            RtsCraftingUtils.mergeConsumedCounts(consumedCounts, result.consumedCounts());
         }
 
         RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
@@ -250,6 +175,7 @@ public final class RtsCraftingExecutor {
             summary.append(".");
         }
         player.displayClientMessage(Component.literal(summary.toString()), true);
+        QuestService.runQuestDetect(player, session, false);
     }
 
     // ---- single craft -----------------------------------------------------------
@@ -451,104 +377,6 @@ public final class RtsCraftingExecutor {
             }
         }
         return ItemStack.EMPTY;
-    }
-
-    // ---- ingredient extraction (package-visible for GridFiller) -------------------
-
-    // ---- batch ingredient extraction ----------------------------------------------
-
-    /**
-     * Extracts batch amounts of each ingredient for the given plan.
-     *
-     * @return a 9-element array of {@link ExtractedIngredient} with the full
-     *         batch count in each stack, or {@code null} if any ingredient
-     *         could not be extracted in the needed quantity
-     */
-    private static ExtractedIngredient[] extractBatchForCraft(
-            List<IItemHandler> handlers, ServerPlayer player,
-            Ingredient[] required, CraftIngredientPlan plan,
-            int batchSize, boolean includePlayerFallback) {
-        ExtractedIngredient[] extracted = new ExtractedIngredient[9];
-        for (int i = 0; i < 9; i++) {
-            Ingredient ingredient = required[i];
-            if (ingredient == null || ingredient.isEmpty()) {
-                continue;
-            }
-            ItemStack prototype = plan.prototypeAt(i);
-            if (prototype.isEmpty()) {
-                continue;
-            }
-            int needed = batchSize;
-            ItemStack accumulated = ItemStack.EMPTY;
-            boolean fromPlayer = false;
-
-            for (IItemHandler handler : handlers) {
-                if (needed <= 0) break;
-                for (int slot = 0; slot < handler.getSlots() && needed > 0; slot++) {
-                    ItemStack stack = handler.getStackInSlot(slot);
-                    if (stack.isEmpty() || !ingredient.test(stack)) continue;
-                    if (!ItemStack.isSameItemSameComponents(stack, prototype)) continue;
-                    int take = Math.min(needed, stack.getCount());
-                    if (take <= 0) continue;
-                    ItemStack taken = handler.extractItem(slot, take, false);
-                    if (taken.isEmpty()) continue;
-                    int takenCount = taken.getCount();
-                    if (accumulated.isEmpty()) {
-                        accumulated = taken;
-                    } else {
-                        accumulated.grow(takenCount);
-                    }
-                    needed -= takenCount;
-                }
-            }
-
-            if (needed > 0 && includePlayerFallback) {
-                int start = com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder
-                        .getPlayerMainInventoryStart(player);
-                int end = com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder
-                        .getPlayerMainInventoryEndExclusive(player);
-                for (int slot = start; slot < end && needed > 0; slot++) {
-                    ItemStack stack = player.getInventory().getItem(slot);
-                    if (stack.isEmpty() || !ingredient.test(stack)) continue;
-                    if (!ItemStack.isSameItemSameComponents(stack, prototype)) continue;
-                    int take = Math.min(needed, stack.getCount());
-                    ItemStack taken = stack.split(take);
-                    if (stack.isEmpty()) {
-                        player.getInventory().setItem(slot, ItemStack.EMPTY);
-                    } else {
-                        player.getInventory().setItem(slot, stack);
-                    }
-                    if (taken.isEmpty()) continue;
-                    if (accumulated.isEmpty()) {
-                        accumulated = taken;
-                    } else {
-                        accumulated.grow(taken.getCount());
-                    }
-                    needed -= taken.getCount();
-                    fromPlayer = true;
-                }
-            }
-
-            if (needed > 0) {
-                rollbackBatchExtracted(handlers, player, extracted, i);
-                return null;
-            }
-            extracted[i] = new ExtractedIngredient(accumulated, fromPlayer);
-        }
-        return extracted;
-    }
-
-    private static void rollbackBatchExtracted(
-            List<IItemHandler> handlers, ServerPlayer player,
-            ExtractedIngredient[] extracted, int upTo) {
-        for (int i = 0; i < upTo; i++) {
-            if (extracted[i] == null || extracted[i].stack().isEmpty()) continue;
-            if (extracted[i].fromPlayer()) {
-                RtsTransferInserter.moveToPlayerInventoryOnly(player, extracted[i].stack());
-            } else {
-                RtsTransferInserter.storeToLinkedOnlyPreferExisting(handlers, extracted[i].stack());
-            }
-        }
     }
 
     // ---- ingredient extraction (package-visible for GridFiller) -------------------

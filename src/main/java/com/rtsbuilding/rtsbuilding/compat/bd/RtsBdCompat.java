@@ -15,7 +15,6 @@ import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 import net.neoforged.neoforge.items.IItemHandler;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -37,7 +36,7 @@ public final class RtsBdCompat {
         return DimensionsNet.getPrimaryNetFromPlayer(player) != null;
     }
 
-    public static IItemHandler createNetworkItemHandler(ServerPlayer player) {
+    public static IItemHandler createNetworkItemHandler(ServerPlayer player, Runnable onBdChange) {
         if (!isAvailable() || player == null || player.getServer() == null) {
             return null;
         }
@@ -45,7 +44,7 @@ public final class RtsBdCompat {
         if (net == null) {
             return null;
         }
-        return new BdDirectItemHandler(net.getUnifiedStorage());
+        return new BdDirectItemHandler(net.getUnifiedStorage(), onBdChange);
     }
 
     public static IFluidHandler createNetworkFluidHandler(ServerPlayer player) {
@@ -111,48 +110,63 @@ public final class RtsBdCompat {
             com.rtsbuilding.rtsbuilding.compat.AnySlotInsertItemHandler {
         private final UnifiedStorage storage;
         private final Map<Item, ItemStackKey> itemToKey;
-        private final List<ItemStackKey> keys;
-        private final List<ItemStack> displayStacks;
-        private final List<Long> counts;
+        private volatile List<ItemStackKey> keys;
+        private volatile List<ItemStack> displayStacks;
+        private volatile List<Long> counts;
+        private final Runnable onBdChange;
+        private final AutoCloseable bdSubscription;
 
-        private BdDirectItemHandler(UnifiedStorage storage) {
+        private BdDirectItemHandler(UnifiedStorage storage, Runnable onBdChange) {
             this.storage = storage;
-            this.itemToKey = new HashMap<>();
+            this.onBdChange = onBdChange;
+            this.itemToKey = new java.util.concurrent.ConcurrentHashMap<>();
             this.keys = new ArrayList<>();
             this.displayStacks = new ArrayList<>();
             this.counts = new ArrayList<>();
             rebuildCache();
+            // Subscribe to BD push notifications: on any network change, rebuild cache + notify RTS
+            this.bdSubscription = storage.subscribeAnyWeak(this, self -> {
+                self.rebuildCache();
+                if (self.onBdChange != null) {
+                    self.onBdChange.run();
+                }
+            });
         }
 
-        private void rebuildCache() {
-            this.itemToKey.clear();
-            this.keys.clear();
-            this.displayStacks.clear();
-            this.counts.clear();
+        private synchronized void rebuildCache() {
+            List<ItemStackKey> newKeys = new ArrayList<>();
+            List<ItemStack> newDisplay = new ArrayList<>();
+            List<Long> newCounts = new ArrayList<>();
             var bucket = storage.<AbstractUnorderedStackHandler.TypeBucket>getBucket(ItemStackKey.ID);
-            if (bucket.isEmpty()) {
-                return;
+            if (!bucket.isEmpty()) {
+                AbstractUnorderedStackHandler.TypeBucket tb = bucket.get();
+                if (tb != null) {
+                    for (int i = 0; i < tb.size(); i++) {
+                        var rawKey = tb.get(i);
+                        if (!(rawKey instanceof ItemStackKey key)) {
+                            continue;
+                        }
+                        KeyAmount entry = storage.getStackByKey(key);
+                        long amount = entry.amount();
+                        if (amount <= 0L) {
+                            continue;
+                        }
+                        Object outStack = storage.getOutStackByKey(key);
+                        if (!(outStack instanceof ItemStack itemStack) || itemStack.isEmpty()) {
+                            continue;
+                        }
+                        this.itemToKey.put(itemStack.getItem(), key);
+                        newKeys.add(key);
+                        newDisplay.add(itemStack.copyWithCount(1));
+                        newCounts.add(amount);
+                    }
+                }
             }
-            AbstractUnorderedStackHandler.TypeBucket tb = bucket.get();
-            for (int i = 0; i < tb.size(); i++) {
-                var rawKey = tb.get(i);
-                if (!(rawKey instanceof ItemStackKey key)) {
-                    continue;
-                }
-                KeyAmount entry = storage.getStackByKey(key);
-                long amount = entry.amount();
-                if (amount <= 0L) {
-                    continue;
-                }
-                Object outStack = storage.getOutStackByKey(key);
-                if (!(outStack instanceof ItemStack itemStack) || itemStack.isEmpty()) {
-                    continue;
-                }
-                this.itemToKey.put(itemStack.getItem(), key);
-                this.keys.add(key);
-                this.displayStacks.add(itemStack.copyWithCount(1));
-                this.counts.add(amount);
-            }
+            // Atomic swap: build entirely new lists, then volatile-write the references.
+            // Readers see either the complete old snapshot or the complete new one.
+            this.keys = newKeys;
+            this.displayStacks = newDisplay;
+            this.counts = newCounts;
         }
 
         @Override
@@ -286,10 +300,11 @@ public final class RtsBdCompat {
          * NOT be used again.
          */
         void release() {
+            try { this.bdSubscription.close(); } catch (Exception ignored) {}
             this.itemToKey.clear();
-            this.keys.clear();
-            this.displayStacks.clear();
-            this.counts.clear();
+            this.keys = List.of();
+            this.displayStacks = List.of();
+            this.counts = List.of();
         }
     }
 }

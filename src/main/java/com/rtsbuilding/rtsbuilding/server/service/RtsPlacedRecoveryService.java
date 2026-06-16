@@ -166,6 +166,7 @@ public final class RtsPlacedRecoveryService {
         }
         if (processedAny) {
             RtsPageService.markStorageViewDirty(player, session);
+            QuestService.runQuestDetect(player, session, false);
         }
     }
 

@@ -2,6 +2,7 @@ package com.rtsbuilding.rtsbuilding.server.service.crafting;
 
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
+import com.rtsbuilding.rtsbuilding.server.service.QuestService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsSessionService;
 import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferExtractor;
@@ -256,6 +257,9 @@ public final class RtsCraftingGridFiller {
         RtsCraftingUtils.refreshCraftingResult(craftingMenu);
         craftingMenu.broadcastChanges();
         RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
+        if (anyInserted) {
+            QuestService.runQuestDetect(player, session, false);
+        }
     }
 
     // ---- low-level grid refill loop ----------------------------------------------

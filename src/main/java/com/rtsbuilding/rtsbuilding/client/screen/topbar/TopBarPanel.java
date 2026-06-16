@@ -172,8 +172,6 @@ public final class TopBarPanel {
                 case GUIDE -> {
                     screen.toggleTopGuide(button.x() + button.width() / 2, 4 + TOP_BUTTON_H);
                 }
-                case INVENTORY -> screen.toggleInventory();
-                case INVENTORY_VANILLA -> screen.toggleVanillaInventory();
                 case DEBUG -> {
                     screen.copyDebugSnapshotToClipboard();
                 }
@@ -231,10 +229,6 @@ public final class TopBarPanel {
             x += TOP_ICON_BUTTON_W + TOP_BUTTON_GAP;
         }
         layouts.add(new TopBarTypes.TopBarButtonLayout(TopBarTypes.TopBarButtonId.CHUNK_VIEW, x, TOP_ICON_BUTTON_W, "", true, this.controller.isChunkCurtainVisible()));
-        x += TOP_ICON_BUTTON_W + TOP_BUTTON_GAP;
-        layouts.add(new TopBarTypes.TopBarButtonLayout(TopBarTypes.TopBarButtonId.INVENTORY, x, TOP_ICON_BUTTON_W, "", true, screen.isInventoryPanelOpen()));
-        x += TOP_ICON_BUTTON_W + TOP_BUTTON_GAP;
-        layouts.add(new TopBarTypes.TopBarButtonLayout(TopBarTypes.TopBarButtonId.INVENTORY_VANILLA, x, TOP_ICON_BUTTON_W, "", true, screen.isVanillaInventoryOpen()));
         x += TOP_ICON_BUTTON_W + TOP_BUTTON_GAP;
         layouts.add(new TopBarTypes.TopBarButtonLayout(TopBarTypes.TopBarButtonId.GUIDE, x, TOP_ICON_BUTTON_W, "", true, screen.isGuideOpen()));
 

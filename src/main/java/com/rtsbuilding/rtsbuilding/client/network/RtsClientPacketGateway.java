@@ -8,6 +8,7 @@ import com.rtsbuilding.rtsbuilding.network.craft.C2SRtsCraftRecipePayload;
 import com.rtsbuilding.rtsbuilding.network.craft.C2SRtsOpenCraftTerminalPayload;
 import com.rtsbuilding.rtsbuilding.network.craft.C2SRtsRequestCraftablesPayload;
 import com.rtsbuilding.rtsbuilding.network.progression.*;
+import com.rtsbuilding.rtsbuilding.network.pathfinding.C2SRtsPathfindingPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.*;
 import com.rtsbuilding.rtsbuilding.util.RtsPinyinSearch;
 import net.minecraft.client.Minecraft;
@@ -102,10 +103,6 @@ public final class RtsClientPacketGateway {
                 pageSize,
                 pinyinSearchEnabled,
                 buildLocalizedSearchMatches(search, pinyinSearchEnabled)));
-    }
-
-    public static void sendInventoryFullRequest(long clientVersion) {
-        PacketDistributor.sendToServer(new C2SRtsRequestInventoryFullPayload(clientVersion));
     }
 
     public static void sendSetAutoStoreMinedDrops(boolean enabled) {
@@ -564,6 +561,10 @@ public final class RtsClientPacketGateway {
 
     public static void sendUndo() {
         PacketDistributor.sendToServer(new C2SRtsUndoPayload());
+    }
+
+    public static void sendPathfindingGoTo(BlockPos target) {
+        PacketDistributor.sendToServer(new C2SRtsPathfindingPayload(target));
     }
 
     public static void sendMineAbort(BlockPos pos, int face, int toolSlot) {

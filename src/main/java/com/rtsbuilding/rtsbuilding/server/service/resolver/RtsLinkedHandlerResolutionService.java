@@ -84,7 +84,8 @@ public final class RtsLinkedHandlerResolutionService {
             if (session.bdHandlerStale || session.cachedBdHandler == null) {
                 if (RtsBdCompat.hasPrimaryNetwork(player)) {
                     if (session.cachedBdHandler == null) {
-                        session.cachedBdHandler = RtsBdCompat.createNetworkItemHandler(player);
+                        session.cachedBdHandler = RtsBdCompat.createNetworkItemHandler(player,
+                                () -> RtsStorageTickService.INSTANCE.forceRefresh(player));
                     } else {
                         RtsBdCompat.refreshNetworkHandler(session.cachedBdHandler);
                     }
@@ -120,7 +121,16 @@ public final class RtsLinkedHandlerResolutionService {
             RtsStorageTickService.INSTANCE.unregisterPlayer(player);
             return;
         }
-        RtsStorageTickService.INSTANCE.registerPlayerWithRefs(player, handlers);
+        List<IItemHandler> rawHandlers = new ArrayList<>(handlers.size());
+        for (LinkedHandler lh : handlers) {
+            IItemHandler h = lh.handler();
+            if (h instanceof LinkedItemHandlerView view) {
+                rawHandlers.add(view.getRawHandler());
+            } else {
+                rawHandlers.add(h);
+            }
+        }
+        RtsStorageTickService.INSTANCE.registerPlayer(player, rawHandlers);
     }
 
     // ======================================================================

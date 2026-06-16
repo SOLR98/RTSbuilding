@@ -11,6 +11,8 @@ import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.items.IItemHandler;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 
 /**
  * Slot-level cache for a single {@link IItemHandler} with change detection.
@@ -30,26 +32,26 @@ public final class RtsHandlerCache {
     /** Cached slot snapshots: index → CachedSlot with full ItemStack. */
     private CachedSlot[] front = new CachedSlot[0];
 
-    /** Accumulated counts keyed by canonical item ID. */
-    private final Map<String, Long> countsByItem = new HashMap<>();
+    /** Accumulated counts keyed by canonical item ID. Thread-safe for concurrent reads. */
+    private final Map<String, Long> countsByItem = new ConcurrentHashMap<>();
 
     /** Representative (count=1) stacks keyed by item ID, for exact-entry building. */
-    private final Map<String, ItemStack> prototypeByItem = new HashMap<>();
+    private final Map<String, ItemStack> prototypeByItem = new ConcurrentHashMap<>();
 
     /** itemId → 该容器内持有该物品的槽位号列表。索引与 countsByItem 同步维护。 */
-    private final Map<String, List<Integer>> itemToSlots = new HashMap<>();
+    private final Map<String, List<Integer>> itemToSlots = new ConcurrentHashMap<>();
 
     /** 该容器当前的空槽位数。 */
     private int emptySlotCount;
 
     /** 该容器内存在的物品类型集合。用于插入路由快速判断。 */
-    private final Set<String> hasItemType = new HashSet<>();
+    private final Set<String> hasItemType = ConcurrentHashMap.newKeySet();
 
     /** Whether the cache has been dirtied since last clear. */
     private volatile boolean dirtySinceLastRead;
 
     /** AE2 KeyCounter 上一帧快照 (itemId → count)。仅 AE2 处理器使用。 */
-    private Map<String, Long> ae2LastItemCounts;
+    private volatile Map<String, Long> ae2LastItemCounts;
 
     // ======================================================================
     //  Cache update
@@ -164,7 +166,7 @@ public final class RtsHandlerCache {
 
         if (this.ae2LastItemCounts == null || this.ae2LastItemCounts.isEmpty()) {
             // 首次: 单次遍历 KeyCounter 收集全量计数和原型
-            Map<String, Long> current = new HashMap<>();
+            Map<String, Long> current = new ConcurrentHashMap<>();
             RtsAe2Compat.collectCountsAndPrototypes(handler, current, this.prototypeByItem);
             for (var entry : current.entrySet()) {
                 this.countsByItem.put(entry.getKey(), entry.getValue());
@@ -282,9 +284,9 @@ public final class RtsHandlerCache {
         return this.hasItemType.contains(itemId);
     }
 
-    /** 该容器内所有物品类型集合（只读快照）。 */
+    /** 该容器内所有物品类型集合（并发安全只读快照）。 */
     public Set<String> getHasItemTypes() {
-        return this.hasItemType.isEmpty() ? Set.of() : new HashSet<>(this.hasItemType);
+        return this.hasItemType.isEmpty() ? Set.of() : Set.copyOf(this.hasItemType);
     }
 
     /** 该容器当前空槽位数。 */

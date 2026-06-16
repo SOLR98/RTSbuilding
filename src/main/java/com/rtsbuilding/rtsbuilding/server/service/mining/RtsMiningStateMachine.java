@@ -14,8 +14,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayList;
@@ -257,37 +259,22 @@ public final class RtsMiningStateMachine {
      * Computes the per-tick destroy progress for the given block/tool
      * combination, applying underwater penalty cancellation.
      *
-     * <p>The tool is read from the player's main hand when no linkedTool is
-     * provided, or computed from the linkedTool's destroy-speed attribute directly
-     * without swapping the main hand.
-     *
      * @return a float in (0.0, 1.0] representing progress per tick, or
      *         ≤ 0.0 if the block cannot be mined
      */
     public static float computeRemoteDestroyStep(ServerPlayer player, BlockState state, BlockPos pos, int toolSlot,
             ItemStack linkedTool, boolean selectedToolRequested) {
-        float baseStep;
         if (linkedTool != null && !linkedTool.isEmpty()) {
-            float destroySpeed = linkedTool.getItem().getDestroySpeed(linkedTool, state);
-            if (destroySpeed <= 0.0F) {
-                return 0.0F;
-            }
-            float hardness = state.getDestroySpeed(player.serverLevel(), pos);
-            if (hardness < 0.0F) {
-                return 0.0F;
-            }
-            boolean canHarvest = !state.requiresCorrectToolForDrops()
-                    || linkedTool.isCorrectToolForDrops(state);
-            baseStep = canHarvest ? destroySpeed / hardness / 30.0F : destroySpeed / hardness / 100.0F;
-            if (baseStep > 1.0F) {
-                baseStep = 1.0F;
-            }
-        } else if (selectedToolRequested) {
-            return 0.0F;
-        } else {
-            baseStep = state.getDestroyProgress(player, player.serverLevel(), pos);
+            return withTemporaryOnGround(player, true, () -> removeMiningSpeedPenalty(player,
+                    computeDestroyStepForTool(player, state, pos, linkedTool)));
         }
-        return removeMiningSpeedPenalty(player, baseStep);
+        if (selectedToolRequested) {
+            return 0.0F;
+        }
+        return withTemporaryOnGround(player, true, () -> withTemporarySelectedSlot(
+                player,
+                toolSlot,
+                () -> removeMiningSpeedPenalty(player, state.getDestroyProgress(player, player.serverLevel(), pos))));
     }
 
     // =========================================================================
@@ -311,6 +298,72 @@ public final class RtsMiningStateMachine {
             player.setItemInHand(InteractionHand.MAIN_HAND, previousMainHand);
         }
         return new MiningBreakResult(broken, remainder);
+    }
+
+    // =========================================================================
+    //  Tool-Speed Calculation (avoids item-swap sync storms)
+    // =========================================================================
+
+    /**
+     * Computes the per-tick destroy progress for the given block/tool
+     * combination using the tool stack <b>directly</b>, without swapping
+     * the player's main hand item.
+     *
+     * <p>This replicates the logic of
+     * {@code state.getDestroyProgress(player, level, pos)} but uses the
+     * provided tool stack instead of {@code player.getMainHandItem()},
+     * avoiding costly {@code player.setItemInHand()} calls that trigger
+     * a {@code ClientboundContainerSetSlotPacket} every tick.
+     *
+     * @return a float in (0.0, 1.0] representing progress per tick, or
+     *         ≤ 0.0 if the block cannot be mined
+     */
+    private static float computeDestroyStepForTool(ServerPlayer player, BlockState state, BlockPos pos, ItemStack tool) {
+        float destroySpeed = state.getDestroySpeed(player.serverLevel(), pos);
+        if (destroySpeed == -1.0F) {
+            return 0.0F;
+        }
+        float digSpeed = getToolDigSpeed(player, state, tool);
+        int divisor = tool.isCorrectToolForDrops(state) ? 30 : 100;
+        return digSpeed / destroySpeed / (float) divisor;
+    }
+
+    /**
+     * Replicates {@code Player.getDigSpeed(BlockState, BlockPos)} using
+     * the given {@code tool} stack instead of the player's main hand item.
+     *
+     * <p>Water penalty and on-ground checks are omitted here — they are
+     * handled separately by {@link #removeMiningSpeedPenalty} and
+     * {@link #withTemporaryOnGround} respectively.
+     */
+    private static float getToolDigSpeed(ServerPlayer player, BlockState state, ItemStack tool) {
+        float f = tool.getDestroySpeed(state);
+        if (f > 1.0F) {
+            int efficiency = getEfficiencyLevel(tool);
+            if (efficiency > 0 && !tool.isEmpty()) {
+                f += (float) (efficiency * efficiency + 1);
+            }
+        }
+        if (player.hasEffect(MobEffects.DIG_SPEED)) {
+            f *= 1.0F + (float) (player.getEffect(MobEffects.DIG_SPEED).getAmplifier() + 1) * 0.2F;
+        }
+        if (player.hasEffect(MobEffects.DIG_SLOWDOWN)) {
+            f *= 1.0F - (float) (player.getEffect(MobEffects.DIG_SLOWDOWN).getAmplifier() + 1) * 0.2F;
+        }
+        return f;
+    }
+
+    /**
+     * Returns the Efficiency enchantment level on the given ItemStack
+     * by iterating its enchantment components directly.
+     */
+    private static int getEfficiencyLevel(ItemStack stack) {
+        for (var entry : stack.getEnchantments().entrySet()) {
+            if (entry.getKey().is(Enchantments.EFFICIENCY)) {
+                return entry.getValue();
+            }
+        }
+        return 0;
     }
 
     // =========================================================================

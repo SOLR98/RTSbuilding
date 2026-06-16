@@ -59,12 +59,12 @@ public final class ClientPayloadDispatcher {
                     RtsClientNetworkHandlers.handleStoragePage(p, ctx);
             case S2CRtsStorageDirtyPayload p ->
                     RtsClientNetworkHandlers.handleStorageDirty(p, ctx);
+            case S2CRtsRemoteMenuHintPayload p ->
+                    RtsClientNetworkHandlers.handleRemoteMenuHint(p, ctx);
             case S2CRtsInventoryDeltaPayload p ->
                     RtsClientNetworkHandlers.handleInventoryDelta(p, ctx);
             case S2CRtsInventoryFullPayload p ->
                     RtsClientNetworkHandlers.handleInventoryFull(p, ctx);
-            case S2CRtsRemoteMenuHintPayload p ->
-                    RtsClientNetworkHandlers.handleRemoteMenuHint(p, ctx);
             default -> {}
         }
     }

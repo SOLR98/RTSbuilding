@@ -7,6 +7,7 @@ import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.service.RtsCraftingService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
+import com.rtsbuilding.rtsbuilding.server.service.QuestService;
 import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
 import com.rtsbuilding.rtsbuilding.server.storage.OverflowOutcome;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
@@ -126,6 +127,7 @@ public final class RtsTransferPlayerIntegration {
         RtsStorageTickService.INSTANCE.forceRefresh(player);
         session.transfer.pageDataVersion.incrementAndGet();
         RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
+        QuestService.runQuestDetect(player, session, false);
     }
 
     public static void importMenuSlotToLinked(ServerPlayer player, RtsStorageSession session, int menuSlot) {
@@ -222,6 +224,7 @@ public final class RtsTransferPlayerIntegration {
         RtsStorageTickService.INSTANCE.forceRefresh(player);
         session.transfer.pageDataVersion.incrementAndGet();
         RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
+        QuestService.runQuestDetect(player, session, false);
     }
 
     public static void pickupLinkedToCarried(ServerPlayer player, RtsStorageSession session, ItemStack prototype, int amount) {
@@ -312,6 +315,7 @@ public final class RtsTransferPlayerIntegration {
         RtsStorageTickService.INSTANCE.forceRefresh(player);
         session.transfer.pageDataVersion.incrementAndGet();
         RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
+        QuestService.runQuestDetect(player, session, false);
     }
 
     public static void fillPlayerInventoryFromLinked(ServerPlayer player, RtsStorageSession session) {

@@ -7,8 +7,7 @@
   ],
   "mixins": [
     "ChestMenuMixin",
-    "ModdedRemoteStillValidMixin",
-    "SophisticatedHandlerMixin"
+    "ModdedRemoteStillValidMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -47,16 +47,16 @@ public final class RtsSessionService {
 
     /**
      * 获取或创建玩家的 RTS 会话。
+     *
+     * <p>使用 {@link ConcurrentHashMap#computeIfAbsent} 保证原子性，
+     * 避免并发场景下 check-then-act 导致的会话静默覆盖。
      */
     public static RtsStorageSession getOrCreate(ServerPlayer player) {
-        RtsStorageSession existing = SESSIONS.get(player.getUUID());
-        if (existing != null) {
-            return existing;
-        }
-        RtsStorageSession created = new RtsStorageSession();
-        loadFromPersistentStorage(player, created);
-        SESSIONS.put(player.getUUID(), created);
-        return created;
+        return SESSIONS.computeIfAbsent(player.getUUID(), uuid -> {
+            RtsStorageSession session = new RtsStorageSession();
+            loadFromPersistentStorage(player, session);
+            return session;
+        });
     }
 
     /**
@@ -106,6 +106,7 @@ public final class RtsSessionService {
         RtsStorageSession session = getOrCreate(player);
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
         RtsInventorySyncService.pushFull(player, session);
+        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending, false);
         ServerHistoryManager.sendSync(player);
     }
 
@@ -113,6 +114,7 @@ public final class RtsSessionService {
         RtsStorageSession session = getOrCreate(player);
         RtsMiningStateMachine.stopActiveMining(player, session);
         session.placement.placeBatchJobs.clear();
+        RtsPathfindingService.cancel(player);
         RtsFunnelService.disableAndFlush(player, session);
         RtsMenuRemoteService.closeTracked(player, session);
         RtsMenuRemoteService.clearValidation(player, session);
@@ -128,6 +130,7 @@ public final class RtsSessionService {
     }
 
     public static void onPlayerLogout(ServerPlayer player) {
+        RtsPathfindingService.cancel(player);
         RtsStorageSession session = SESSIONS.get(player.getUUID());
         if (session != null) {
             session.placement.placeBatchJobs.clear();
@@ -141,6 +144,7 @@ public final class RtsSessionService {
             saveToPlayerNbt(player, session);
         }
         SESSIONS.remove(player.getUUID());
+        // Clean up storage cache
         RtsStorageTickService.INSTANCE.unregisterPlayer(player);
         RtsPageCore.clearCache(player.getUUID());
         RtsInventorySyncService.clear(player);
@@ -182,18 +186,23 @@ public final class RtsSessionService {
     }
 
     public static void tickMining(MinecraftServer server) {
+        // Tick storage cache refresh (every N ticks per player)
         var changes = RtsStorageTickService.INSTANCE.tick();
 
+        // When cache detects item changes, push updated page to the client
         if (!changes.isEmpty()) {
             for (var entry : changes.entrySet()) {
                 ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
                 if (player == null) continue;
                 RtsStorageSession session = SESSIONS.get(entry.getKey());
                 if (session == null) continue;
+                // Increment data version so the page cache in RtsPageCore
+                // knows the storage data has changed and should rebuild.
                 session.transfer.pageDataVersion.incrementAndGet();
                 if (!RtsProgressionManager.canUse(player, RtsFeature.STORAGE_BROWSER)) continue;
                 RtsInventorySyncService.flushDelta(player, session);
-                session.transfer.storageViewDirty = false;
+                RtsPageService.requestPage(player, session.browser.page, session.browser.search,
+                        session.browser.category, session.browser.sort, session.browser.ascending);
             }
         }
 

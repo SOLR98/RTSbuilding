@@ -11,12 +11,6 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @deprecated Superseded by {@link S2CRtsInventoryDeltaPayload} (incremental)
- * and {@link S2CRtsInventoryFullPayload} (full snapshot).  Retained for
- * backward compatibility with older clients.
- */
-@Deprecated
 public record S2CRtsStoragePagePayload(
         boolean linked,
         String linkedName,

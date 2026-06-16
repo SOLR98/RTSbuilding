@@ -8,6 +8,7 @@ import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintWindowPanel;
 import com.rtsbuilding.rtsbuilding.client.bootstrap.ClientKeyMappings;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
+import com.rtsbuilding.rtsbuilding.client.pathfinding.RtsClientPathfinding;
 import com.rtsbuilding.rtsbuilding.client.record.CraftableEntry;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.RenderingUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.blueprint.BlueprintGhostPreview;
@@ -175,6 +176,18 @@ public final class BuilderScreen extends Screen {
      * to bind it to the specified slot. Reset to -1 after binding or on cancel.
      */
     private int pendingGuiBindSlot = -1;
+    /**
+     * 上一次 Ctrl+右键的时刻（ms），用于双击检测以触发「飞到目标上方」。
+     */
+    private long lastCtrlRightClickTime = 0;
+    /**
+     * Ctrl+右键双击时间阈值（ms）。
+     */
+    private static final long CTRL_DOUBLE_CLICK_THRESHOLD_MS = 300;
+    /**
+     * 冷却计数器，防止 Alt+Space 按键重复事件导致飞行开关快速抖动。
+     */
+    private int rtsFlightToggleCooldownTicks = 0;
     /** 渲染层级管理器，管理 RTS 模式下所有界面层的渲染顺序。 */
     private final RenderLayerManager renderLayerManager = new RenderLayerManager();
     /**
@@ -504,6 +517,9 @@ public final class BuilderScreen extends Screen {
     @Override
     public void tick() {
         super.tick();
+        if (this.rtsFlightToggleCooldownTicks > 0) {
+            this.rtsFlightToggleCooldownTicks--;
+        }
         if (this.controller.getMode() == BuilderMode.FUNNEL && this.controller.isFunnelEnabled()) {
             BlockHitResult hit = this.cursorPicker.pickBlockHit();
             if (hit != null) {
@@ -690,6 +706,22 @@ public final class BuilderScreen extends Screen {
                 if (hit != null) {
                     clearShapeBuildSession();
                     this.controller.rotateBlock(hit.getBlockPos());
+                }
+                return true;
+            }
+            if (primaryMouse && isWorldArea(mouseX, mouseY) && Screen.hasControlDown()) {
+                long now = System.currentTimeMillis();
+                boolean isDoubleClick = (now - this.lastCtrlRightClickTime) < CTRL_DOUBLE_CLICK_THRESHOLD_MS;
+                this.lastCtrlRightClickTime = now;
+
+                BlockHitResult hit = this.cursorPicker.pickBlockHit();
+                if (hit != null) {
+                    if (isDoubleClick) {
+                        this.lastCtrlRightClickTime = 0;
+                        RtsClientPathfinding.goToAbove(hit.getBlockPos(), 1);
+                    } else {
+                        RtsClientPathfinding.goTo(hit.getBlockPos());
+                    }
                 }
                 return true;
             }
@@ -1148,6 +1180,13 @@ public final class BuilderScreen extends Screen {
         if (hasControlDown() && keyCode == GLFW.GLFW_KEY_Z) {
             return this.shapeController.undoLastPlacementBatch();
         }
+        if (!isSearchFocused() && (modifiers & GLFW.GLFW_MOD_ALT) != 0 && keyCode == GLFW.GLFW_KEY_SPACE) {
+            if (this.rtsFlightToggleCooldownTicks <= 0) {
+                this.rtsFlightToggleCooldownTicks = 10;
+                handleRtsFlightToggle();
+            }
+            return true;
+        }
         if (!isSearchFocused() && this.cameraInput.updateCameraVerticalHeldState(keyCode, scanCode, true)) {
             return true;
         }
@@ -1280,6 +1319,28 @@ public final class BuilderScreen extends Screen {
         }
         return super.keyReleased(keyCode, scanCode, modifiers);
     }
+    /**
+     * Toggles the player's creative flight state while in RTS mode.
+     * Only works if the player has the {@code mayfly} ability (creative/spectator mode).
+     * When enabling flight while on ground, triggers a jump first to lift off,
+     * since vanilla Minecraft requires the player to be airborne to enter
+     * flying state even with {@code abilities.flying = true}.
+     * Called when Alt+Space is pressed in the RTS builder screen.
+     */
+    private void handleRtsFlightToggle() {
+        if (this.minecraft == null || this.minecraft.player == null) return;
+        if (!this.minecraft.player.getAbilities().mayfly) return;
+
+        boolean wasFlying = this.minecraft.player.getAbilities().flying;
+        this.minecraft.player.getAbilities().flying = !wasFlying;
+
+        if (!wasFlying && this.minecraft.player.onGround()) {
+            this.minecraft.player.jumpFromGround();
+        }
+
+        this.minecraft.player.onUpdateAbilities();
+    }
+
     /**
      * Routes a key press to the appropriate builder mode switch based on keybind matching.
      *

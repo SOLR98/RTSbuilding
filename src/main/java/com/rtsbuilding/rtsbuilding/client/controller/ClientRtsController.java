@@ -2,7 +2,6 @@ package com.rtsbuilding.rtsbuilding.client.controller;
 
 
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
-import com.rtsbuilding.rtsbuilding.client.cache.RtsClientInventoryCache;
 import com.rtsbuilding.rtsbuilding.client.compat.RtsClientRemoteMenuCompat;
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
 import com.rtsbuilding.rtsbuilding.client.record.*;
@@ -29,8 +28,6 @@ import com.rtsbuilding.rtsbuilding.network.feedback.S2CRtsDamageFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsProgressionStatePayload;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsQuestDetectStatusPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsInventoryDeltaPayload;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsInventoryFullPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsRemoteMenuHintPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStorageDirtyPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
@@ -49,6 +46,7 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
+import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
 import java.util.Set;
@@ -87,7 +85,6 @@ public final class ClientRtsController {
     private int questDetectCompletedTasks;
     private boolean chunkCurtainVisible;
 
-    private final RtsClientInventoryCache inventoryCache = new RtsClientInventoryCache();
     private final StorageStateManager storageStateManager = new StorageStateManager();
     private final ProgressionStateManager progressionStateManager = new ProgressionStateManager();
     private final CameraOrbitService cameraOrbitService = new CameraOrbitService();
@@ -917,6 +914,31 @@ public final class ClientRtsController {
             localPlayer.input.shiftKeyDown = false;
             localPlayer.input.forwardImpulse = 0.0F;
             localPlayer.input.leftImpulse = 0.0F;
+
+            // RTS flight vertical control: when player is flying in RTS mode,
+            // Ctrl+Space = ascend, Shift = descend (direct GLFW key state queries)
+            if (localPlayer.getAbilities().flying) {
+                long window = minecraft.getWindow().getWindow();
+                boolean ctrlHeld = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS
+                        || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS;
+                boolean spaceHeld = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_SPACE) == GLFW.GLFW_PRESS;
+                boolean shiftHeld = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS
+                        || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
+
+                if (ctrlHeld && spaceHeld) {
+                    double upSpeed = localPlayer.getAbilities().getFlyingSpeed() * 3.0;
+                    localPlayer.setDeltaMovement(
+                            localPlayer.getDeltaMovement().x,
+                            upSpeed,
+                            localPlayer.getDeltaMovement().z);
+                } else if (ctrlHeld && shiftHeld) {
+                    double downSpeed = localPlayer.getAbilities().getFlyingSpeed() * 3.0;
+                    localPlayer.setDeltaMovement(
+                            localPlayer.getDeltaMovement().x,
+                            -downSpeed,
+                            localPlayer.getDeltaMovement().z);
+                }
+            }
         }
 
         this.cameraOrbitService.syncVisualCameraFrame(minecraft, this.anchorX, this.anchorY, this.anchorZ, this.maxRadius, this.enabled);
@@ -1147,27 +1169,11 @@ public final class ClientRtsController {
 
     public void applyStorageDirty(S2CRtsStorageDirtyPayload payload) {
         this.storageStateManager.applyStorageDirty(payload);
-        if (payload.dirty()) {
-            this.inventoryCache.markDirty();
-        }
     }
 
-    public void applyInventoryDelta(S2CRtsInventoryDeltaPayload payload) {
-        this.inventoryCache.applyDelta(payload);
-    }
 
-    public void applyInventoryFull(S2CRtsInventoryFullPayload payload) {
-        this.inventoryCache.applyFull(payload);
-    }
 
-    public void requestInventoryFullRefresh() {
-        long version = this.inventoryCache.getVersion();
-        RtsClientPacketGateway.sendInventoryFullRequest(version);
-    }
 
-    public RtsClientInventoryCache getInventoryCache() {
-        return inventoryCache;
-    }
 
     private void refreshSelectedItemPreviewFromStorage() {
         this.buildPlacementService.syncSelectedPreviewFromStorage(

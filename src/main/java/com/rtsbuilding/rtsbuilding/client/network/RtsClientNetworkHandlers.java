@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.client.network;
 
 
+import com.rtsbuilding.rtsbuilding.client.cache.RtsClientInventoryCache;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.rendering.animation.ClientFakeAirBlocks;
 import com.rtsbuilding.rtsbuilding.client.rendering.animation.PlacementAnimationRenderer;
@@ -92,10 +93,10 @@ public final class RtsClientNetworkHandlers {
     }
 
     public static void handleInventoryDelta(S2CRtsInventoryDeltaPayload payload, IPayloadContext context) {
-        context.enqueueWork(() -> ClientRtsController.get().applyInventoryDelta(payload));
+        context.enqueueWork(() -> RtsClientInventoryCache.INSTANCE.applyDelta(payload));
     }
 
     public static void handleInventoryFull(S2CRtsInventoryFullPayload payload, IPayloadContext context) {
-        context.enqueueWork(() -> ClientRtsController.get().applyInventoryFull(payload));
+        context.enqueueWork(() -> RtsClientInventoryCache.INSTANCE.applyFull(payload));
     }
 }

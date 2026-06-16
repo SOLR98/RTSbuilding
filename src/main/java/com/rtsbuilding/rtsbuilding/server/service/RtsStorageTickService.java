@@ -2,11 +2,8 @@ package com.rtsbuilding.rtsbuilding.server.service;
 
 import com.rtsbuilding.rtsbuilding.compat.ae2.RtsAe2Compat;
 import com.rtsbuilding.rtsbuilding.compat.bd.RtsBdCompat;
-import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
-import com.rtsbuilding.rtsbuilding.server.storage.LinkedItemHandlerView;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsAggregateStorage;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsHandlerCache;
-import com.rtsbuilding.rtsbuilding.server.storage.SharedHandlerCacheRegistry;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.items.IItemHandler;
 
@@ -43,88 +40,54 @@ public final class RtsStorageTickService {
     /** Per-player adaptive tick trackers (replaces old fixed counter). */
     private final Map<UUID, TickTracker> tickTrackers = new HashMap<>();
 
-    /** 全局共享缓存注册表: 同一容器多玩家共享一份 RtsHandlerCache。 */
-    private final SharedHandlerCacheRegistry sharedCaches = new SharedHandlerCacheRegistry();
-
-    /** 每个共享缓存的自适应 tick 追踪器 (key → TickTracker)。 */
-    private final Map<String, SharedHandlerCacheRegistry.TickTracker> sharedTrackers = new HashMap<>();
-
     private RtsStorageTickService() {
     }
 
     // ---- lifecycle -------------------------------------------------------------
 
     /**
-     * Registers or updates a player's aggregate storage using shared caches.
-     * Multiple players linking the same container will share one RtsHandlerCache.
+     * Registers or updates a player's aggregate storage with the given handlers.
+     * Existing caches are reused if the handler identity matches.
      */
-    public RtsAggregateStorage registerPlayerWithRefs(ServerPlayer player, List<LinkedHandler> linkedHandlers) {
+    public RtsAggregateStorage registerPlayer(ServerPlayer player, List<IItemHandler> handlers) {
         UUID uuid = player.getUUID();
         RtsAggregateStorage storage = this.playerStorage.computeIfAbsent(uuid, k -> new RtsAggregateStorage());
-
-        // Build handler list and ref map (unwrap LinkedItemHandlerView)
-        List<IItemHandler> handlers = new ArrayList<>();
-        Map<IItemHandler, String> refKeys = new HashMap<>();
-        for (LinkedHandler lh : linkedHandlers) {
-            IItemHandler raw = lh.handler();
-            if (raw instanceof LinkedItemHandlerView view) raw = view.getRawHandler();
-            handlers.add(raw);
-            refKeys.put(raw, SharedHandlerCacheRegistry.buildKey(lh.ref()));
-        }
 
         // Unmount stale handlers
         List<HandlerCachePair> existing = this.playerHandlers.getOrDefault(uuid, List.of());
         Set<IItemHandler> existingSet = new HashSet<>();
-        Set<String> existingRefKeys = new HashSet<>();
         for (HandlerCachePair p : existing) {
             existingSet.add(p.handler);
-            if (p.refKey != null) existingRefKeys.add(p.refKey);
         }
         Set<IItemHandler> newSet = new HashSet<>(handlers);
-        Set<String> newRefKeys = new HashSet<>(refKeys.values());
 
-        // Unmount removed handlers + release refs
+        // Unmount removed handlers
         for (HandlerCachePair p : existing) {
             if (!newSet.contains(p.handler)) {
                 storage.unmount(p.handler);
-                if (p.refKey != null && !newRefKeys.contains(p.refKey)) {
-                    sharedCaches.release(p.refKey);
-                }
             }
         }
 
-        // Mount new handlers with shared caches
-        List<HandlerCachePair> newPairs = new ArrayList<>();
-        Map<IItemHandler, RtsHandlerCache> existingCacheMap = new HashMap<>();
+        // Mount new handlers (reuse existing cache if available)
+        Map<IItemHandler, RtsHandlerCache> cacheMap = new HashMap<>();
         for (HandlerCachePair p : existing) {
-            existingCacheMap.put(p.handler, p.cache);
+            cacheMap.put(p.handler, p.cache);
         }
 
-        for (int i = 0; i < handlers.size(); i++) {
-            IItemHandler handler = handlers.get(i);
-            String refKey = refKeys.get(handler);
-            RtsHandlerCache cache;
-
-            if (existingCacheMap.containsKey(handler)) {
-                cache = existingCacheMap.get(handler);
-            } else if (refKey != null && !isNetworkHandler(handler)) {
-                // 共享缓存: 多个玩家链接同一普通容器时复用
-                cache = sharedCaches.acquire(refKey, handler);
-                sharedCaches.addRef(refKey);
-                if (!cache.hasData()) {
-                    cache.update(handler);
-                }
-                storage.mount(handlers.size() - i, handler, cache);
-            } else {
-                // 私有缓存: AE2/BD 网络处理器或无 refKey 的处理器
-                cache = new RtsHandlerCache();
+        List<HandlerCachePair> newPairs = new ArrayList<>();
+        for (int priority = 0; priority < handlers.size(); priority++) {
+            IItemHandler handler = handlers.get(priority);
+            RtsHandlerCache cache = cacheMap.getOrDefault(handler, new RtsHandlerCache());
+            if (!cacheMap.containsKey(handler)) {
+                storage.mount(handlers.size() - priority, handler, cache); // reverse priority: first = highest
+                // Immediately populate the cache so page builds don't skip this handler
                 cache.update(handler);
-                storage.mount(handlers.size() - i, handler, cache);
             }
-            newPairs.add(new HandlerCachePair(handler, cache, refKey));
+            newPairs.add(new HandlerCachePair(handler, cache));
         }
 
         this.playerHandlers.put(uuid, newPairs);
+        // Initialize tracker with initial rate based on handler count
         int initialRate = calculateInitialRate(handlers);
         this.tickTrackers.computeIfAbsent(uuid, k -> new TickTracker(initialRate));
         return storage;
@@ -144,13 +107,12 @@ public final class RtsStorageTickService {
         List<HandlerCachePair> pairs = this.playerHandlers.remove(uuid);
         if (pairs != null) {
             for (HandlerCachePair p : pairs) {
-                if (p.refKey != null) {
-                    // 共享缓存的引用计数 -1（共享箱子的缓存不释放）
-                    sharedCaches.release(p.refKey);
-                } else {
-                    // 私有缓存的引用计数 -1 并释放
-                    p.cache.release();
-                }
+                p.cache.release();
+                // Release the handler's own heavy references (e.g. AE2's
+                // ServerPlayer and IStorageService references, or BD's
+                // internal caches) so the GC can reclaim them immediately
+                // instead of waiting for the handler object itself to become
+                // unreachable.
                 RtsAe2Compat.releaseNetworkHandler(p.handler);
                 RtsBdCompat.releaseNetworkHandler(p.handler);
             }
@@ -169,9 +131,6 @@ public final class RtsStorageTickService {
      */
     public Map<UUID, Set<String>> tick() {
         Map<UUID, Set<String>> allChanges = new HashMap<>();
-
-        // ── Shared cache adaptive update (每个容器独立调速) ──
-        tickSharedCachesAdaptive();
 
         for (UUID uuid : this.playerHandlers.keySet()) {
             TickTracker tracker = this.tickTrackers.get(uuid);
@@ -204,22 +163,6 @@ public final class RtsStorageTickService {
         }
 
         return allChanges;
-    }
-
-    /**
-     * 对每个共享缓存独立执行自适应更新。
-     * 变化频繁 → 加速到每 tick；无变化 → 逐渐降速到最多 60 tick。
-     */
-    private void tickSharedCachesAdaptive() {
-        sharedCaches.tickAll(sharedTrackers,
-                RtsServiceConstants.IDLE_THRESHOLD,
-                RtsServiceConstants.MAX_TICK_RATE);
-    }
-
-    /** AE2 和 BD 网络处理器不共享缓存 — 每玩家独立实例。 */
-    private static boolean isNetworkHandler(IItemHandler handler) {
-        return handler instanceof com.rtsbuilding.rtsbuilding.compat.AnySlotInsertItemHandler
-                || handler instanceof com.rtsbuilding.rtsbuilding.compat.bd.RtsBdCompat.DirectExtractHandler;
     }
 
     // ---- alert (like AE2's alertDevice) ----------------------------------------
@@ -297,7 +240,7 @@ public final class RtsStorageTickService {
 
     // ---- value types -----------------------------------------------------------
 
-    record HandlerCachePair(IItemHandler handler, RtsHandlerCache cache, String refKey) {
+    record HandlerCachePair(IItemHandler handler, RtsHandlerCache cache) {
     }
 
     /**

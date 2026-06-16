@@ -126,16 +126,3 @@ record CraftExecutionResult(
         return new CraftExecutionResult(false, storageFull, "", 0, Map.of());
     }
 }
-
-// ---- Batch crafting --------------------------------------------------------
-
-/**
- * Result of {@code resolveBatchPlan}: a valid ingredient assignment for
- * one craft plus the maximum number of times it can be repeated with the
- * currently available items.
- */
-record BatchPlan(CraftIngredientPlan plan, int maxMultiplier) {
-    boolean canCraft() {
-        return plan != null && maxMultiplier > 0;
-    }
-}

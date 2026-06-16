@@ -7,6 +7,9 @@ import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.items.IItemHandler;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Priority-ordered aggregate storage that mirrors AE2's {@code NetworkStorage}.
@@ -34,23 +37,23 @@ public final class RtsAggregateStorage {
             (a, b) -> Integer.compare(b, a));
 
     /** Flat list rebuilt after each mount/unmount change. */
-    private List<CachedHandlerSlot> flatOrdered = List.of();
+    private volatile List<CachedHandlerSlot> flatOrdered = List.of();
 
     /** Changes accumulated across all handlers since last poll. */
-    private final Set<String> pendingChanges = new HashSet<>();
+    private final Set<String> pendingChanges = ConcurrentHashMap.newKeySet();
 
-    /** Recursion guard for insert/extract. */
-    private volatile boolean inUse;
+    /** Reentrancy guard for insert/extract. */
+    private final AtomicBoolean inUse = new AtomicBoolean(false);
 
-    /** itemId → 最优插入目标缓存。每次 tickUpdate 后重建。 */
-    private final Map<String, CachedHandlerSlot> insertionCache = new HashMap<>();
+    /** itemId → 最优插入目标缓存。通过 volatile 写（rebuildInsertionCache）保证 insert() 见到一致视图。 */
+    private volatile Map<String, CachedHandlerSlot> insertionCache = new ConcurrentHashMap<>();
 
     /**
      * Pending mount/unmount operations queued during inUse=true.
      * Applied at the end of the current insert/extract cycle so
      * handlers are never silently dropped.
      */
-    private final Queue<Runnable> pendingMutations = new ArrayDeque<>();
+    private final Queue<Runnable> pendingMutations = new ConcurrentLinkedQueue<>();
 
     // ---- mount / unmount -------------------------------------------------------
 
@@ -58,7 +61,7 @@ public final class RtsAggregateStorage {
      * Mounts a handler with the given priority and associates a cache with it.
      */
     public void mount(int priority, IItemHandler handler, RtsHandlerCache cache) {
-        if (inUse) {
+        if (inUse.get()) {
             this.pendingMutations.add(() -> {
                 doMount(priority, handler, cache);
             });
@@ -78,7 +81,7 @@ public final class RtsAggregateStorage {
      * Unmounts a handler by identity.
      */
     public void unmount(IItemHandler handler) {
-        if (inUse) {
+        if (inUse.get()) {
             this.pendingMutations.add(() -> doUnmount(handler));
             return;
         }
@@ -110,9 +113,7 @@ public final class RtsAggregateStorage {
         if (stack == null || stack.isEmpty() || this.flatOrdered.isEmpty()) {
             return stack == null ? ItemStack.EMPTY : stack;
         }
-        if (inUse) return stack;
-
-        inUse = true;
+        if (!inUse.compareAndSet(false, true)) return stack;
         try {
             ItemStack remain = stack.copy();
 
@@ -144,53 +145,22 @@ public final class RtsAggregateStorage {
 
             return remain;
         } finally {
-            inUse = false;
+            inUse.set(false);
             applyPendingMutations();
         }
-    }
-        if (inUse) return stack; // Prevent recursive use
-
-        inUse = true;
-        try {
-            ItemStack remain = stack.copy();
-            List<CachedHandlerSlot> remaining = new ArrayList<>();
-
-            // Phase 1: preferred storage (handlers that already have this item)
-            for (CachedHandlerSlot cs : this.flatOrdered) {
-                if (remain.isEmpty()) break;
-                if (cs.cache.getCount(stack.getItem()) > 0) {
-                    remain = insertToHandler(cs.handler, remain, simulate);
-                    trackChange(stack.getItem(), remain, stack, simulate);
-                } else {
-                    remaining.add(cs);
-                }
-            }
-
-            // Phase 2: remaining handlers in priority order
-            for (CachedHandlerSlot cs : remaining) {
-                if (remain.isEmpty()) break;
-                remain = insertToHandler(cs.handler, remain, simulate);
-                trackChange(stack.getItem(), remain, stack, simulate);
-            }
-
-            return remain;
-        } finally {
-            inUse = false;
-        applyPendingMutations();
-        rebuildInsertionCache();
-        return changes;
     }
 
     /** 从各容器的 hasItemType 和 emptySlotCount 重建插入目标缓存。 */
     private void rebuildInsertionCache() {
-        this.insertionCache.clear();
+        Map<String, CachedHandlerSlot> next = new ConcurrentHashMap<>();
         for (CachedHandlerSlot cs : this.flatOrdered) {
             int emptySlots = cs.cache.getEmptySlotCount();
             if (emptySlots <= 0) continue;
             for (String itemId : cs.cache.getHasItemTypes()) {
-                this.insertionCache.putIfAbsent(itemId, cs);
+                next.putIfAbsent(itemId, cs);
             }
         }
+        this.insertionCache = next; // 原子 swap，避免 clear-then-rebuild 期间空窗
     }
 
     /**
@@ -210,9 +180,7 @@ public final class RtsAggregateStorage {
         if (targetItem == null || limit <= 0 || this.flatOrdered.isEmpty()) {
             return ItemStack.EMPTY;
         }
-        if (inUse) return ItemStack.EMPTY;
-
-        inUse = true;
+        if (!inUse.compareAndSet(false, true)) return ItemStack.EMPTY;
         try {
             int remaining = limit;
             ItemStack out = ItemStack.EMPTY;
@@ -243,7 +211,7 @@ public final class RtsAggregateStorage {
 
             return out;
         } finally {
-            inUse = false;
+            inUse.set(false);
             applyPendingMutations();
         }
     }
@@ -303,6 +271,9 @@ public final class RtsAggregateStorage {
         // completed (edge case: exception before finally block, or reentrant
         // guard that returns early). Without this, the mutations pile up.
         applyPendingMutations();
+
+        // Rebuild the O(1) insertion cache from latest handler state
+        rebuildInsertionCache();
 
         return changes;
     }

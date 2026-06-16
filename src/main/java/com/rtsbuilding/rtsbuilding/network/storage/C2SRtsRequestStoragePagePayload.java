@@ -9,12 +9,6 @@ import net.minecraft.resources.ResourceLocation;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @deprecated Use {@link C2SRtsRequestInventoryFullPayload} for full-snapshot
- * requests paired with the client-side {@code RtsClientInventoryCache}.
- * This page-based payload is retained for backward compatibility.
- */
-@Deprecated
 public record C2SRtsRequestStoragePagePayload(
         int page,
         String search,

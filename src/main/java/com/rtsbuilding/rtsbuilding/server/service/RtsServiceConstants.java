@@ -74,11 +74,4 @@ public final class RtsServiceConstants {
      * of no activity before the interval starts to increase.
      */
     public static final int IDLE_THRESHOLD = 15;
-
-    /**
-     * Shared handler cache refresh interval (ticks).
-     * Multiple players linking the same container share a single cache
-     * refreshed at this fixed rate instead of per-player adaptive rates.
-     */
-    public static final int SHARED_CACHE_UPDATE_INTERVAL = 10;
 }
