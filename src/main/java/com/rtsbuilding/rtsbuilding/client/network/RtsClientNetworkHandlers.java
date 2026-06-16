@@ -96,6 +96,10 @@ public final class RtsClientNetworkHandlers {
         context.enqueueWork(() -> ClientRtsController.get().applyWorkflowProgress(payload));
     }
 
+    public static void handleWorkflowProgressBatch(S2CRtsWorkflowProgressBatchPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> ClientRtsController.get().applyWorkflowProgressBatch(payload));
+    }
+
     public static void handleResumePlacementScan(S2CRtsResumePlacementScanPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             ClientRtsController controller = ClientRtsController.get();

@@ -33,10 +33,11 @@ public class WallShapeGenerator extends AreaShapeGenerator {
         int maxY = Math.max(0, dy);
         List<BlockPos> result = new ArrayList<>();
 
-        for (int i = 0; i < base.size(); i++) {
-            BlockPos basePos = base.get(i);
-            boolean endColumn = (base.size() <= 1) || (i == 0 || i == base.size() - 1);
-            for (int iy = minY; iy <= maxY; iy++) {
+        // 从上往下逐层破坏
+        for (int iy = maxY; iy >= minY; iy--) {
+            for (int i = 0; i < base.size(); i++) {
+                BlockPos basePos = base.get(i);
+                boolean endColumn = (base.size() <= 1) || (i == 0 || i == base.size() - 1);
                 if (fillMode != ShapeFillMode.FILL && !endColumn && iy != minY && iy != maxY) {
                     continue;
                 }

@@ -1,13 +1,21 @@
 package com.rtsbuilding.rtsbuilding.server.service.mining;
 
+import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.server.history.HistoryBlockRecord;
 import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
+import com.rtsbuilding.rtsbuilding.server.pipeline.core.PipelineContext;
+import com.rtsbuilding.rtsbuilding.server.pipeline.core.PipelinePipe;
+import com.rtsbuilding.rtsbuilding.server.pipeline.core.WorkflowPipeline;
+import com.rtsbuilding.rtsbuilding.server.pipeline.sync.HistoryRecordPipe;
+import com.rtsbuilding.rtsbuilding.server.pipeline.tool.ToolReturnPipe;
+import com.rtsbuilding.rtsbuilding.server.pipeline.validation.SessionValidatePipe;
+import com.rtsbuilding.rtsbuilding.server.pipeline.workflow.WorkflowCompletePipe;
 import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementSound;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowHandle;
+import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -20,8 +28,9 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.block.state.BlockState;
 
-import java.util.ArrayList;
-import java.util.List;
+import javax.annotation.Nullable;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
@@ -43,7 +52,89 @@ import java.util.function.Supplier;
  */
 public final class RtsMiningStateMachine {
 
+    /**
+     * Per-player workflow entry ID tracking, decoupled from
+     * {@link com.rtsbuilding.rtsbuilding.server.storage.RtsMiningState}.
+     *
+     * <p>Pipes write via {@link #setWorkflowEntryId(UUID, int)} during
+     * pipeline execution; async mining completion reads via
+     * {@link #getWorkflowEntryId(UUID)}.</p>
+     */
+    private static final Map<UUID, Integer> WORKFLOW_ENTRY_IDS = new ConcurrentHashMap<>();
+
+    /**
+     * Records a workflow entry ID for the given player, replacing any
+     * previous value.
+     */
+    public static void setWorkflowEntryId(UUID playerUuid, int entryId) {
+        if (entryId >= 0) {
+            WORKFLOW_ENTRY_IDS.put(playerUuid, entryId);
+        }
+    }
+
+    /**
+     * Returns the workflow entry ID for the given player, or -1 if none.
+     */
+    public static int getWorkflowEntryId(UUID playerUuid) {
+        return WORKFLOW_ENTRY_IDS.getOrDefault(playerUuid, -1);
+    }
+
+    /**
+     * Removes and returns the workflow entry ID for the given player.
+     */
+    public static int removeWorkflowEntryId(UUID playerUuid) {
+        Integer removed = WORKFLOW_ENTRY_IDS.remove(playerUuid);
+        return removed != null ? removed : -1;
+    }
+
     private RtsMiningStateMachine() {
+    }
+
+    // =========================================================================
+    //  Mining Job Queue
+    // =========================================================================
+
+    /**
+     * A single queued mining operation (independent thread) waiting to be
+     * activated when the current operation finishes.
+     *
+     * <p>Analogous to {@link com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch.PlaceBatchJob}
+     * but for mining operations.  Each job carries its own workflow entry ID
+     * and target positions so multiple range-mining tasks can coexist in a
+     * FIFO queue.</p>
+     *
+     * @param workflowEntryId  the workflow entry tracking this job's progress
+     * @param targets          the block positions to destroy
+     * @param totalTargets     total number of targets before validation losses
+     */
+    public record MiningJob(int workflowEntryId, Deque<BlockPos> targets, int totalTargets) {
+    }
+
+    /**
+     * Activates the next queued mining job by loading its data into the
+     * session's active mining state fields and updating the workflow entry
+     * ID tracking map.
+     */
+    private static void activateNextJob(ServerPlayer player, RtsStorageSession session) {
+        MiningJob job = session.mining.ultimineJobQueue.removeFirst();
+        RtsbuildingMod.LOGGER.info("[RtsMiningStateMachine] activateNextJob: entryId={}, {} targets for {}", job.workflowEntryId(), job.targets().size(), player.getGameProfile().getName());
+        session.mining.ultimineTargets.addAll(job.targets());
+        session.mining.ultimineTotalTargets = job.totalTargets();
+        session.mining.ultimineProgressPos = job.targets().peekFirst();
+        session.mining.ultimineProcessedTargets = 0;
+        session.mining.ultimineBrokenTargets = 0;
+        session.mining.ultimineProcessedPositions.clear();
+        session.mining.ultimineAbsorbedDrops = false;
+        // Point the active workflow tracking to this job's entry
+        setWorkflowEntryId(player.getUUID(), job.workflowEntryId());
+        // 队列模式激活走批处理路径 (processUltimineTargets)，
+        // 不要设置 miningPos —— beginRemoteMining 会设 miningPos = target，
+        // 但 processUltimineTargets 在同一 tick 立即销毁首个目标，
+        // 导致下一 tick 进入单方块挖掘路径时 miningPos 指向的空气格，
+        // 触发 isBreakableBlock 检查失败进而 stopActiveMining。
+        session.mining.miningFace = Direction.DOWN;
+        session.mining.miningProgress = 0.0F;
+        session.mining.miningStage = -1;
     }
 
     // =========================================================================
@@ -63,8 +154,31 @@ public final class RtsMiningStateMachine {
      * {@link RtsUltimineProcessor#processUltimineTargets}.</p>
      */
     public static void tickActiveMining(ServerPlayer player, RtsStorageSession session) {
+        // 工作流状态检查：已关闭则停止挖掘，已暂停则跳过此 tick
+        int entryId = getWorkflowEntryId(player.getUUID());
+        RtsbuildingMod.LOGGER.debug("[RtsMiningStateMachine] tickActiveMining: entryId={} for {}", entryId, player.getGameProfile().getName());
+        if (entryId >= 0) {
+            var tokenOpt = RtsWorkflowEngine.getInstance().from(player, entryId);
+            if (tokenOpt.isEmpty()) {
+                RtsbuildingMod.LOGGER.warn("[RtsMiningStateMachine] tickActiveMining: workflow token not found for entryId={}, stopping for {}", entryId, player.getGameProfile().getName());
+                // 工作流已被关闭（删除），停止挖掘操作
+                stopActiveMining(player, session);
+                return;
+            }
+            if (tokenOpt.get().isPaused()) {
+                // 暂停中，跳过此 tick（保留挖掘进度动画）
+                return;
+            }
+        }
+
         if (session.mining.miningPos == null) {
             if (!session.mining.ultimineTargets.isEmpty()) {
+                RtsUltimineProcessor.processUltimineTargets(player, session);
+            } else if (!session.mining.ultimineJobQueue.isEmpty()) {
+                RtsbuildingMod.LOGGER.debug("[RtsMiningStateMachine] tickActiveMining: activating queued job, {} jobs remaining for {}", session.mining.ultimineJobQueue.size(), player.getGameProfile().getName());
+                // 当前作业已完成，激活下一个排队作业
+                activateNextJob(player, session);
+                // ultimineTargets 现在非空，立即处理这个 tick 内的方块
                 RtsUltimineProcessor.processUltimineTargets(player, session);
             }
             return;
@@ -140,46 +254,23 @@ public final class RtsMiningStateMachine {
 
         // Single-block mode — finish
         RtsMiningNetworkHelper.clearMineProgress(player, pos);
+        List<HistoryBlockRecord> miningRecords = new ArrayList<>();
         if (result.broken()) {
-            // Update workflow progress via handle
-            RtsWorkflowHandle lastActive = RtsWorkflowHandle.lastActive(player, session);
-            if (lastActive != null) {
-                lastActive.updateProgress(1, null);
-            }
-            List<HistoryBlockRecord> allRecords = new ArrayList<>();
             if (preRecord != null) {
-                allRecords.add(preRecord);
+                miningRecords.add(preRecord);
             }
             // Add any collateral blocks
             for (HistoryBlockRecord nr : neighborRecords) {
                 BlockState currentState = player.serverLevel().getBlockState(nr.pos());
                 if (currentState.isAir() && !nr.state().isAir()) {
-                    allRecords.add(nr);
+                    miningRecords.add(nr);
                 }
-            }
-            if (!allRecords.isEmpty()) {
-                ServerHistoryManager.recordBreakWithRecords(player, allRecords, session.mining.miningFace);
-            }
-        } else {
-            RtsWorkflowHandle lastActive = RtsWorkflowHandle.lastActive(player, session);
-            if (lastActive != null) {
-                lastActive.recordFailure();
             }
         }
         if (result.broken() && RtsMiningValidator.canAutoStoreDrops(player, session)) {
             RtsDropAbsorber.absorbMinedDropsImmediately(player, session, pos);
         }
-        RtsWorkflowHandle lastActive2 = RtsWorkflowHandle.lastActive(player, session);
-        if (lastActive2 != null) {
-            lastActive2.complete();
-        }
-        RtsToolLeaseManager.returnMiningTool(player, session, session.mining.miningToolLease);
-        // 单方块挖掘完成：触发储存页面刷新以保证GUI实时更新
-        RtsStorageTickService.INSTANCE.forceRefresh(player);
-        session.transfer.pageDataVersion.incrementAndGet();
-        RtsPageService.requestPage(player, session.browser.page, session.browser.search,
-                session.browser.category, session.browser.sort, session.browser.ascending);
-        resetMiningState(session);
+        finalizeMiningOperation(player, session, miningRecords, session.mining.miningFace);
     }
 
     // =========================================================================
@@ -192,19 +283,19 @@ public final class RtsMiningStateMachine {
      * and resets the session's mining state.
      */
     public static void stopActiveMining(ServerPlayer player, RtsStorageSession session) {
+        int queueSize = session.mining.ultimineJobQueue.size();
+        RtsbuildingMod.LOGGER.info("[RtsMiningStateMachine] stopActiveMining: player={}, miningPos={}, ultimineTargets={}, queueSize={}",
+                player.getGameProfile().getName(),
+                session.mining.miningPos,
+                session.mining.ultimineTargets.size(),
+                queueSize);
         boolean hadMiningState = session.mining.miningPos != null
                 || session.mining.ultimineProgressPos != null
                 || !session.mining.ultimineTargets.isEmpty()
                 || !session.mining.miningToolLease.isEmpty();
         boolean hadUltimine = session.mining.ultimineProgressPos != null || !session.mining.ultimineTargets.isEmpty();
 
-        // Complete workflow tracking via handle if single-block mining was active
-        if (session.mining.miningPos != null) {
-            RtsWorkflowHandle lastActive = RtsWorkflowHandle.lastActive(player, session);
-            if (lastActive != null) {
-                lastActive.complete();
-            }
-        }
+        // Complete workflow tracking via entry ID if single-block mining was active
         BlockPos progressPos = session.mining.miningPos != null ? session.mining.miningPos : session.mining.ultimineProgressPos;
         if (progressPos != null) {
             player.serverLevel().destroyBlockProgress(player.getId(), progressPos, -1);
@@ -213,6 +304,21 @@ public final class RtsMiningStateMachine {
         if (hadUltimine) {
             RtsMiningNetworkHelper.sendUltimineProgress(player, -1, 0);
         }
+
+        // Cancel the workflow entry (if any) before returning tool
+        int entryId = removeWorkflowEntryId(player.getUUID());
+        if (entryId >= 0) {
+            RtsWorkflowEngine.getInstance().from(player, entryId)
+                    .ifPresent(token -> token.cancel());
+        }
+
+        // 取消所有排队作业的工作流 entry
+        for (MiningJob queued : session.mining.ultimineJobQueue) {
+            RtsWorkflowEngine.getInstance().from(player, queued.workflowEntryId())
+                    .ifPresent(token -> token.cancel());
+        }
+        session.mining.ultimineJobQueue.clear();
+
         RtsToolLeaseManager.returnMiningTool(player, session, session.mining.miningToolLease);
         if (hadMiningState) {
             RtsPageService.markStorageViewDirty(player, session);
@@ -457,10 +563,91 @@ public final class RtsMiningStateMachine {
     }
 
     // =========================================================================
+    //  Mining Completion (shared cleanup)
+    // =========================================================================
+
+    /**
+     * Finalises a completed mining operation by delegating to the three
+     * cleanup pipes ({@link WorkflowCompletePipe}, {@link ToolReturnPipe},
+     * {@link HistoryRecordPipe}), then refreshing the storage page and
+     * resetting the mining state.
+     *
+     * <p>This method builds a {@link PipelineContext} from the current
+     * session state so that the three pipes can execute with the same
+     * data contract as the sync-phase pipeline.  Cleanup is best-effort:
+     * failures are logged via {@link WorkflowPipeline#runCleanupSequence}
+     * but do not prevent subsequent cleanup steps.</p>
+     *
+     * @param player     the server-side player
+     * @param session    the player's storage session
+     * @param records    history records captured before block break (may be empty)
+     * @param face       the mining face used (may be null)
+     */
+    static void finalizeMiningOperation(ServerPlayer player, RtsStorageSession session,
+            List<HistoryBlockRecord> records, @Nullable Direction face) {
+
+        // ── Build pipeline context from session state ────────────────
+        PipelineContext ctx = new PipelineContext(player, Map.of());
+
+        // Session (required by ToolReturnPipe and HistoryRecordPipe)
+        ctx.setData(SessionValidatePipe.KEY_SESSION, session);
+
+        // Workflow entry ID (from dedicated tracking map, not from session)
+        int wfEntryId = removeWorkflowEntryId(player.getUUID());
+        if (wfEntryId >= 0) {
+            ctx.setData(PipelineContext.KEY_WORKFLOW_ENTRY_ID, wfEntryId);
+        }
+
+        boolean hasQueuedJobs = !session.mining.ultimineJobQueue.isEmpty();
+        RtsbuildingMod.LOGGER.info("[RtsMiningStateMachine] finalizeMiningOperation: entryId={}, hasQueuedJobs={}, records={} for {}", wfEntryId, hasQueuedJobs, records.size(), player.getGameProfile().getName());
+
+        // Borrowed tool lease — only return if this is the LAST job
+        if (!hasQueuedJobs
+                && session.mining.miningToolLease != null
+                && !session.mining.miningToolLease.isEmpty()) {
+            ctx.setData(ToolReturnPipe.KEY_TOOL_LEASE, session.mining.miningToolLease);
+        }
+
+        // History records (pre-captured before-state)
+        if (!records.isEmpty()) {
+            ctx.setData(HistoryRecordPipe.ARG_HISTORY_RECORDS, records);
+            ctx.setData(HistoryRecordPipe.ARG_HISTORY_FACE, face != null ? face : Direction.DOWN);
+        }
+
+        // ── Execute cleanup sequence via WorkflowPipeline ───────────
+        // 当队列中还有排队作业时，跳过 ToolReturnPipe（工具由下一个作业继续使用）
+        var cleanupPipes = new ArrayList<PipelinePipe<? super PipelineContext>>();
+        cleanupPipes.add(new WorkflowCompletePipe());
+        if (!hasQueuedJobs) {
+            cleanupPipes.add(new ToolReturnPipe());
+        }
+        cleanupPipes.add(new HistoryRecordPipe());
+        WorkflowPipeline.runCleanupSequence(ctx, cleanupPipes);
+
+        // 触发储存页面刷新以保证GUI实时更新
+        RtsStorageTickService.INSTANCE.forceRefresh(player);
+        session.transfer.pageDataVersion.incrementAndGet();
+        RtsPageService.requestPage(player, session.browser.page, session.browser.search,
+                session.browser.category, session.browser.sort, session.browser.ascending);
+        resetMiningState(session, hasQueuedJobs);
+    }
+
+    // =========================================================================
     //  State Reset
     // =========================================================================
 
     public static void resetMiningState(RtsStorageSession session) {
+        resetMiningState(session, false);
+    }
+
+    /**
+     * Resets the session's active mining state fields.
+     *
+     * <p>When {@code preserveTool} is {@code true} (i.e., there are queued
+     * mining jobs waiting to be activated), the borrowed tool lease and
+     * related settings are kept alive so the next job can reuse them.</p>
+     */
+    public static void resetMiningState(RtsStorageSession session, boolean preserveTool) {
         session.mining.miningPos = null;
         session.mining.ultimineTargets.clear();
         session.mining.ultimineProgressPos = null;
@@ -471,9 +658,12 @@ public final class RtsMiningStateMachine {
         session.mining.miningFace = Direction.DOWN;
         session.mining.miningProgress = 0.0F;
         session.mining.miningStage = -1;
-        session.mining.miningToolLease = RtsToolLease.empty();
-        session.mining.miningSelectedToolRequested = false;
-        session.mining.miningToolProtectionEnabled = true;
+        if (!preserveTool) {
+            session.mining.miningToolLease = RtsToolLease.empty();
+            session.mining.miningSelectedToolRequested = false;
+            session.mining.miningToolProtectionEnabled = true;
+        }
+        // workflowEntryId no longer lives here — see WORKFLOW_ENTRY_IDS in RtsMiningStateMachine
     }
 
     // =========================================================================

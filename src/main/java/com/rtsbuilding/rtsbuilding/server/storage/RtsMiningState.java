@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.storage;
 
 import com.rtsbuilding.rtsbuilding.server.history.HistoryBlockRecord;
+import com.rtsbuilding.rtsbuilding.server.service.mining.RtsMiningStateMachine;
 import com.rtsbuilding.rtsbuilding.server.service.mining.RtsToolLease;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -63,4 +64,12 @@ public class RtsMiningState {
     public int ultimineBrokenTargets;
     /** 连锁挖掘是否已吸收掉落物（防止重复收集，由管理器控制） */
     public boolean ultimineAbsorbedDrops;
+
+    /**
+     * 排队等待执行的连锁挖掘作业队列（独立线程）。
+     * 当前正在处理的作业的状态直接由本类的 ultimineTargets / ultimineTotalTargets 等字段持有；
+     * 此队列中的作业将在当前作业完成后依次被激活。
+     */
+    public final Deque<RtsMiningStateMachine.MiningJob> ultimineJobQueue = new ArrayDeque<>();
+
 }

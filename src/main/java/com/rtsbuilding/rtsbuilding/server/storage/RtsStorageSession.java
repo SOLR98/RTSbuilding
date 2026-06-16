@@ -1,7 +1,6 @@
 package com.rtsbuilding.rtsbuilding.server.storage;
 
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowState;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 import net.neoforged.neoforge.items.IItemHandler;
@@ -110,9 +109,6 @@ public class RtsStorageSession {
 
     /** 远程挖掘与连锁挖掘状态 */
     public final RtsMiningState mining = new RtsMiningState();
-
-    /** 工作流跟踪状态（挖掘/放置/范围操作等的统一进度追踪） */
-    public final RtsWorkflowState workflow = new RtsWorkflowState();
 
     // ======================================================================
     // §6  掉落物漏斗运行时状态

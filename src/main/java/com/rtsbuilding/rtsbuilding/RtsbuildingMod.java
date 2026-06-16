@@ -8,6 +8,7 @@ import com.rtsbuilding.rtsbuilding.server.api.impl.RtsAPIImpl;
 import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
 import com.rtsbuilding.rtsbuilding.server.feedback.RtsDamageFeedbackManager;
 import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
+import com.rtsbuilding.rtsbuilding.server.pipeline.core.RtsPipelineRegistration;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.service.RtsPathfindingService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsSessionService;
@@ -68,6 +69,10 @@ public class RtsbuildingMod {
     private void commonSetup(FMLCommonSetupEvent event) {
         // Initialise the RTS API so addons can access it via RtsAPI.get()
         RtsAPIImpl.init();
+
+        // Register all workflow pipelines
+        RtsPipelineRegistration.registerAll();
+
         LOGGER.info("RTSBuilding common setup complete");
     }
 

@@ -1,22 +1,29 @@
 package com.rtsbuilding.rtsbuilding.server.service;
 
+import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsPlaceBatchPayload;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
+import com.rtsbuilding.rtsbuilding.server.pipeline.context.PlaceContext;
+import com.rtsbuilding.rtsbuilding.server.pipeline.core.PipelineRegistry;
+import com.rtsbuilding.rtsbuilding.server.pipeline.placement.PlacementExecutePipe;
+import com.rtsbuilding.rtsbuilding.server.pipeline.workflow.WorkflowStartPipe;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementHelper;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowHandle;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowManager;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowStatus;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowType;
+import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 放置服务——管理方块放置、批量放置和方块旋转。
@@ -27,6 +34,9 @@ import java.util.List;
  *   <li>批量方块放置入队</li>
  *   <li>方块旋转</li>
  * </ul>
+ *
+ * <p>从 Phase 3 开始，工作流启动委托给 {@link PipelineRegistry}，
+ * 此类仅负责参数转换和管道调度。</p>
  */
 public final class RtsPlacementService {
 
@@ -34,7 +44,7 @@ public final class RtsPlacementService {
     }
 
     /**
-     * 放置选中方块。
+     * 放置选中方块——通过 PLACE_SINGLE / QUICK_BUILD 管道执行。
      */
     public static void placeSelected(ServerPlayer player, BlockPos clickedPos, Direction face, double hitX, double hitY,
             double hitZ, byte rotateSteps, boolean forcePlace, boolean skipIfOccupied, String itemId,
@@ -45,17 +55,35 @@ public final class RtsPlacementService {
         double hitOffsetZ = clickedPos == null ? 0.5D : hitZ - clickedPos.getZ();
         RtsStorageSession session = player == null ? null : RtsSessionService.getIfPresent(player);
 
-        // 用令牌启动工作流（容量检查内部自处理）
-        int wfEntryId = -1;
         if (player != null && session != null && !forceEmptyHand) {
-            RtsWorkflowHandle handle = RtsWorkflowHandle.startPlacement(player, session,
-                    quickBuild ? RtsWorkflowType.QUICK_BUILD : RtsWorkflowType.PLACE_SINGLE,
-                    1);
-            if (handle != null) {
-                wfEntryId = handle.getEntryId();
-            }
+            Map<String, Object> args = new HashMap<>();
+            args.put(PlacementExecutePipe.ARG_CLICKED_POSITIONS,
+                    clickedPos == null ? List.of() : List.of(clickedPos));
+            args.put(PlacementExecutePipe.ARG_FACE, face);
+            args.put(PlacementExecutePipe.ARG_HIT_OFFSET_X, hitOffsetX);
+            args.put(PlacementExecutePipe.ARG_HIT_OFFSET_Y, hitOffsetY);
+            args.put(PlacementExecutePipe.ARG_HIT_OFFSET_Z, hitOffsetZ);
+            args.put(PlacementExecutePipe.ARG_ROTATE_STEPS, (int) rotateSteps);
+            args.put(PlacementExecutePipe.ARG_FORCE_PLACE, forcePlace);
+            args.put(PlacementExecutePipe.ARG_SKIP_IF_OCCUPIED, skipIfOccupied);
+            args.put(PlacementExecutePipe.ARG_ITEM_ID, itemId);
+            args.put(PlacementExecutePipe.ARG_ITEM_PROTOTYPE, itemPrototype);
+            args.put(PlacementExecutePipe.ARG_RAY_ORIGIN_X, rayOriginX);
+            args.put(PlacementExecutePipe.ARG_RAY_ORIGIN_Y, rayOriginY);
+            args.put(PlacementExecutePipe.ARG_RAY_ORIGIN_Z, rayOriginZ);
+            args.put(PlacementExecutePipe.ARG_RAY_DIR_X, rayDirX);
+            args.put(PlacementExecutePipe.ARG_RAY_DIR_Y, rayDirY);
+            args.put(PlacementExecutePipe.ARG_RAY_DIR_Z, rayDirZ);
+            args.put(PlacementExecutePipe.ARG_QUICK_BUILD, quickBuild);
+            args.put(PlacementExecutePipe.ARG_FORCE_EMPTY_HAND, false);
+            args.put(WorkflowStartPipe.ARG_TOTAL_BLOCKS.name(), 1);
+
+            PipelineRegistry.execute(quickBuild ? RtsWorkflowType.QUICK_BUILD : RtsWorkflowType.PLACE_SINGLE,
+                    new PlaceContext(player, args));
+            return;
         }
-        final int finalWfEntryId = wfEntryId;
+
+        // Fallback: forceEmptyHand or no session — enqueue without workflow
         RtsPlacementBatch.enqueuePlaceBatch(
                 player,
                 session,
@@ -78,11 +106,11 @@ public final class RtsPlacementService {
                 quickBuild,
                 forceEmptyHand,
                 true,
-                finalWfEntryId);
+                -1);
     }
 
     /**
-     * 批量方块放置入队。
+     * 批量方块放置入队——通过 PLACE_BATCH 管道执行。
      */
     public static void enqueuePlaceBatch(ServerPlayer player, List<BlockPos> clickedPositions, Direction face,
             double hitOffsetX, double hitOffsetY, double hitOffsetZ, byte rotateSteps,
@@ -91,17 +119,47 @@ public final class RtsPlacementService {
             double rayDirX, double rayDirY, double rayDirZ) {
         RtsStorageSession session = player == null ? null : RtsSessionService.getIfPresent(player);
 
-        // 用令牌启动工作流（容量检查内部自处理）
-        int wfEntryId = -1;
         if (player != null && session != null && clickedPositions != null && !clickedPositions.isEmpty()) {
-            RtsWorkflowHandle handle = RtsWorkflowHandle.startPlacement(player, session,
-                    RtsWorkflowType.PLACE_BATCH,
-                    clickedPositions.size());
-            if (handle != null) {
-                wfEntryId = handle.getEntryId();
+            // Pre-filter positions to match what RtsPlacementBatch.enqueuePlaceBatch would do,
+            // so we can pass the correct totalBlocks to WorkflowStartPipe.
+            List<BlockPos> sanitized = new ArrayList<>(Math.min(clickedPositions.size(), C2SRtsPlaceBatchPayload.MAX_POSITIONS));
+            for (BlockPos pos : clickedPositions) {
+                if (pos != null && RtsLinkedStorageResolver.canAccessWorldTarget(player, pos)) {
+                    sanitized.add(pos.immutable());
+                    if (sanitized.size() >= C2SRtsPlaceBatchPayload.MAX_POSITIONS) {
+                        break;
+                    }
+                }
             }
+
+            Map<String, Object> args = new HashMap<>();
+            args.put(PlacementExecutePipe.ARG_CLICKED_POSITIONS, sanitized);
+            args.put(PlacementExecutePipe.ARG_FACE, face);
+            args.put(PlacementExecutePipe.ARG_HIT_OFFSET_X, hitOffsetX);
+            args.put(PlacementExecutePipe.ARG_HIT_OFFSET_Y, hitOffsetY);
+            args.put(PlacementExecutePipe.ARG_HIT_OFFSET_Z, hitOffsetZ);
+            args.put(PlacementExecutePipe.ARG_ROTATE_STEPS, (int) rotateSteps);
+            args.put(PlacementExecutePipe.ARG_FORCE_PLACE, forcePlace);
+            args.put(PlacementExecutePipe.ARG_SKIP_IF_OCCUPIED, skipIfOccupied);
+            args.put(PlacementExecutePipe.ARG_ITEM_ID, itemId == null ? "" : itemId);
+            args.put(PlacementExecutePipe.ARG_ITEM_PROTOTYPE, itemPrototype);
+            args.put(PlacementExecutePipe.ARG_RAY_ORIGIN_X, rayOriginX);
+            args.put(PlacementExecutePipe.ARG_RAY_ORIGIN_Y, rayOriginY);
+            args.put(PlacementExecutePipe.ARG_RAY_ORIGIN_Z, rayOriginZ);
+            args.put(PlacementExecutePipe.ARG_RAY_DIR_X, rayDirX);
+            args.put(PlacementExecutePipe.ARG_RAY_DIR_Y, rayDirY);
+            args.put(PlacementExecutePipe.ARG_RAY_DIR_Z, rayDirZ);
+            args.put(PlacementExecutePipe.ARG_QUICK_BUILD, false);
+            args.put(PlacementExecutePipe.ARG_FORCE_EMPTY_HAND, false);
+            args.put(PlacementExecutePipe.ARG_SEND_REMOTE_HINT, true);
+            args.put(WorkflowStartPipe.ARG_TOTAL_BLOCKS.name(), sanitized.size());
+
+            PipelineRegistry.execute(RtsWorkflowType.PLACE_BATCH,
+                    new PlaceContext(player, args));
+            return;
         }
-        final int finalWfEntryId = wfEntryId;
+
+        // Fallback: no session or empty positions — enqueue without workflow
         RtsPlacementBatch.enqueuePlaceBatch(
                 player,
                 session,
@@ -124,8 +182,9 @@ public final class RtsPlacementService {
                 true,
                 false,
                 false,
-                finalWfEntryId);
-        // 新放置入队后尝试恢复挂起作业
+                -1);
+
+        // 即使无会话，也尝试恢复挂起作业
         if (player != null) {
             RtsPendingPlacementService.tryResumeAfterStorageChange(player);
         }
@@ -133,10 +192,6 @@ public final class RtsPlacementService {
 
     /**
      * 提交挂起放置作业——尝试恢复所有因物品不足而暂停的放置任务。
-     * 若库存中已有足够物品，挂起的作业将被移回活跃队列继续执行。
-     *
-     * @param player 玩家
-     * @return 成功恢复的作业数
      */
     public static int submitPendingPlacement(ServerPlayer player) {
         if (player == null) {
@@ -176,65 +231,48 @@ public final class RtsPlacementService {
     // =========================================================================
 
     /**
-     * 获取当前批量范围放置的总方块数（放置方块总数）。
-     *
-     * @return 总方块数，如果没有进行中的批量放置则返回 0
+     * 获取当前批量范围放置的总方块数。
      */
     public static int getPlaceBatchTotalBlocks(ServerPlayer player) {
-        RtsStorageSession session = RtsSessionService.getIfPresent(player);
-        if (session == null) return 0;
-        RtsWorkflowStatus status = RtsWorkflowManager.getPlaceBatchProgress(session);
-        if (status != null) return status.totalBlocks();
-        // Also check QUICK_BUILD (shape placement)
-        status = RtsWorkflowManager.getQuickBuildProgress(session);
-        return status != null ? status.totalBlocks() : 0;
+        var engine = RtsWorkflowEngine.getInstance();
+        return engine.getAllProgress(player).stream()
+                .filter(d -> d.type() == RtsWorkflowType.PLACE_BATCH || d.type() == RtsWorkflowType.QUICK_BUILD)
+                .mapToInt(RtsWorkflowStatus::totalBlocks)
+                .sum();
     }
 
     /**
      * 获取当前批量范围放置的已放置方块数量。
-     *
-     * @return 已放置方块数，如果没有进行中的批量放置则返回 0
      */
     public static int getPlaceBatchCompletedBlocks(ServerPlayer player) {
-        RtsStorageSession session = RtsSessionService.getIfPresent(player);
-        if (session == null) return 0;
-        RtsWorkflowStatus status = RtsWorkflowManager.getPlaceBatchProgress(session);
-        if (status != null) return status.completedBlocks();
-        status = RtsWorkflowManager.getQuickBuildProgress(session);
-        return status != null ? status.completedBlocks() : 0;
+        var engine = RtsWorkflowEngine.getInstance();
+        return engine.getAllProgress(player).stream()
+                .filter(d -> d.type() == RtsWorkflowType.PLACE_BATCH || d.type() == RtsWorkflowType.QUICK_BUILD)
+                .mapToInt(RtsWorkflowStatus::completedBlocks)
+                .sum();
     }
 
     /**
-     * 获取当前批量范围放置的未放置方块数（剩余待放置方块）。
-     *
-     * @return 未放置方块数，如果没有进行中的批量放置则返回 0
+     * 获取当前批量范围放置的未放置方块数。
      */
     public static int getPlaceBatchRemainingBlocks(ServerPlayer player) {
-        RtsStorageSession session = RtsSessionService.getIfPresent(player);
-        if (session == null) return 0;
-        RtsWorkflowStatus status = RtsWorkflowManager.getPlaceBatchProgress(session);
-        if (status != null) return status.remainingBlocks();
-        status = RtsWorkflowManager.getQuickBuildProgress(session);
-        return status != null ? status.remainingBlocks() : 0;
+        var engine = RtsWorkflowEngine.getInstance();
+        return engine.getAllProgress(player).stream()
+                .filter(d -> d.type() == RtsWorkflowType.PLACE_BATCH || d.type() == RtsWorkflowType.QUICK_BUILD)
+                .mapToInt(RtsWorkflowStatus::remainingBlocks)
+                .sum();
     }
 
     /**
      * 获取当前批量范围放置的方块类型（物品 ID）。
-     * 返回首个活跃或挂起的放置作业所使用的物品 ID，
-     * 便于外部系统（如合成）知道当前在放置什么方块。
-     *
-     * @return 物品 ID 字符串（如 "minecraft:diamond_block"），
-     *         如果没有进行中的批量放置则返回空字符串
      */
     public static String getPlaceBatchItemId(ServerPlayer player) {
         if (player == null) return "";
         RtsStorageSession session = RtsSessionService.getIfPresent(player);
         if (session == null) return "";
-        // 先查活跃队列
         if (!session.placement.placeBatchJobs.isEmpty()) {
             return session.placement.placeBatchJobs.peekFirst().itemId();
         }
-        // 再查挂起队列
         if (!session.placement.pendingJobs.isEmpty()) {
             return session.placement.pendingJobs.peekFirst().itemId();
         }

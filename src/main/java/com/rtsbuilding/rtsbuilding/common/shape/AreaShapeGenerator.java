@@ -44,6 +44,24 @@ public abstract class AreaShapeGenerator {
     // ======================================================================
 
     /**
+     * Shared base check: build-height range and world-interaction permission.
+     * <p>
+     * Both {@link #validatePlacementPosition} and {@link #validateDestroyPosition}
+     * start with the same two checks — this method consolidates them.
+     *
+     * @param level  the world
+     * @param pos    target position
+     * @param player the player performing the action
+     * @return true if the position is within build height and the player may interact
+     */
+    private static boolean validatePositionBase(Level level, BlockPos pos, Player player) {
+        if (pos.getY() < level.getMinBuildHeight() || pos.getY() >= level.getMaxBuildHeight()) {
+            return false;
+        }
+        return level.mayInteract(player, pos);
+    }
+
+    /**
      * Validates that a block position is valid for placement.
      * <p>
      * Equivalent to {@code BaseMode.isPosValid()} — checks build height,
@@ -57,10 +75,7 @@ public abstract class AreaShapeGenerator {
      * @return true if this position may be used for placement
      */
     public static boolean validatePlacementPosition(Level level, BlockPos pos, BlockState state, Player player) {
-        if (pos.getY() < level.getMinBuildHeight() || pos.getY() >= level.getMaxBuildHeight()) {
-            return false;
-        }
-        if (!level.mayInteract(player, pos)) {
+        if (!validatePositionBase(level, pos, player)) {
             return false;
         }
         if (!state.canSurvive(level, pos)) {
@@ -81,10 +96,7 @@ public abstract class AreaShapeGenerator {
      * @return true if the block at this position may be destroyed
      */
     public static boolean validateDestroyPosition(ServerLevel level, BlockPos pos, Player player) {
-        if (pos.getY() < level.getMinBuildHeight() || pos.getY() >= level.getMaxBuildHeight()) {
-            return false;
-        }
-        if (!level.mayInteract(player, pos)) {
+        if (!validatePositionBase(level, pos, player)) {
             return false;
         }
         BlockState state = level.getBlockState(pos);

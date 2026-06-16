@@ -5,10 +5,10 @@ import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsDeleteWorkflowPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsPauseWorkflowPayload;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsScanResumePlacementPayload;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowProgressData;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowProgressProcessor;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowStatus;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowProgressProcessor;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
@@ -29,6 +29,7 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
     private static final int PADDING = 6;
     private static final int BTN_W = 16;
     private static final int BAR_H = 6;
+    private static final int FOOTER_H = 18;
 
     private int cachedVisibleRows = -1;
 
@@ -106,8 +107,9 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
      */
     private void recomputeSize() {
         int visibleRows = getActiveCount() + getSuspendedCount();
-        if (visibleRows == cachedVisibleRows) return;
-        cachedVisibleRows = visibleRows;
+        int totalRows = visibleRows;
+        if (totalRows == cachedVisibleRows) return;
+        cachedVisibleRows = totalRows;
         int contentH = PADDING + visibleRows * ROW_H + PADDING;
         int totalH = getTitleBarHeight() + 1 + contentH;
         setTransientBounds(this.windowX, this.windowY, PANEL_W, totalH);
@@ -128,10 +130,8 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
         // Render all occupied workflow entries (active + suspended)
         for (int i = 0; i < count; i++) {
             RtsWorkflowStatus status = workflows[i];
-            if (status == null || status.type() == null) continue;
-            // Convert to structured progress data via the unified processor
-            RtsWorkflowProgressData data = RtsWorkflowProgressProcessor.process(status);
-            rowY = renderWorkflowRow(g, baseX, rowY, data, mouseX, mouseY);
+            if (status == null || !status.isActive()) continue;
+            rowY = renderWorkflowRow(g, baseX, rowY, status, mouseX, mouseY);
         }
     }
 
@@ -140,12 +140,12 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
     // ======================================================================
 
     private int renderWorkflowRow(GuiGraphics g, int x, int y,
-                                   RtsWorkflowProgressData data,
+                                   RtsWorkflowStatus status,
                                    int mouseX, int mouseY) {
         Font font = this.screen.font();
-        boolean suspended = data.suspended();
-        String label = RtsWorkflowProgressProcessor.formatLabel(data);
-        String progress = RtsWorkflowProgressProcessor.formatProgressText(data);
+        boolean suspended = status.suspended();
+        String label = RtsWorkflowProgressProcessor.formatLabel(status);
+        String progress = RtsWorkflowProgressProcessor.formatProgressText(status);
     
         if (suspended) {
             // Suspended workflow: need space for 2 buttons ▶ + ✖
@@ -163,7 +163,7 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
             int barX = x + 4;
             int barY = y + 12;
             int barW = rowW - 8;
-            int fillW = RtsWorkflowProgressProcessor.computeFillWidth(data, barW);
+            int fillW = RtsWorkflowProgressProcessor.computeFillWidth(status, barW);
             g.fill(barX, barY, barX + barW, barY + BAR_H, 0xAA303030);
             if (fillW > 0) {
                 g.fill(barX, barY, barX + fillW, barY + BAR_H, 0xAA8A7A3A);
@@ -192,8 +192,9 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
             RtsClientUiUtil.drawCenteredStringNoShadow(g, font, "✖",
                     cancelBtnX + BTN_W / 2, y + 4, 0xFFFFFF);
         } else {
-            // Active workflow: normal display, 1 button
-            int rowW = PANEL_W - PADDING * 2 - BTN_W - 2;
+            // Active workflow: normal display, 2 buttons — ⏸/▶ (pause/resume) + ✖ (delete)
+            int btnArea = BTN_W * 2 + 2;
+            int rowW = PANEL_W - PADDING * 2 - btnArea - 2;
             boolean hovered = isInside(mouseX, mouseY, x, y, rowW, ROW_H);
     
             RtsClientUiUtil.drawPanelFrame(g, x, y, rowW, ROW_H,
@@ -205,7 +206,7 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
             int barX = x + 4;
             int barY = y + 12;
             int barW = rowW - 8;
-            int fillW = RtsWorkflowProgressProcessor.computeFillWidth(data, barW);
+            int fillW = RtsWorkflowProgressProcessor.computeFillWidth(status, barW);
             g.fill(barX, barY, barX + barW, barY + BAR_H, 0xAA202832);
             if (fillW > 0) {
                 g.fill(barX, barY, barX + fillW, barY + BAR_H, 0xFF88BEF4);
@@ -217,15 +218,36 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
     
             // Progress text overlay
             g.drawString(font, progress, barX + 2, barY + 1, 0xCCFFFFFF, false);
+
+            boolean isPaused = status.paused();
+
+            // Pause/Resume button (⏸/▶) — rightmost
+            int pauseBtnX = x + rowW + 2;
+            boolean pauseHovered = isInside(mouseX, mouseY, pauseBtnX, y, BTN_W, ROW_H);
+            int pauseBg;
+            int pauseBorder;
+            if (isPaused) {
+                // Resume — green
+                pauseBg = pauseHovered ? 0xCC3AA156 : 0xCC2C873F;
+                pauseBorder = 0xFF74E88C;
+            } else {
+                // Pause — amber
+                pauseBg = pauseHovered ? 0xCCA07A2A : 0xCC705A1A;
+                pauseBorder = 0xFFE7C46A;
+            }
+            RtsClientUiUtil.drawPanelFrame(g, pauseBtnX, y, BTN_W, ROW_H,
+                    pauseBg, pauseBorder, 0xFF1A2A1A);
+            RtsClientUiUtil.drawCenteredStringNoShadow(g, font, isPaused ? "▶" : "⏸",
+                    pauseBtnX + BTN_W / 2, y + 4, 0xFFFFFF);
     
-            // Delete button (✖)
-            int btnX = x + rowW + 2;
-            boolean btnHovered = isInside(mouseX, mouseY, btnX, y, BTN_W, ROW_H);
-            int btnBg = btnHovered ? 0xCCB04A4A : 0xAA4A2A2A;
-            RtsClientUiUtil.drawPanelFrame(g, btnX, y, BTN_W, ROW_H,
-                    btnBg, 0xFFC07070, 0xFF1A0D0D);
+            // Delete button (✖) — second from right
+            int deleteBtnX = pauseBtnX + BTN_W + 2;
+            boolean deleteHovered = isInside(mouseX, mouseY, deleteBtnX, y, BTN_W, ROW_H);
+            int deleteBg = deleteHovered ? 0xCCB04A4A : 0xAA4A2A2A;
+            RtsClientUiUtil.drawPanelFrame(g, deleteBtnX, y, BTN_W, ROW_H,
+                    deleteBg, 0xFFC07070, 0xFF1A0D0D);
             RtsClientUiUtil.drawCenteredStringNoShadow(g, font, "✖",
-                    btnX + BTN_W / 2, y + 4, 0xFFFFFF);
+                    deleteBtnX + BTN_W / 2, y + 4, 0xFFFFFF);
         }
     
         return y + ROW_H;
@@ -263,22 +285,30 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
                     return;
                 }
                 if (isInside(mouseX, mouseY, cancelBtnX, rowY, BTN_W, ROW_H)) {
-                    // ✖ Cancel (delete) this workflow
-                    PacketDistributor.sendToServer(new C2SRtsDeleteWorkflowPayload(i));
+                    // ✖ Cancel (delete) this workflow — 用 entryId 而非位置索引
+                    PacketDistributor.sendToServer(new C2SRtsDeleteWorkflowPayload(status.entryId()));
                     return;
                 }
             } else {
-                // Active workflow: 1 button — ✖ delete
-                int rowW = PANEL_W - PADDING * 2 - BTN_W - 2;
-                int btnX = baseX + rowW + 2;
-                if (isInside(mouseX, mouseY, btnX, rowY, BTN_W, ROW_H)) {
-                    PacketDistributor.sendToServer(new C2SRtsDeleteWorkflowPayload(i));
+                // Active workflow: 2 buttons — ⏸/▶ (pause/resume) + ✖ (delete)
+                int btnArea = BTN_W * 2 + 2;
+                int rowW = PANEL_W - PADDING * 2 - btnArea - 2;
+                int pauseBtnX = baseX + rowW + 2;
+                int deleteBtnX = pauseBtnX + BTN_W + 2;
+                if (isInside(mouseX, mouseY, pauseBtnX, rowY, BTN_W, ROW_H)) {
+                    PacketDistributor.sendToServer(new C2SRtsPauseWorkflowPayload(status.entryId()));
+                    return;
+                }
+                if (isInside(mouseX, mouseY, deleteBtnX, rowY, BTN_W, ROW_H)) {
+                    PacketDistributor.sendToServer(new C2SRtsDeleteWorkflowPayload(status.entryId()));
                     return;
                 }
             }
 
             rowY += ROW_H;
         }
+
+
     }
 
     // ======================================================================

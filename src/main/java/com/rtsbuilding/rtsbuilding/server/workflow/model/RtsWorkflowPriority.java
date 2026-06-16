@@ -1,4 +1,4 @@
-package com.rtsbuilding.rtsbuilding.server.workflow;
+package com.rtsbuilding.rtsbuilding.server.workflow.model;
 
 /**
  * Priority levels for workflow operations.

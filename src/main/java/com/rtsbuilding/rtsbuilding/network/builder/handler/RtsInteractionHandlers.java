@@ -5,8 +5,10 @@ import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
 import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import com.rtsbuilding.rtsbuilding.server.service.*;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowManager;
+import com.rtsbuilding.rtsbuilding.server.workflow.core.IWorkflowEngine;
+import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -92,10 +94,8 @@ public final class RtsInteractionHandlers {
     public static void handleDeleteWorkflow(C2SRtsDeleteWorkflowPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer serverPlayer) {
-                RtsStorageSession session = RtsSessionService.getIfPresent(serverPlayer);
-                if (session != null) {
-                    RtsWorkflowManager.deleteWorkflow(serverPlayer, session, payload.workflowIndex());
-                }
+                IWorkflowEngine engine = RtsWorkflowEngine.getInstance();
+                engine.deleteWorkflow(serverPlayer, payload.workflowEntryId());
             }
         });
     }
@@ -126,6 +126,28 @@ public final class RtsInteractionHandlers {
                 if (session != null) {
                     RtsPendingPlacementService.resumeWithStrategy(serverPlayer, session, payload.strategy(), payload.workflowEntryId());
                 }
+            }
+        });
+    }
+
+    public static void handlePauseWorkflow(C2SRtsPauseWorkflowPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                int entryId = payload.entryId();
+                RtsWorkflowEngine engine = RtsWorkflowEngine.getInstance();
+                engine.from(serverPlayer, entryId).ifPresent(token -> {
+                    if (token.isPaused()) {
+                        token.unpause();
+                        serverPlayer.displayClientMessage(
+                                Component.literal("§7[工作流] §a▶ 已恢复 — 线程继续执行"),
+                                true);
+                    } else {
+                        token.pause();
+                        serverPlayer.displayClientMessage(
+                                Component.literal("§7[工作流] §e⏸ 已暂停 — 线程已暂停"),
+                                true);
+                    }
+                });
             }
         });
     }

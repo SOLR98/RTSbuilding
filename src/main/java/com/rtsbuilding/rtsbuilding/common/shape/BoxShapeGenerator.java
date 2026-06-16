@@ -33,7 +33,7 @@ public class BoxShapeGenerator extends AreaShapeGenerator {
         int maxY = Math.max(0, dy);
 
         List<BlockPos> full = new ArrayList<>();
-        for (int y = minY; y <= maxY; y++) {
+        for (int y = maxY; y >= minY; y--) {
             for (int x = minX; x <= maxX; x++) {
                 for (int z = minZ; z <= maxZ; z++) {
                     full.add(input.start().offset(x, y, z));

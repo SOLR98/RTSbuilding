@@ -6,8 +6,7 @@ import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowHandle;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowManager;
+import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
 import com.rtsbuilding.rtsbuilding.util.RtsCountUtil;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -211,10 +210,7 @@ public final class RtsPendingPlacementService {
                     player.getName().getString(), count);
             // 恢复每个独立 job 对应的搁置工作流
             for (RtsPlacementBatch.PlaceBatchJob rj : resumed) {
-                RtsWorkflowHandle handle = RtsWorkflowHandle.from(player, session, rj.workflowEntryId());
-                if (handle != null) {
-                    handle.resume();
-                }
+                RtsWorkflowEngine.getInstance().from(player, rj.workflowEntryId()).ifPresent(token -> token.resume());
             }
             // 通知客户端刷新页面
             RtsPageService.markStorageViewDirty(player, session);
@@ -309,11 +305,11 @@ public final class RtsPendingPlacementService {
         // 移到活跃队列（按 entry ID 删除正确的 job，而不是删第一个）
         session.placement.pendingJobs.remove(job);
         session.placement.placeBatchJobs.addLast(job);
-        RtsWorkflowHandle handle = RtsWorkflowHandle.from(player, session, job.workflowEntryId());
-        if (handle != null) {
-            handle.resume();
+        RtsWorkflowEngine.getInstance().from(player, job.workflowEntryId()).ifPresent(token -> token.resume());
+        // 覆盖策略不刷新界面，由 tick 自然推进放置无需刷新页面
+        if (strategy == 0) {
+            RtsPageService.markStorageViewDirty(player, session);
         }
-        RtsPageService.markStorageViewDirty(player, session);
 
         RtsbuildingMod.LOGGER.info("[PendingPlacement] {} 使用策略 {} 重启了搁置放置作业",
                 player.getName().getString(), strategy == 0 ? "SKIP" : "OVERWRITE");
@@ -381,7 +377,8 @@ public final class RtsPendingPlacementService {
             }
 
             // Update the workflow entry using the job's specific workflow entry ID
-            RtsWorkflowManager.setPlacementCompletedBlocks(player, session, job.workflowEntryId(), actualPlaced);
+            int finalActPlaced = actualPlaced;
+            RtsWorkflowEngine.getInstance().from(player, job.workflowEntryId()).ifPresent(token -> token.setCompletedBlocks(finalActPlaced));
         }
     }
 
@@ -414,11 +411,11 @@ public final class RtsPendingPlacementService {
     }
 
     /**
-     * 覆盖冲突格位：破坏冲突方块，将掉落物存入玩家背包/存储系统。
-     * <p>
-     * 不同于跳过策略，覆盖策略<b>不会</b>调用 {@code skipOne()}，
-     * 破坏后的位置仍然留在作业的待处理队列中，
-     * 后续 tick 的 {@code tickPlaceBatchJobs} 会正常放置所需方块。
+     * 覆盖冲突格位：破坏冲突方块后重启线程。
+     *
+     * <p>遍历剩余位置，遇到冲突格（不同方块且不可替换）直接破坏并收集掉落。
+     * 不预检测材料、不回退跳过、不放置方块——破坏完成后由调用方重启线程，
+     * tick 会正常放置所有剩余位置。</p>
      */
     private static void overwriteConflictPositions(ServerPlayer player, RtsPlacementBatch.PlaceBatchJob job,
                                                     RtsStorageSession session) {
@@ -435,52 +432,30 @@ public final class RtsPendingPlacementService {
         var linked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
         var insertHandlers = RtsLinkedStorageResolver.itemHandlersForInsert(linked);
 
-        // 关键：用快照复制所有待处理位置，避免 subList 视图 + index 变更互相干扰
-        List<BlockPos> allRemaining = new java.util.ArrayList<>(job.remainingPositions());
-        int initialIndex = job.remainingPositions().isEmpty() ? 0
-                : job.clickedPositions().size() - job.remainingPositions().size();
-
-        for (int i = 0; i < allRemaining.size(); i++) {
-            BlockPos pos = allRemaining.get(i);
+        // ── 仅破坏冲突格，不预检、不回退、不放置 ──
+        for (BlockPos pos : job.remainingPositions()) {
             if (!level.hasChunkAt(pos)) continue;
             BlockState currentState = level.getBlockState(pos);
             Block currentBlock = currentState.getBlock();
 
-            // 实际索引位置（在 clickedPositions 中的索引）
-            int actualIndex = initialIndex + i;
+            if (currentBlock == expectedBlock) continue;           // 已放置 → 不动
+            if (currentState.isAir() || currentState.canBeReplaced()) continue; // 空气 → 不动
 
-            if (currentBlock == expectedBlock) {
-                // 已手动放置同种方块 → 跳过该格（不用再放）
-                if (job.getIndex() <= actualIndex) {
-                    // 推进 index 跳过这个位置，但只在还未被处理时
-                    while (job.getIndex() < actualIndex) {
-                        job.skipOne();
-                    }
-                    if (job.getIndex() == actualIndex) {
-                        job.skipOne();
-                    }
-                }
-                continue;
-            }
-            if (currentState.isAir() || currentState.canBeReplaced()) {
-                // 空气或可替换 → 不需要操作，让 tick 正常放置
-                continue;
-            }
-            // 冲突方块：破坏并收集掉落（不 skipOne，让 tick 来放置正确方块）
+            // 冲突方块：破坏并收集掉落
+            java.util.List<ItemStack> drops = Block.getDrops(currentState, level, pos, level.getBlockEntity(pos));
+            level.destroyBlock(pos, false);
             if (!currentState.requiresCorrectToolForDrops() || player.isCreative()) {
-                java.util.List<ItemStack> drops = Block.getDrops(currentState, level, pos, level.getBlockEntity(pos));
-                level.destroyBlock(pos, false);
                 for (ItemStack drop : drops) {
                     if (!drop.isEmpty()) {
                         RtsTransferInserter.storeToLinkedWithFallback(insertHandlers, player, drop);
                     }
                 }
             } else {
-                level.destroyBlock(pos, false);
                 player.displayClientMessage(
                         net.minecraft.network.chat.Component.literal("§e警告：" + currentBlock.getName() + " 需要合适的工具才能掉落！"),
                         true);
             }
         }
     }
+
 }

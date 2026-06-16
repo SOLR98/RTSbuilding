@@ -7,6 +7,7 @@ import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.data.RtsStorageSessionCodec;
 import com.rtsbuilding.rtsbuilding.server.data.RtsStorageSessionStore;
 import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
+import com.rtsbuilding.rtsbuilding.server.pipeline.core.TickablePipelineRegistry;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.service.mining.RtsMiningStateMachine;
 import com.rtsbuilding.rtsbuilding.server.service.page.RtsPageCore;
@@ -146,6 +147,9 @@ public final class RtsSessionService {
         // Clean up storage cache
         RtsStorageTickService.INSTANCE.unregisterPlayer(player);
         RtsPageCore.clearCache(player.getUUID());
+
+        // Clean up any active tickable pipelines for this player
+        TickablePipelineRegistry.removeAll(player.getUUID());
     }
 
     public static void onPlayerTickPost(ServerPlayer player) {
@@ -215,6 +219,9 @@ public final class RtsSessionService {
             RtsFunnelService.tick(player, session);
             RtsPlacedRecoveryService.tick(player, session);
         }
+
+        // Tick all active tickable pipeline instances (ultimine/area-mine monitoring)
+        TickablePipelineRegistry.tickAll();
     }
 
     // ======================================================================

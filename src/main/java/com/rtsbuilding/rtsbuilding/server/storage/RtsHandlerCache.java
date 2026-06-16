@@ -35,7 +35,7 @@ public final class RtsHandlerCache {
     private final Map<String, ItemStack> prototypeByItem = new HashMap<>();
 
     /** Whether the cache has been dirtied since last clear. */
-    private volatile boolean dirtySinceLastRead;
+    private boolean dirtySinceLastRead;
 
     // ======================================================================
     //  Cache update

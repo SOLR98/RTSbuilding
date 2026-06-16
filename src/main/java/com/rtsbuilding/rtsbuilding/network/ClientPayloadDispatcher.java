@@ -82,6 +82,8 @@ public final class ClientPayloadDispatcher {
                     RtsClientNetworkHandlers.handleHistorySync(p, ctx);
             case S2CRtsWorkflowProgressPayload p ->
                     RtsClientNetworkHandlers.handleWorkflowProgress(p, ctx);
+            case S2CRtsWorkflowProgressBatchPayload p ->
+                    RtsClientNetworkHandlers.handleWorkflowProgressBatch(p, ctx);
             case S2CRtsResumePlacementScanPayload p ->
                     RtsClientNetworkHandlers.handleResumePlacementScan(p, ctx);
             default -> {}

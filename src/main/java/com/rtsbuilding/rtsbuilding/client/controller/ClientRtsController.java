@@ -18,10 +18,7 @@ import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
 import com.rtsbuilding.rtsbuilding.common.shape.ShapeFillMode;
 import com.rtsbuilding.rtsbuilding.compat.remote.RtsRemoteMenuCompat;
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsMineProgressPayload;
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsResumePlacementScanPayload;
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsUltimineProgressPayload;
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsWorkflowProgressPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.*;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraAnchorPayload;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraStatePayload;
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftFeedbackPayload;
@@ -33,9 +30,9 @@ import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsRemoteMenuHintPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStorageDirtyPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowPriority;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowStatus;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowType;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowPriority;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.CraftingScreen;
 import net.minecraft.client.player.LocalPlayer;
@@ -553,7 +550,7 @@ public final class ClientRtsController {
         RtsWorkflowPriority priority = pri >= 0 && pri < priorities.length
                 ? priorities[pri]
                 : RtsWorkflowPriority.NORMAL;
-        this.workflowStatuses[idx] = new RtsWorkflowStatus(
+        this.workflowStatuses[idx] = RtsWorkflowStatus.fromRaw(
                 type,
                 priority,
                 payload.totalBlocks(),
@@ -562,7 +559,18 @@ public final class ClientRtsController {
                 payload.missingItems(),
                 payload.detailMessage(),
                 payload.suspended() != 0,
+                payload.paused() != 0,
                 payload.workflowEntryId());
+    }
+
+    /**
+     * Applies a batch of workflow progress updates received in a single packet.
+     * Identical in effect to calling {@link #applyWorkflowProgress} for each entry.
+     */
+    public void applyWorkflowProgressBatch(S2CRtsWorkflowProgressBatchPayload payload) {
+        for (S2CRtsWorkflowProgressPayload entry : payload.entries()) {
+            applyWorkflowProgress(entry);
+        }
     }
 
     /**

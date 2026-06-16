@@ -1,7 +1,7 @@
-package com.rtsbuilding.rtsbuilding.server.workflow;
+package com.rtsbuilding.rtsbuilding.server.workflow.model;
 
 /**
- * Types of workflows that can be tracked by the {@link RtsWorkflowManager}.
+ * Types of workflows that can be tracked by the workflow system.
  *
  * <p>Each enum constant represents a distinct category of remote operation:
  * single or batch, mining or placement.  This type is used to identify the
@@ -29,5 +29,14 @@ public enum RtsWorkflowType {
     PLACE_BATCH,
 
     /** Quick-build (pre-resolved state) shape placement. */
-    QUICK_BUILD
+    QUICK_BUILD,
+
+    /**
+     * Standalone stop-mining operation (no new mining started afterwards).
+     *
+     * <p>Used when the player explicitly cancels a mining operation or
+     * disables RTS mode.  Unlike the implicit stop inside
+     * {@code StopPreviousPipe}, this is a user-initiated stop.</p>
+     */
+    STOP_MINING
 }

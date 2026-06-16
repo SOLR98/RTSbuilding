@@ -158,50 +158,54 @@ public final class RtsResumePlacementPanel extends RtsWindowPanel {
 
         // 按钮区域
         boolean hasConflicts = scanData.conflictCount() > 0;
-        int btnW = hasConflicts ? (maxW - 4) / 3 : (maxW - 2) / 2;
         int btnY = contentY() + contentHeight() - BTN_H - PADDING;
 
-        // 1. 跳过冲突重启 (只在有冲突时显示)
         if (hasConflicts) {
-            boolean skipHovered = isInsideBtn(mouseX, mouseY, x, btnY, btnW, BTN_H);
-            int skipBg = skipHovered ? 0xCC3A6A3A : 0xCC2A4A2A;
+            // 有冲突：跳过 | 覆盖（两个按钮）
+            int btnW = (maxW - 2) / 2;
+
+            // 1. 跳过
+            boolean skipHovered = enough && isInsideBtn(mouseX, mouseY, x, btnY, btnW, BTN_H);
+            int skipBg;
+            if (enough) {
+                skipBg = skipHovered ? 0xCC3A6A3A : 0xCC2A4A2A;
+            } else {
+                skipBg = 0xCC444444;
+            }
             RtsClientUiUtil.drawPanelFrame(g, x, btnY, btnW, BTN_H,
-                    skipBg, 0xFF74E88C, 0xFF1A2A1A);
-            RtsClientUiUtil.drawCenteredStringNoShadow(g, font, "⏭ 跳过",
+                    skipBg, enough ? 0xFF74E88C : 0xFF666666, 0xFF1A2A1A);
+            RtsClientUiUtil.drawCenteredStringNoShadow(g, font, enough ? "⏭ 跳过" : "物品不足",
                     x + btnW / 2, btnY + 4, enough ? 0xFFFFFF : 0x888888);
-        }
 
-        // 2. 覆盖放置 (只在有冲突时显示)
-        if (hasConflicts) {
+            // 2. 覆盖
             int overwriteX = x + btnW + 2;
-            boolean overwriteHovered = isInsideBtn(mouseX, mouseY, overwriteX, btnY, btnW, BTN_H);
-            int overwriteBg = overwriteHovered ? 0xCC6A4A2A : 0xCC4A3A1A;
+            boolean overwriteHovered = enough && isInsideBtn(mouseX, mouseY, overwriteX, btnY, btnW, BTN_H);
+            int overwriteBg;
+            if (enough) {
+                overwriteBg = overwriteHovered ? 0xCC6A4A2A : 0xCC4A3A1A;
+            } else {
+                overwriteBg = 0xCC444444;
+            }
             RtsClientUiUtil.drawPanelFrame(g, overwriteX, btnY, btnW, BTN_H,
-                    overwriteBg, 0xFFE7C46A, 0xFF2A1A0A);
-            RtsClientUiUtil.drawCenteredStringNoShadow(g, font, "⛏ 覆盖",
-                    overwriteX + btnW / 2, btnY + 4, 0xFFFFFF);
-        }
-
-        // 3. 重启按钮 (总在最右)
-        int resumeX;
-        if (hasConflicts) {
-            resumeX = x + btnW * 2 + 4;
+                    overwriteBg, enough ? 0xFFE7C46A : 0xFF666666, enough ? 0xFF2A1A0A : 0xFF1A1A1A);
+            RtsClientUiUtil.drawCenteredStringNoShadow(g, font, enough ? "⛏ 覆盖" : "物品不足",
+                    overwriteX + btnW / 2, btnY + 4, enough ? 0xFFFFFF : 0x888888);
         } else {
-            resumeX = x + btnW + 2;
+            // 无冲突：重启（单个按钮，满宽）
+            boolean resumeHovered = enough && isInsideBtn(mouseX, mouseY, x, btnY, maxW, BTN_H);
+            int resumeBg;
+            if (enough) {
+                resumeBg = resumeHovered ? 0xCC3AA156 : 0xCC2C873F;
+            } else {
+                resumeBg = 0xCC444444;
+            }
+            RtsClientUiUtil.drawPanelFrame(g, x, btnY, maxW, BTN_H,
+                    resumeBg, enough ? 0xFF74E88C : 0xFF666666, 0xFF1A2A1A);
+            RtsClientUiUtil.drawCenteredStringNoShadow(g, font,
+                    enough ? "▶ 重启" : "物品不足",
+                    x + maxW / 2, btnY + 4,
+                    enough ? 0xFFFFFF : 0x888888);
         }
-        boolean resumeHovered = isInsideBtn(mouseX, mouseY, resumeX, btnY, btnW, BTN_H);
-        int resumeBg;
-        if (enough) {
-            resumeBg = resumeHovered ? 0xCC3AA156 : 0xCC2C873F;
-        } else {
-            resumeBg = 0xCC444444;
-        }
-        RtsClientUiUtil.drawPanelFrame(g, resumeX, btnY, btnW, BTN_H,
-                resumeBg, enough ? 0xFF74E88C : 0xFF666666, 0xFF1A2A1A);
-        RtsClientUiUtil.drawCenteredStringNoShadow(g, font,
-                enough ? "▶ 重启" : "物品不足",
-                resumeX + btnW / 2, btnY + 4,
-                enough ? 0xFFFFFF : 0x888888);
     }
 
     @Override
@@ -213,9 +217,10 @@ public final class RtsResumePlacementPanel extends RtsWindowPanel {
         int btnY = contentY() + contentHeight() - BTN_H - PADDING;
 
         boolean hasConflicts = scanData.conflictCount() > 0;
-        int btnW = hasConflicts ? (maxW - 4) / 3 : (maxW - 2) / 2;
+        boolean enough = scanData.missingItems() <= 0;
 
-        if (hasConflicts) {
+        if (hasConflicts && enough) {
+            int btnW = (maxW - 2) / 2;
             // 跳过按钮
             if (isInsideBtn(mouseX, mouseY, x, btnY, btnW, BTN_H)) {
                 sendAction(0); // SKIP
@@ -228,11 +233,11 @@ public final class RtsResumePlacementPanel extends RtsWindowPanel {
             }
         }
 
-        // 重启按钮（物品够时才处理点击）
-        boolean enough = scanData.missingItems() <= 0;
-        int resumeX = hasConflicts ? x + btnW * 2 + 4 : x + btnW + 2;
-        if (enough && isInsideBtn(mouseX, mouseY, resumeX, btnY, btnW, BTN_H)) {
-            sendAction(hasConflicts ? 0 : 0); // 无冲突时默认直接重启
+        if (!hasConflicts && enough) {
+            // 重启按钮（满宽，无冲突时）
+            if (isInsideBtn(mouseX, mouseY, x, btnY, maxW, BTN_H)) {
+                sendAction(0);
+            }
         }
     }
 

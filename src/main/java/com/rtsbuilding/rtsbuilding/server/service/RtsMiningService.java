@@ -1,23 +1,25 @@
 package com.rtsbuilding.rtsbuilding.server.service;
 
-import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
-import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
-import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
+import com.rtsbuilding.rtsbuilding.server.pipeline.context.MiningContext;
+import com.rtsbuilding.rtsbuilding.server.pipeline.core.PipelineRegistry;
+import com.rtsbuilding.rtsbuilding.server.pipeline.mining.MiningExecutePipe;
+import com.rtsbuilding.rtsbuilding.server.pipeline.mining.UltimineExecutePipe;
+import com.rtsbuilding.rtsbuilding.server.pipeline.tool.ToolBorrowPipe;
+import com.rtsbuilding.rtsbuilding.server.pipeline.workflow.WorkflowStartPipe;
 import com.rtsbuilding.rtsbuilding.server.service.mining.RtsMiningStateMachine;
 import com.rtsbuilding.rtsbuilding.server.service.mining.RtsMiningValidator;
-import com.rtsbuilding.rtsbuilding.server.service.mining.RtsToolLeaseManager;
-import com.rtsbuilding.rtsbuilding.server.service.mining.RtsUltimineProcessor;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowHandle;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowManager;
-import com.rtsbuilding.rtsbuilding.server.workflow.RtsWorkflowStatus;
+import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 /**
@@ -31,6 +33,9 @@ import java.util.function.Supplier;
  *   <li>范围破坏（Area Destroy）</li>
  *   <li>临时主手持物品切换</li>
  * </ul>
+ *
+ * <p>从 Phase 3 开始，操作编排委托给 {@link PipelineRegistry}，
+ * 此类仅负责参数转换和管道调度。</p>
  */
 public final class RtsMiningService {
 
@@ -42,77 +47,32 @@ public final class RtsMiningService {
     // =========================================================================
 
     /**
-     * 单方块挖掘——开始/停止远程挖掘并完成工具借用/归还。
+     * 单方块挖掘——通过 MINE_SINGLE 管道执行远程挖掘。
      */
     public static void mine(ServerPlayer player, BlockPos pos, Direction face, boolean start, byte toolSlot,
             String toolItemId, ItemStack toolPrototype, boolean allowPlacedBlockRecovery,
             boolean toolProtectionEnabled) {
-        if (start && !RtsProgressionManager.canUse(player, RtsFeature.REMOTE_BREAK)) {
-            return;
-        }
-        RtsStorageSession session = RtsSessionService.getIfPresent(player);
-        if (session == null) {
-            return;
-        }
-        RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
-
-        int slot = RtsMiningValidator.clampHotbarSlot(toolSlot);
-
         if (start) {
-            // Start workflow and get a handle — 容量检查内部自处理
-            RtsWorkflowHandle handle = RtsWorkflowHandle.startMining(player, session, 1);
-            if (handle == null) {
-                return;
-            }
-            if (!RtsLinkedStorageResolver.canAccessWorldTarget(player, pos)) {
-                RtsMiningStateMachine.stopActiveMining(player, session);
-                handle.complete();
-                return;
-            }
+            Map<String, Object> args = new HashMap<>();
+            args.put(ToolBorrowPipe.ARG_TOOL_SLOT.name(), (int) toolSlot);
+            args.put(ToolBorrowPipe.ARG_TOOL_ITEM_ID.name(), toolItemId);
+            args.put(ToolBorrowPipe.ARG_TOOL_PROTOTYPE.name(), toolPrototype);
+            args.put(MiningExecutePipe.ARG_POS.name(), pos);
+            args.put(MiningExecutePipe.ARG_FACE.name(), face);
+            args.put(MiningExecutePipe.ARG_ALLOW_PLACED_BLOCK_RECOVERY.name(), allowPlacedBlockRecovery);
+            args.put(MiningExecutePipe.ARG_TOOL_PROTECTION_ENABLED.name(), toolProtectionEnabled);
+            args.put(WorkflowStartPipe.ARG_TOTAL_BLOCKS.name(), 1);
 
-            // Placed block recovery
-            if (allowPlacedBlockRecovery
-                    && RtsMiningValidator.tryRecoverPlacedBlock(player, session, pos, face)) {
-                RtsMiningStateMachine.stopActiveMining(player, session);
-                handle.complete();
-                return;
-            }
-
-            RtsMiningStateMachine.stopActiveMining(player, session);
-            if (player.isCreative()) {
-                Direction actualFace = face == null ? Direction.DOWN : face;
-                ServerHistoryManager.recordBreak(
-                        player, List.of(pos.immutable()), actualFace);
-                RtsMiningStateMachine.destroyMinedBlock(player, session, pos, slot);
-                handle.markProgress();
-                handle.complete();
-                RtsPageService.requestPage(
-                        player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
-                return;
-            }
-
-            session.mining.miningSelectedToolRequested = RtsMiningValidator.isSelectedMiningToolRequested(toolItemId, toolPrototype);
-            session.mining.miningToolLease = RtsToolLeaseManager.borrowMiningTool(
-                    player, session, toolItemId, toolPrototype, slot);
-            if (session.mining.miningSelectedToolRequested && session.mining.miningToolLease.isEmpty()) {
-                RtsMiningStateMachine.resetMiningState(session);
-                handle.setDetailMessage("Missing mining tool");
-                handle.complete();
-                return;
-            }
-            session.mining.miningToolProtectionEnabled = toolProtectionEnabled;
-            handle.setDetailMessage("Mining in progress");
-            RtsMiningStateMachine.beginRemoteMining(player, session, pos, face, slot);
+            PipelineRegistry.execute(RtsWorkflowType.MINE_SINGLE,
+                    new MiningContext(player, args));
             return;
         }
 
-        // Stop
-        if (!RtsMiningValidator.isCommittedUltimineBatch(session)) {
-            RtsMiningStateMachine.stopActiveMining(player, session);
-            RtsWorkflowHandle lastActive = RtsWorkflowHandle.lastActive(player, session);
-            if (lastActive != null) {
-                lastActive.complete();
-            }
+        // Stop — delegate to STOP_MINING pipeline (skipped if committed ultimine batch)
+        RtsStorageSession session = RtsSessionService.getIfPresent(player);
+        if (session != null && !RtsMiningValidator.isCommittedUltimineBatch(session)) {
+            PipelineRegistry.execute(RtsWorkflowType.STOP_MINING,
+                    new MiningContext(player, Map.of()));
         }
     }
 
@@ -121,17 +81,22 @@ public final class RtsMiningService {
     // =========================================================================
 
     /**
-     * 连锁挖掘（Ultimine）。
+     * 连锁挖掘（Ultimine）——通过 ULTIMINE 管道执行。
      */
     public static void startUltimine(ServerPlayer player, BlockPos pos, Direction face, byte toolSlot, String toolItemId,
             ItemStack toolPrototype, int requestedLimit, byte mode, boolean toolProtectionEnabled) {
-        RtsStorageSession session = RtsSessionService.getIfPresent(player);
-        if (session == null) {
-            return;
-        }
-        RtsUltimineProcessor.startUltimine(player, session, pos, face, toolSlot, toolItemId, toolPrototype,
-                requestedLimit, mode, toolProtectionEnabled);
-        // Workflow is started inside RtsUltimineProcessor with handle
+        Map<String, Object> args = new HashMap<>();
+        args.put(ToolBorrowPipe.ARG_TOOL_SLOT.name(), (int) toolSlot);
+        args.put(ToolBorrowPipe.ARG_TOOL_ITEM_ID.name(), toolItemId);
+        args.put(ToolBorrowPipe.ARG_TOOL_PROTOTYPE.name(), toolPrototype);
+        args.put(UltimineExecutePipe.ARG_POS.name(), pos);
+        args.put(UltimineExecutePipe.ARG_FACE.name(), face);
+        args.put(UltimineExecutePipe.ARG_REQUESTED_LIMIT.name(), requestedLimit);
+        args.put(UltimineExecutePipe.ARG_MODE.name(), mode);
+        args.put(UltimineExecutePipe.ARG_TOOL_PROTECTION_ENABLED.name(), toolProtectionEnabled);
+
+        PipelineRegistry.execute(RtsWorkflowType.ULTIMINE,
+                new MiningContext(player, args));
     }
 
     // =========================================================================
@@ -139,19 +104,28 @@ public final class RtsMiningService {
     // =========================================================================
 
     /**
-     * 范围挖掘（Area Mine）。
+     * 范围挖掘（Area Mine）——通过 AREA_MINE 管道执行。
      */
     public static void areaMine(ServerPlayer player,
             int minX, int maxX, int minY, int maxY, int minZ, int maxZ,
             byte toolSlot, String toolItemId, ItemStack toolPrototype,
             byte shapeType, byte fillType, boolean toolProtectionEnabled) {
-        RtsStorageSession session = RtsSessionService.getIfPresent(player);
-        if (session == null) {
-            return;
-        }
-        RtsUltimineProcessor.areaMine(player, session, minX, maxX, minY, maxY, minZ, maxZ,
-                toolSlot, toolItemId, toolPrototype, shapeType, fillType, toolProtectionEnabled);
-        // Workflow is started inside RtsUltimineProcessor with handle
+        Map<String, Object> args = new HashMap<>();
+        args.put(ToolBorrowPipe.ARG_TOOL_SLOT.name(), (int) toolSlot);
+        args.put(ToolBorrowPipe.ARG_TOOL_ITEM_ID.name(), toolItemId);
+        args.put(ToolBorrowPipe.ARG_TOOL_PROTOTYPE.name(), toolPrototype);
+        args.put(UltimineExecutePipe.ARG_MIN_X.name(), minX);
+        args.put(UltimineExecutePipe.ARG_MAX_X.name(), maxX);
+        args.put(UltimineExecutePipe.ARG_MIN_Y.name(), minY);
+        args.put(UltimineExecutePipe.ARG_MAX_Y.name(), maxY);
+        args.put(UltimineExecutePipe.ARG_MIN_Z.name(), minZ);
+        args.put(UltimineExecutePipe.ARG_MAX_Z.name(), maxZ);
+        args.put(UltimineExecutePipe.ARG_SHAPE_TYPE.name(), shapeType);
+        args.put(UltimineExecutePipe.ARG_FILL_TYPE.name(), fillType);
+        args.put(UltimineExecutePipe.ARG_TOOL_PROTECTION_ENABLED.name(), toolProtectionEnabled);
+
+        PipelineRegistry.execute(RtsWorkflowType.AREA_MINE,
+                new MiningContext(player, args));
     }
 
     // =========================================================================
@@ -159,17 +133,19 @@ public final class RtsMiningService {
     // =========================================================================
 
     /**
-     * 范围破坏（Area Destroy）。
+     * 范围破坏（Area Destroy）——通过 AREA_DESTROY 管道执行。
      */
     public static void areaDestroy(ServerPlayer player, List<BlockPos> positions,
             byte toolSlot, String toolItemId, ItemStack toolPrototype, boolean toolProtectionEnabled) {
-        RtsStorageSession session = RtsSessionService.getIfPresent(player);
-        if (session == null) {
-            return;
-        }
-        RtsUltimineProcessor.areaDestroy(player, session, positions,
-                toolSlot, toolItemId, toolPrototype, toolProtectionEnabled);
-        // Workflow is started inside RtsUltimineProcessor with handle
+        Map<String, Object> args = new HashMap<>();
+        args.put(ToolBorrowPipe.ARG_TOOL_SLOT.name(), (int) toolSlot);
+        args.put(ToolBorrowPipe.ARG_TOOL_ITEM_ID.name(), toolItemId);
+        args.put(ToolBorrowPipe.ARG_TOOL_PROTOTYPE.name(), toolPrototype);
+        args.put(UltimineExecutePipe.ARG_POSITIONS.name(), positions);
+        args.put(UltimineExecutePipe.ARG_TOOL_PROTECTION_ENABLED.name(), toolProtectionEnabled);
+
+        PipelineRegistry.execute(RtsWorkflowType.AREA_DESTROY,
+                new MiningContext(player, args));
     }
 
     // =========================================================================
@@ -177,36 +153,36 @@ public final class RtsMiningService {
     // =========================================================================
 
     /**
-     * 获取当前范围破坏的总方块数（破坏方块总数）。
-     *
-     * @return 总方块数，如果没有进行中的范围破坏则返回 0
+     * 获取当前范围破坏的总方块数。
      */
     public static int getAreaDestroyTotalBlocks(ServerPlayer player) {
-        RtsStorageSession session = RtsSessionService.getIfPresent(player);
-        RtsWorkflowStatus status = RtsWorkflowManager.getAreaDestroyProgress(session);
-        return status != null ? status.totalBlocks() : 0;
+        return RtsWorkflowEngine.getInstance().getAllProgress(player).stream()
+                .filter(d -> d.type() == RtsWorkflowType.AREA_DESTROY)
+                .findFirst()
+                .map(RtsWorkflowStatus::totalBlocks)
+                .orElse(0);
     }
 
     /**
      * 获取当前范围破坏的已破坏方块数量。
-     *
-     * @return 已破坏方块数，如果没有进行中的范围破坏则返回 0
      */
     public static int getAreaDestroyCompletedBlocks(ServerPlayer player) {
-        RtsStorageSession session = RtsSessionService.getIfPresent(player);
-        RtsWorkflowStatus status = RtsWorkflowManager.getAreaDestroyProgress(session);
-        return status != null ? status.completedBlocks() : 0;
+        return RtsWorkflowEngine.getInstance().getAllProgress(player).stream()
+                .filter(d -> d.type() == RtsWorkflowType.AREA_DESTROY)
+                .findFirst()
+                .map(RtsWorkflowStatus::completedBlocks)
+                .orElse(0);
     }
 
     /**
-     * 获取当前范围破坏的未破坏方块数（剩余待破坏方块）。
-     *
-     * @return 未破坏方块数，如果没有进行中的范围破坏则返回 0
+     * 获取当前范围破坏的未破坏方块数。
      */
     public static int getAreaDestroyRemainingBlocks(ServerPlayer player) {
-        RtsStorageSession session = RtsSessionService.getIfPresent(player);
-        RtsWorkflowStatus status = RtsWorkflowManager.getAreaDestroyProgress(session);
-        return status != null ? status.remainingBlocks() : 0;
+        return RtsWorkflowEngine.getInstance().getAllProgress(player).stream()
+                .filter(d -> d.type() == RtsWorkflowType.AREA_DESTROY)
+                .findFirst()
+                .map(RtsWorkflowStatus::remainingBlocks)
+                .orElse(0);
     }
 
     // =========================================================================

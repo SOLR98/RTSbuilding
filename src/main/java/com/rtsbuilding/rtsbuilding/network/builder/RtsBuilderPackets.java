@@ -129,6 +129,11 @@ public final class RtsBuilderPackets {
                 C2SRtsResumePlacementActionPayload.STREAM_CODEC,
                 RtsInteractionHandlers::handleResumePlacementAction);
 
+        registrar.playToServer(
+                C2SRtsPauseWorkflowPayload.TYPE,
+                C2SRtsPauseWorkflowPayload.STREAM_CODEC,
+                RtsInteractionHandlers::handlePauseWorkflow);
+
         registrar.playToClient(
                 S2CRtsHistorySyncPayload.TYPE,
                 S2CRtsHistorySyncPayload.STREAM_CODEC,
@@ -137,6 +142,11 @@ public final class RtsBuilderPackets {
         registrar.playToClient(
                 S2CRtsWorkflowProgressPayload.TYPE,
                 S2CRtsWorkflowProgressPayload.STREAM_CODEC,
+                ClientPayloadDispatcher::dispatchBuilder);
+
+        registrar.playToClient(
+                S2CRtsWorkflowProgressBatchPayload.TYPE,
+                S2CRtsWorkflowProgressBatchPayload.STREAM_CODEC,
                 ClientPayloadDispatcher::dispatchBuilder);
 
         registrar.playToClient(
