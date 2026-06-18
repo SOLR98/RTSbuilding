@@ -440,28 +440,20 @@ public final class RtsUltimineProcessor {
         // 从上往下逐层破坏：按Y降序排列
         List<BlockPos> sortedPositions = new ArrayList<>(positions);
         sortedPositions.sort(Comparator.<BlockPos>comparingInt(BlockPos::getY).reversed());
-        LinkedHashSet<BlockPos> unique = new LinkedHashSet<>();
-        for (BlockPos raw : sortedPositions) {
-            if (raw == null || unique.size() >= RtsMiningValidator.AREA_DESTROY_MAX_TARGETS) {
-                continue;
-            }
-            BlockPos pos = raw.immutable();
-            if (!RtsLinkedStorageResolver.canAccessWorldTarget(player, pos)) {
-                continue;
-            }
-            BlockState state = level.getBlockState(pos);
-            // FIXED: No longer incorrectly excludes waterlogged blocks
-            if (!RtsMiningValidator.isBreakableBlock(state)
-                    || !RtsMiningValidator.hasValidDestroySpeed(state, level, pos)) {
-                continue;
-            }
-            if (!creative && RtsMiningStateMachine.computeRemoteDestroyStep(player, state, pos, toolSlot, linkedTool,
-                    selectedToolRequested) <= 0.0F) {
-                continue;
-            }
-            unique.add(pos);
-        }
-        return new ArrayDeque<>(unique);
+        return RtsMiningTargetQueue.collectExplicitDestroyTargets(
+                sortedPositions,
+                pos -> RtsLinkedStorageResolver.canAccessWorldTarget(player, pos),
+                pos -> {
+                    BlockState state = level.getBlockState(pos);
+                    // FIXED: No longer incorrectly excludes waterlogged blocks
+                    if (!RtsMiningValidator.isBreakableBlock(state)
+                            || !RtsMiningValidator.hasValidDestroySpeed(state, level, pos)) {
+                        return false;
+                    }
+                    return creative
+                            || RtsMiningStateMachine.computeRemoteDestroyStep(player, state, pos, toolSlot, linkedTool,
+                                    selectedToolRequested) > 0.0F;
+                });
     }
 
     // =========================================================================
@@ -484,12 +476,15 @@ public final class RtsUltimineProcessor {
         int processedThisTick = 0;
         int brokenBeforeThisTick = session.mining.ultimineBrokenTargets;
 
-        while (processedThisTick < RtsMiningValidator.ULTIMINE_BLOCKS_PER_TICK && !session.mining.ultimineTargets.isEmpty()) {
+        while (RtsMiningTargetQueue.canProcessAnotherTargetThisTick(processedThisTick, session.mining.ultimineTargets)) {
             if (RtsMiningValidator.isToolNearBreak(player, session)) {
                 finishUltimineBatch(player, session);
                 return;
             }
-            BlockPos target = session.mining.ultimineTargets.removeFirst();
+            BlockPos target = RtsMiningTargetQueue.pollNextTarget(session.mining.ultimineTargets);
+            if (target == null) {
+                break;
+            }
             processedThisTick++;
             session.mining.ultimineProcessedTargets++;
 

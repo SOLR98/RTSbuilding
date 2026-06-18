@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.storage;
 
 import com.rtsbuilding.rtsbuilding.compat.ae2.RtsAe2Compat;
+import com.rtsbuilding.rtsbuilding.compat.refinedstorage.RtsRefinedStorageCompat;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
@@ -13,7 +14,7 @@ import net.neoforged.neoforge.items.IItemHandler;
  *
  * <p>This class owns only the low-level {@link IItemHandler} and
  * {@link IFluidHandler} capability lookup logic for block positions in the
- * world. It scans direct and sided capabilities and delegates to AE2 virtual
+ * world. It scans direct and sided capabilities and delegates to virtual
  * network handlers when applicable.
  *
  * <p>It deliberately does not resolve session refs, build storage pages,
@@ -47,13 +48,24 @@ public final class RtsLinkedCapabilities {
     }
 
     /**
-     * Probes a block position for an item handler, preferring an AE2 virtual
-     * network handler before falling back to direct/sided capability scans.
+     * Probes a block position for an item handler, preferring virtual network
+     * handlers before falling back to direct/sided capability scans.
+     *
+     * <p>Refined Storage disk drives expose their storage-card inventory as a
+     * normal item handler, so RS must be checked before the generic capability
+     * path or linked storage will show only the cards instead of network items.
      */
     public static IItemHandler findLinkedItemHandler(ServerPlayer player, BlockPos pos) {
         IItemHandler ae2Network = RtsAe2Compat.createNetworkItemHandler(player, pos);
         if (ae2Network != null) {
             return ae2Network;
+        }
+        IItemHandler refinedStorageNetwork = RtsRefinedStorageCompat.createNetworkItemHandler(player, pos);
+        if (refinedStorageNetwork != null) {
+            return refinedStorageNetwork;
+        }
+        if (RtsRefinedStorageCompat.isNetworkNodePosition(player, pos)) {
+            return null;
         }
         return findHandler(player, pos);
     }

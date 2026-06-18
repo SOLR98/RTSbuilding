@@ -1,9 +1,9 @@
 package com.rtsbuilding.rtsbuilding.client.screen.workflow;
 
-import com.rtsbuilding.rtsbuilding.Config;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
+import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsDeleteWorkflowPayload;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsPauseWorkflowPayload;
@@ -68,7 +68,7 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
 
     @Override
     protected boolean canShowWindow() {
-        if (!Config.isShowWorkflowPanelEnabled()) {
+        if (!RtsClientUiStateStore.isShowWorkflowPanelEnabled()) {
             return false;
         }
         return getActiveCount() > 0 || getSuspendedCount() > 0 || hasPending();

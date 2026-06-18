@@ -18,8 +18,8 @@ import java.util.*;
  * <p>When the player confirms a destructive work area, individual per-block
  * outlines are replaced by a merged-outer-perimeter skeleton for visual
  * clarity. As blocks are destroyed (via {@link #markDestroyed(BlockPos)}),
- * the skeleton incrementally erodes that original outer skeleton instead of
- * exposing newly adjacent internal faces.
+ * the cached target set is reduced and the visible skeleton is rebuilt from
+ * the remaining blocks, so newly exposed internal faces become visible.
  */
 public final class MergedSkeletonRenderer {
 
@@ -27,7 +27,11 @@ public final class MergedSkeletonRenderer {
     private static final Set<Long> PENDING_DESTROYED_BLOCK_KEYS = new HashSet<>();
     private static final Map<Long, Integer> PENDING_LIVENESS_RECHECK_KEYS = new HashMap<>();
 
-    private static final int MAX_MERGED_NO_DEPTH_EDGES = 4096;
+    // Large natural range-destroy selections can sit just above 4096 unit edges
+    // once terrain, caves, trees, or snow break the surface. Keep the no-depth
+    // pass for those real-world cases, but still skip it for pathological noisy
+    // selections where the extra through-terrain line pass becomes too expensive.
+    private static final int MAX_MERGED_NO_DEPTH_EDGES = 16384;
     private static final int MAX_MERGED_FILL_BLOCKS = 768;
     private static final int MAX_LIVENESS_RECHECK_KEYS = 512;
     private static final int LIVENESS_RECHECK_FRAMES = 8;
@@ -264,14 +268,16 @@ public final class MergedSkeletonRenderer {
             remainingKeys.remove(removedKey);
         }
         collectNoLongerLiveNeighbourTargets(edgeMap, removedKeys, remainingKeys);
+        List<BlockPos> remainingBlocks = remainingBlocksInSourceOrder(skeleton.remainingBlocks(), remainingKeys);
+        EdgeBuild edgeBuild = buildFastSurfaceEdgeBuild(remainingBlocks, remainingKeys);
         List<BlockPos> fillBlocks = remainingKeys.size() <= MAX_MERGED_FILL_BLOCKS
                 ? buildFillBlocks(remainingKeys)
                 : List.of();
         return skeleton.withRemaining(
-                skeleton.remainingBlocks(),
+                List.copyOf(remainingBlocks),
                 Set.copyOf(remainingKeys),
-                edgeMap,
-                List.copyOf(visibleEdgeLines(edgeMap)),
+                edgeBuild.edgeMap(),
+                List.copyOf(edgeBuild.visibleEdges()),
                 List.copyOf(fillBlocks));
     }
 
@@ -423,6 +429,19 @@ public final class MergedSkeletonRenderer {
             }
         }
         return keys;
+    }
+
+    private static List<BlockPos> remainingBlocksInSourceOrder(List<BlockPos> sourceBlocks, Set<Long> remainingKeys) {
+        if (sourceBlocks == null || sourceBlocks.isEmpty() || remainingKeys == null || remainingKeys.isEmpty()) {
+            return List.of();
+        }
+        List<BlockPos> remaining = new ArrayList<>(remainingKeys.size());
+        for (BlockPos pos : sourceBlocks) {
+            if (pos != null && remainingKeys.contains(pos.asLong())) {
+                remaining.add(pos);
+            }
+        }
+        return remaining;
     }
 
     // ===== Edge build and fast building =====

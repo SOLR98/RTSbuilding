@@ -206,6 +206,16 @@ public final class GearMenuPanel extends RtsWindowPanel {
                     "screen.rtsbuilding.settings.shift_import.hint",
                     RtsClientUiStateStore.isOverlayShiftImportEnabled());
             rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.shift_import.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.show_storage_ready_popup",
+                    "screen.rtsbuilding.settings.show_storage_ready_popup.hint",
+                    RtsClientUiStateStore.isShowStorageReadyPopupEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.show_storage_ready_popup.hint");
+            drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.show_workflow_panel",
+                    "screen.rtsbuilding.settings.show_workflow_panel.hint",
+                    RtsClientUiStateStore.isShowWorkflowPanelEnabled());
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.show_workflow_panel.hint");
         }
         rowY += SECTION_GAP;
 
@@ -484,6 +494,28 @@ public final class GearMenuPanel extends RtsWindowPanel {
                 return;
             }
             rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.shift_import.hint");
+            if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.show_storage_ready_popup.hint")) {
+                return;
+            }
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                    hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.show_storage_ready_popup.hint"))) {
+                RtsClientUiStateStore.setShowStorageReadyPopupEnabled(
+                        !RtsClientUiStateStore.isShowStorageReadyPopupEnabled());
+                return;
+            }
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.show_storage_ready_popup.hint");
+            if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                    "screen.rtsbuilding.settings.show_workflow_panel.hint")) {
+                return;
+            }
+            if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                    hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.show_workflow_panel.hint"))) {
+                RtsClientUiStateStore.setShowWorkflowPanelEnabled(
+                        !RtsClientUiStateStore.isShowWorkflowPanelEnabled());
+                return;
+            }
+            rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.show_workflow_panel.hint");
         }
         rowY += SECTION_GAP;
 
@@ -729,7 +761,9 @@ public final class GearMenuPanel extends RtsWindowPanel {
                         + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.debug_button.hint")
                         + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.player_status_overlay.hint")
                         + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.container_overlay.hint")
-                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.shift_import.hint"));
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.shift_import.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.show_storage_ready_popup.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.show_workflow_panel.hint"));
         height += SECTION_GAP;
         height += sectionHeight(this.helpersExpanded,
                 SIMPLE_TOGGLE_ROW_H

@@ -1,12 +1,12 @@
 package com.rtsbuilding.rtsbuilding.client.screen.overlay;
 
-import com.rtsbuilding.rtsbuilding.Config;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.screen.handler.ScreenCursorPicker;
 import com.rtsbuilding.rtsbuilding.client.screen.layout.BottomPanelLayoutTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.BottomPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
+import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsQuestDetectStatusPayload;
 import net.minecraft.client.Minecraft;
@@ -215,7 +215,7 @@ public final class RtsScreenOverlayRenderer {
         if (!this.controller.isStorageScanPopupVisible()) {
             return;
         }
-        if (!this.controller.isStorageScanRunning() && !Config.isShowStorageReadyPopupEnabled()) {
+        if (!this.controller.isStorageScanRunning() && !RtsClientUiStateStore.isShowStorageReadyPopupEnabled()) {
             return;
         }
         BottomPanelLayoutTypes.BottomPanelLayout layout = this.bottomPanel.resolveBottomPanelLayout();
