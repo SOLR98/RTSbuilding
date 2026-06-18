@@ -41,4 +41,23 @@ public final class RtsMiningAPIImpl implements RtsMiningAPI {
         List<BlockPos> posList = positions.stream().map(p -> (BlockPos) p).toList();
         RtsMiningService.areaDestroy(player, posList, toolSlot, toolItemId, toolPrototype, toolProtectionEnabled);
     }
+
+    // ======================================================================
+    //  Area Destroy Progress Queries
+    // ======================================================================
+
+    @Override
+    public int getAreaDestroyTotalBlocks(ServerPlayer player) {
+        return RtsMiningService.getAreaDestroyTotalBlocks(player);
+    }
+
+    @Override
+    public int getAreaDestroyCompletedBlocks(ServerPlayer player) {
+        return RtsMiningService.getAreaDestroyCompletedBlocks(player);
+    }
+
+    @Override
+    public int getAreaDestroyRemainingBlocks(ServerPlayer player) {
+        return RtsMiningService.getAreaDestroyRemainingBlocks(player);
+    }
 }

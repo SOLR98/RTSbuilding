@@ -126,6 +126,11 @@ public final class RtsStoragePackets {
                 S2CRtsInventoryFullPayload.STREAM_CODEC,
                 ClientPayloadDispatcher::dispatchStorage);
 
+        registrar.playToServer(
+                C2SRtsBatchLinkStoragePayload.TYPE,
+                C2SRtsBatchLinkStoragePayload.STREAM_CODEC,
+                RtsBindingHandlers::handleBatchLinkStorage);
+
         registrar.playToClient(
                 S2CRtsStoragePagePayload.TYPE,
                 S2CRtsStoragePagePayload.STREAM_CODEC,

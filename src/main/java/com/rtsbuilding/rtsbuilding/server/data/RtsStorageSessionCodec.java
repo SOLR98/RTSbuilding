@@ -1,13 +1,8 @@
 package com.rtsbuilding.rtsbuilding.server.data;
 
 import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
-import com.rtsbuilding.rtsbuilding.server.storage.GuiBinding;
-import com.rtsbuilding.rtsbuilding.server.storage.RecentEntry;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsBrowserState;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageBindings;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageRecentEntries;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
+import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch;
+import com.rtsbuilding.rtsbuilding.server.storage.*;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -19,7 +14,6 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.Level;
 
 import java.util.Arrays;
 
@@ -101,6 +95,7 @@ public final class RtsStorageSessionCodec {
         loadRecentEntries(session, root);
         loadQuickSlots(player, session, root);
         loadGuiBindings(session, root);
+        loadPlacementJobs(player, session, root);
     }
 
     public static CompoundTag serialize(ServerPlayer player, RtsStorageSession session) {
@@ -123,6 +118,7 @@ public final class RtsStorageSessionCodec {
         saveRecentEntries(session, root);
         saveQuickSlots(player, session, root);
         saveGuiBindings(session, root);
+        savePlacementJobs(player, session, root);
 
         return root;
     }
@@ -320,6 +316,54 @@ public final class RtsStorageSessionCodec {
             guiBindings.add(bindingTag);
         }
         root.put(NBT_GUI_BINDINGS, guiBindings);
+    }
+
+    // ======================================================================
+    //  Placement jobs (active + pending)
+    // ======================================================================
+
+    private static final String NBT_PENDING_PLACEMENT_JOBS = "pending_placement_jobs";
+    private static final String NBT_ACTIVE_PLACEMENT_JOBS = "active_placement_jobs";
+
+    private static void loadPlacementJobs(ServerPlayer player, RtsStorageSession session, CompoundTag root) {
+        session.placement.pendingJobs.clear();
+        session.placement.placeBatchJobs.clear();
+
+        ListTag pendingList = root.getList(NBT_PENDING_PLACEMENT_JOBS, Tag.TAG_COMPOUND);
+        for (int i = 0; i < pendingList.size(); i++) {
+            RtsPlacementBatch.PlaceBatchJob job =
+                    RtsPlacementBatch.PlaceBatchJob.fromNbt(pendingList.getCompound(i), player.registryAccess());
+            if (job != null) {
+                session.placement.pendingJobs.addLast(job);
+            }
+        }
+
+        ListTag activeList = root.getList(NBT_ACTIVE_PLACEMENT_JOBS, Tag.TAG_COMPOUND);
+        for (int i = 0; i < activeList.size(); i++) {
+            RtsPlacementBatch.PlaceBatchJob job =
+                    RtsPlacementBatch.PlaceBatchJob.fromNbt(activeList.getCompound(i), player.registryAccess());
+            if (job != null) {
+                session.placement.placeBatchJobs.addLast(job);
+            }
+        }
+    }
+
+    private static void savePlacementJobs(ServerPlayer player, RtsStorageSession session, CompoundTag root) {
+        ListTag pendingList = new ListTag();
+        for (RtsPlacementBatch.PlaceBatchJob job : session.placement.pendingJobs) {
+            if (job != null) {
+                pendingList.add(job.toNbt(player.registryAccess()));
+            }
+        }
+        root.put(NBT_PENDING_PLACEMENT_JOBS, pendingList);
+
+        ListTag activeList = new ListTag();
+        for (RtsPlacementBatch.PlaceBatchJob job : session.placement.placeBatchJobs) {
+            if (job != null) {
+                activeList.add(job.toNbt(player.registryAccess()));
+            }
+        }
+        root.put(NBT_ACTIVE_PLACEMENT_JOBS, activeList);
     }
 
     // ======================================================================

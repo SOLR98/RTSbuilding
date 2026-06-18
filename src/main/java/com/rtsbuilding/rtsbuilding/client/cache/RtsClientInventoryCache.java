@@ -19,13 +19,11 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Client-side inventory cache that stores full snapshots of linked storage
- * contents and supports local search, sort, filter, and pagination with zero
- * server round-trips.
+ * 客户端库存缓存 —— 存储关联存储内容的完整快照，支持本地搜索、排序、筛选和
+ * 分页，无需服务端往返。
  *
- * <p>Updated via {@link #applyDelta} (incremental) and {@link #applyFull}
- * (complete replacement).  The server pushes deltas automatically when storage
- * contents change.
+ * <p>通过 {@link #applyDelta}（增量更新）和 {@link #applyFull}（全量替换）更新。
+ * 存储内容变更时服务端自动推送 delta。
  */
 public final class RtsClientInventoryCache {
 
@@ -69,6 +67,29 @@ public final class RtsClientInventoryCache {
         this.version = payload.version();
         this.dirty = false;
         invalidateView();
+    }
+
+    /**
+     * 客户端乐观 delta 更新，在服务端确认前完成拾取/归还。
+     * 负值表示取出物品，正值表示存回物品。
+     * 服务端下一次真实 delta 或 full push 将纠正任何偏差。
+     */
+    public void applyDelta(String itemId, long delta) {
+        if (delta == 0L) return;
+        long current = itemCounts.getOrDefault(itemId, 0L);
+        long next = Math.max(0L, current + delta);
+        if (next <= 0L) {
+            itemCounts.remove(itemId);
+            prototypes.remove(itemId);
+        } else {
+            itemCounts.put(itemId, next);
+        }
+        invalidateView();
+    }
+
+    /** 返回指定物品注册表字符串 ID 的缓存计数。 */
+    public long getCount(String itemId) {
+        return itemCounts.getOrDefault(itemId, 0L);
     }
 
     public void applyFull(S2CRtsInventoryFullPayload payload) {

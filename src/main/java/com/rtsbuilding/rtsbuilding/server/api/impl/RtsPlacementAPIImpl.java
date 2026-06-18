@@ -37,4 +37,28 @@ public final class RtsPlacementAPIImpl implements RtsPlacementAPI {
                 forcePlace, skipIfOccupied, itemId, itemPrototype,
                 rayOriginX, rayOriginY, rayOriginZ, rayDirX, rayDirY, rayDirZ);
     }
+
+    // ======================================================================
+    //  Placement Progress Queries
+    // ======================================================================
+
+    @Override
+    public int getPlaceBatchTotalBlocks(ServerPlayer player) {
+        return RtsPlacementService.getPlaceBatchTotalBlocks(player);
+    }
+
+    @Override
+    public int getPlaceBatchCompletedBlocks(ServerPlayer player) {
+        return RtsPlacementService.getPlaceBatchCompletedBlocks(player);
+    }
+
+    @Override
+    public int getPlaceBatchRemainingBlocks(ServerPlayer player) {
+        return RtsPlacementService.getPlaceBatchRemainingBlocks(player);
+    }
+
+    @Override
+    public String getPlaceBatchItemId(ServerPlayer player) {
+        return RtsPlacementService.getPlaceBatchItemId(player);
+    }
 }

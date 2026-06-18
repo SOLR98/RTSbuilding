@@ -1,9 +1,6 @@
 package com.rtsbuilding.rtsbuilding.server.service.interaction;
 
-import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferExtractor;
-import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
 import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
-import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
 import com.rtsbuilding.rtsbuilding.server.util.InteractionHelper;
@@ -19,16 +16,20 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
-import net.neoforged.neoforge.items.IItemHandler;
-
-import java.util.List;
 
 /**
- * Handles RTS remote interaction using a pinned item extracted from the
- * player's linked storage system.
+ * 使用大头针物品进行 RTS 远程交互。
  *
- * <p>Extracts one item from the linked network, uses it against the target,
- * and refunds any remainder back to the network.
+ * <p>物品必须由客户端<b>在本方法调用前</b>放到玩家主手上。客户端负责物品挪移：
+ * <ol>
+ *   <li>旧主手物品 → 玩家背包（或关联存储）</li>
+ *   <li>请求关联存储物品 → {@code pickupLinkedToCarried}</li>
+ *   <li>发送交互载荷 → 本方法执行交互</li>
+ *   <li>交互后如需归还 → 发送 {@code returnCarriedToLinked}</li>
+ * </ol>
+ *
+ * <p>本类仅负责调度虚拟摄像机上下文并委托
+ * {@link InteractionHelper}——不提取物品，也不退还余量。
  */
 public final class RtsLinkedItemInteractor {
 
@@ -38,31 +39,29 @@ public final class RtsLinkedItemInteractor {
     }
 
     /**
-     * Interacts with a target block or entity using a pinned/linked item.
-     * The item is extracted from the player's linked storage, used, and
-     * any remainder is refunded.
+     * 使用玩家主手上已有的物品与目标方块或实体交互。
+     * 调用方必须在调用前将大头针物品放入玩家主手。
      */
     public static InteractionResult interactWithLinkedItem(ServerPlayer player, ServerLevel level, RtsStorageSession session,
             Entity targetEntity, BlockHitResult blockHit, Vec3 hit, String itemId, RayContext rayContext) {
-        if (itemId == null || itemId.isBlank() || !RtsLinkedStorageResolver.hasAnyStorage(player, session)) {
+        if (itemId == null || itemId.isBlank()) {
+            return InteractionResult.PASS;
+        }
+        if (!RtsLinkedStorageResolver.hasAnyStorage(player, session)) {
             return InteractionResult.PASS;
         }
 
-        List<LinkedHandler> activeLinked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
-        if (activeLinked.isEmpty()) {
+        // 校验主手物品与大头针物品 ID 一致。客户端应在发送交互载荷前通过
+        // pickupLinkedToCarried 将目标物品放好。
+        ItemStack handItem = player.getMainHandItem();
+        if (handItem.isEmpty()) {
             return InteractionResult.PASS;
         }
-
-        List<IItemHandler> extractHandlers = RtsLinkedStorageResolver.itemHandlersForExtract(activeLinked);
-        List<IItemHandler> insertHandlers = RtsLinkedStorageResolver.itemHandlersForInsert(activeLinked);
-
         ResourceLocation id = ResourceLocation.tryParse(itemId);
         if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
             return InteractionResult.PASS;
         }
-
-        ItemStack extracted = RtsTransferExtractor.extractOneFromNetwork(extractHandlers, player, BuiltInRegistries.ITEM.get(id));
-        if (extracted.isEmpty()) {
+        if (handItem.getItem() != BuiltInRegistries.ITEM.get(id)) {
             return InteractionResult.PASS;
         }
 
@@ -75,32 +74,28 @@ public final class RtsLinkedItemInteractor {
                 REMOTE_POV_BLOCK_REACH,
                 () -> {
             if (targetEntity != null) {
-                return InteractionHelper.useItemOnEntityWithMainHand(player, level, extracted, targetEntity, hit);
+                return InteractionHelper.useMainHandItemOnEntity(player, level, targetEntity, hit);
             }
-            // Alt interaction: normal item interaction first, build-like secondary interaction later.
-            UseOnOutcome primaryOn = InteractionHelper.useItemOnWithMainHand(player, level, extracted, blockHit, false);
+            // 对方块的四级回退：
+            //   1. 普通 useItemOn（右键方块）
+            //   2. 普通 useItem（右键空气）
+            //   3. Shift useItemOn（Shift+右键方块，如对着交互方块放置实体方块）
+            //   4. Shift useItem（Shift+右键空气）
+            UseOnOutcome primaryOn = InteractionHelper.useMainHandItemOnBlock(player, level, blockHit, false);
             if (primaryOn.result().consumesAction()) {
                 return primaryOn;
             }
-            ItemStack afterPrimaryOn = primaryOn.remainder().isEmpty() ? extracted.copy() : primaryOn.remainder().copy();
-
-            UseOnOutcome primaryUse = InteractionHelper.useItemWithMainHand(player, level, afterPrimaryOn, false);
+            UseOnOutcome primaryUse = InteractionHelper.useMainHandItemInAir(player, level, false);
             if (primaryUse.result().consumesAction()) {
                 return primaryUse;
             }
-            ItemStack afterPrimaryUse = primaryUse.remainder().isEmpty() ? afterPrimaryOn : primaryUse.remainder().copy();
-
-            UseOnOutcome secondaryOn = InteractionHelper.useItemOnWithMainHand(player, level, afterPrimaryUse, blockHit, true);
+            UseOnOutcome secondaryOn = InteractionHelper.useMainHandItemOnBlock(player, level, blockHit, true);
             if (secondaryOn.result().consumesAction()) {
                 return secondaryOn;
             }
-            ItemStack afterSecondaryOn = secondaryOn.remainder().isEmpty() ? afterPrimaryUse : secondaryOn.remainder().copy();
-            return InteractionHelper.useItemWithMainHand(player, level, afterSecondaryOn, true);
+            return InteractionHelper.useMainHandItemInAir(player, level, true);
                 });
-        if (!outcome.remainder().isEmpty()) {
-            RtsTransferInserter.refundToLinked(insertHandlers, player, outcome.remainder());
-        }
-        // Force-refresh slot cache and invalidate page cache after linked-item interaction
+
         RtsStorageTickService.INSTANCE.forceRefresh(player);
         session.transfer.pageDataVersion.incrementAndGet();
         return outcome.result();

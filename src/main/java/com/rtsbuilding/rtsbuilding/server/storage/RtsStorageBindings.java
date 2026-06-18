@@ -27,7 +27,7 @@ public final class RtsStorageBindings {
     public static final int GUI_BINDING_SLOT_COUNT = 8;
 
     /** 绑定存储上限——防止玩家无限添加导致页面构建性能退化。 */
-    public static final int MAX_LINKED_STORAGES = 50;
+    public static final int MAX_LINKED_STORAGES = 5000;
 
     private RtsStorageBindings() {
     }

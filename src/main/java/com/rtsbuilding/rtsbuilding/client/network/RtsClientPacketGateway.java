@@ -92,6 +92,18 @@ public final class RtsClientPacketGateway {
                 allowStore ? C2SRtsLinkStoragePayload.MODE_BIDIRECTIONAL : C2SRtsLinkStoragePayload.MODE_EXTRACT_ONLY));
     }
 
+    public static void sendBatchLinkStorage(List<BlockPos> positions, boolean allowStore) {
+        if (positions == null || positions.isEmpty()) return;
+        byte mode = allowStore ? C2SRtsLinkStoragePayload.MODE_BIDIRECTIONAL : C2SRtsLinkStoragePayload.MODE_EXTRACT_ONLY;
+        // Split into chunks of MAX_POSITIONS to respect packet size limits
+        int total = positions.size();
+        for (int i = 0; i < total; i += C2SRtsBatchLinkStoragePayload.MAX_POSITIONS) {
+            int end = Math.min(i + C2SRtsBatchLinkStoragePayload.MAX_POSITIONS, total);
+            List<BlockPos> chunk = new ArrayList<>(positions.subList(i, end));
+            PacketDistributor.sendToServer(new C2SRtsBatchLinkStoragePayload(chunk, mode));
+        }
+    }
+
     public static void sendRequestStoragePage(int page, String search, String category, RtsStorageSort sort, boolean ascending, int pageSize) {
         boolean pinyinSearchEnabled = isChineseLanguageSelected();
         PacketDistributor.sendToServer(new C2SRtsRequestStoragePagePayload(
@@ -154,6 +166,18 @@ public final class RtsClientPacketGateway {
 
     public static void sendFillInventory() {
         PacketDistributor.sendToServer(new C2SRtsFillInventoryPayload());
+    }
+
+    public static void sendPickupLinkedToCarried(ItemStack prototype, int amount) {
+        if (prototype == null || prototype.isEmpty() || amount <= 0) return;
+        ItemStack copy = prototype.copy();
+        copy.setCount(1);
+        PacketDistributor.sendToServer(new C2SRtsLinkedPickupPayload(copy, amount));
+    }
+
+    public static void sendReturnCarriedToLinked(String itemId, int amount) {
+        if (itemId == null || itemId.isBlank() || amount <= 0) return;
+        PacketDistributor.sendToServer(new C2SRtsReturnCarriedPayload(itemId, amount));
     }
 
     public static void sendQuickDrop(String itemId, int amount, Vec3 dropPos) {

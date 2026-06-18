@@ -1,11 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.service.bindings;
 
 import com.rtsbuilding.rtsbuilding.compat.sophisticatedbackpacks.RtsBackpackCompat;
-import com.rtsbuilding.rtsbuilding.server.storage.LinkedStorageRef;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedCapabilities;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageBindings;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
+import com.rtsbuilding.rtsbuilding.server.storage.*;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -78,6 +74,8 @@ public final class RtsLinkedStorageBindingService {
                 removeLinkedRef(session, existingRef);
             } else {
                 if (session.linkedStorages.size() >= RtsStorageBindings.MAX_LINKED_STORAGES) {
+                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                            "容器绑定已达上限: " + RtsStorageBindings.MAX_LINKED_STORAGES));
                     return RtsStorageBindings.UpdateResult.none();
                 }
                 session.linkedStorages.add(ref);

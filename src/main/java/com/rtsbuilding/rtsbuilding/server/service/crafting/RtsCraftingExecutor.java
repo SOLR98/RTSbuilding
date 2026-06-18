@@ -5,10 +5,7 @@ import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.menu.RtsCraftTerminalMenu;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
-import com.rtsbuilding.rtsbuilding.server.service.QuestService;
-import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
-import com.rtsbuilding.rtsbuilding.server.service.RtsRemoteMenuService;
-import com.rtsbuilding.rtsbuilding.server.service.RtsSessionService;
+import com.rtsbuilding.rtsbuilding.server.service.*;
 import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferExtractor;
 import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
 import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
@@ -176,6 +173,8 @@ public final class RtsCraftingExecutor {
         }
         player.displayClientMessage(Component.literal(summary.toString()), true);
         QuestService.runQuestDetect(player, session, false);
+        // 合成完成后自动尝试恢复挂起放置作业
+        RtsPendingPlacementService.tryResumeAfterStorageChange(player);
     }
 
     // ---- single craft -----------------------------------------------------------
@@ -267,7 +266,13 @@ public final class RtsCraftingExecutor {
         if (ingredient == null || ingredient.isEmpty() || prototype == null || prototype.isEmpty() || !ingredient.test(prototype)) {
             return takeIngredientForCraft(handlers, player, ingredient, includePlayerFallback);
         }
-        ItemStack fromLinked = RtsTransferExtractor.extractOneMatchingPrototypeFromLinked(handlers, prototype);
+        // 路由优先: 通过aggregate提取计划精准匹配原型
+        ItemStack fromLinked = RtsTransferExtractor.extractPrototypeFromAggregate(player, prototype, 1);
+        if (!fromLinked.isEmpty() && ingredient.test(fromLinked)) {
+            return new ExtractedIngredient(fromLinked, false);
+        }
+        // Fallback: 全量O(handlers×slots)扫描
+        fromLinked = RtsTransferExtractor.extractOneMatchingPrototypeFromLinked(handlers, prototype);
         if (!fromLinked.isEmpty() && ingredient.test(fromLinked)) {
             return new ExtractedIngredient(fromLinked, false);
         }

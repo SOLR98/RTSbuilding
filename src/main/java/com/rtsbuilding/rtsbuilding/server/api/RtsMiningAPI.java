@@ -61,4 +61,32 @@ public interface RtsMiningAPI {
     void areaDestroy(ServerPlayer player, List<Object> positions,
                      byte toolSlot, String toolItemId, ItemStack toolPrototype,
                      boolean toolProtectionEnabled);
+
+    // ======================================================================
+    //  Area Destroy Progress Queries
+    // ======================================================================
+
+    /**
+     * 获取当前区域破坏的总方块数（破坏方块总数）。
+     *
+     * @param player 目标玩家
+     * @return 总方块数，如果没有进行中的区域破坏则返回 0
+     */
+    int getAreaDestroyTotalBlocks(ServerPlayer player);
+
+    /**
+     * 获取当前区域破坏的已破坏方块数量。
+     *
+     * @param player 目标玩家
+     * @return 已破坏方块数，如果没有进行中的区域破坏则返回 0
+     */
+    int getAreaDestroyCompletedBlocks(ServerPlayer player);
+
+    /**
+     * 获取当前区域破坏的未破坏方块数（剩余待破坏方块）。
+     *
+     * @param player 目标玩家
+     * @return 未破坏方块数，如果没有进行中的区域破坏则返回 0
+     */
+    int getAreaDestroyRemainingBlocks(ServerPlayer player);
 }

@@ -5,8 +5,9 @@ import com.rtsbuilding.rtsbuilding.server.data.PlacedBlockTrackerData;
 import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementSound;
-import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
 import com.rtsbuilding.rtsbuilding.server.service.resolver.RtsLinkedHandlerResolutionService;
+import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsBatchInsertService;
+import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
 import com.rtsbuilding.rtsbuilding.server.storage.*;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsPlacementState.PlacedRecoveryJob;
 import net.minecraft.core.BlockPos;
@@ -103,6 +104,8 @@ public final class RtsPlacedRecoveryService {
             RtsSessionService.saveToPlayerNbt(player, session);
         }
         RtsPageService.markStorageViewDirty(player, session);
+        // 破坏已放置方块后刷新放置工作流进度（更新进度条和重启所需方块数）
+        RtsPendingPlacementService.refreshWorkflowProgress(player, session);
     }
 
     /**
@@ -117,13 +120,13 @@ public final class RtsPlacedRecoveryService {
             return;
         }
 
-        List<LinkedHandler> orderedLinked = RtsLinkedHandlerResolutionService.orderHandlersForInsert(
-                RtsLinkedStorageResolver.resolveLinkedHandlers(player, session));
+        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
         OverflowOutcome overflow = OverflowOutcome.EMPTY;
-        boolean hasLinkedRecoveryTarget = false;
         boolean processedAny = false;
         int processedJobs = 0;
         int processedStacks = 0;
+
+        Map<String, ItemStack> recoveryMap = new HashMap<>();
 
         while (!jobs.isEmpty()
                 && processedJobs < RtsServiceConstants.PLACED_RECOVERY_MAX_JOBS_PER_TICK
@@ -135,17 +138,16 @@ public final class RtsPlacedRecoveryService {
                 continue;
             }
 
-            List<IItemHandler> handlers = recoveryHandlersExcluding(orderedLinked, job.targetPos());
-            hasLinkedRecoveryTarget |= !handlers.isEmpty();
             while (!job.stacks().isEmpty() && processedStacks < RtsServiceConstants.PLACED_RECOVERY_MAX_STACKS_PER_TICK) {
                 ItemStack droppedStack = job.stacks().removeFirst();
                 if (droppedStack == null || droppedStack.isEmpty()) {
                     continue;
                 }
-                ItemStack remain = RtsTransferInserter.storeToLinkedOnlyPreferExisting(handlers, droppedStack);
-                if (!remain.isEmpty()) {
-                    overflow = overflow.merge(RtsTransferInserter.storeToLinkedWithFallback(handlers, player, remain));
-                }
+                String itemId = droppedStack.getItem().toString();
+                recoveryMap.merge(itemId, droppedStack.copy(), (existing, incoming) -> {
+                    existing.grow(incoming.getCount());
+                    return existing;
+                });
                 processedStacks++;
                 processedAny = true;
             }
@@ -156,17 +158,12 @@ public final class RtsPlacedRecoveryService {
             }
         }
 
-        if (overflow.hasOverflow()) {
-            if (hasLinkedRecoveryTarget) {
-                RtsTransferInserter.sendStorageOverflowHint(player, "Absorb", overflow);
-            } else if (overflow.dropped() > 0) {
-                player.displayClientMessage(
-                        Component.literal("Inventory full, dropped " + overflow.dropped() + "."), true);
-            }
+        if (!recoveryMap.isEmpty() && aggregate != null && !aggregate.isEmpty()) {
+            RtsBatchInsertService.batchInsertWithFallback(player, aggregate, recoveryMap);
         }
-        if (processedAny) {
-            RtsPageService.markStorageViewDirty(player, session);
-            QuestService.runQuestDetect(player, session, false);
+
+        if (overflow.hasOverflow() || processedAny) {
+            RtsStorageTickService.INSTANCE.alert(player.getUUID());
         }
     }
 

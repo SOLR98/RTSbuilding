@@ -1,9 +1,9 @@
 package com.rtsbuilding.rtsbuilding.server.storage;
 
 import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
-import net.minecraft.world.item.ItemStack;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * 存储浏览器与合成浏览器的可变状态容器。

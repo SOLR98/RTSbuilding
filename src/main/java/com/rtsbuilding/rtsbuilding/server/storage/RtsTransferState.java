@@ -33,7 +33,7 @@ public class RtsTransferState {
     public long nextQuestDetectTick;
 
     /** True when the client's storage browser page no longer matches storage contents. */
-    public boolean storageViewDirty;
+    public volatile boolean storageViewDirty;
 
     /**
      * 存储数据版本号——缓存数据变更时递增。

@@ -4,6 +4,7 @@ import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
 import com.rtsbuilding.rtsbuilding.client.record.FluidEntry;
 import com.rtsbuilding.rtsbuilding.client.record.RecentEntry;
 import com.rtsbuilding.rtsbuilding.client.record.StorageEntry;
+import com.rtsbuilding.rtsbuilding.client.service.RtsClientItemManager.PinSource;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsStoreFluidPayload;
 import net.minecraft.client.Minecraft;
@@ -317,6 +318,7 @@ public final class BuildPlacementService {
     public void interactBlockWithPinnedItem(BlockHitResult hit, String itemId, Vec3 rayOrigin, Vec3 rayDir,
                                             Runnable beginRemoteMenuOpenGrace) {
         if (hit == null || itemId == null || itemId.isBlank()) return;
+        RtsClientItemManager.INSTANCE.prepareForInteract();
         beginRemoteMenuOpenGrace.run();
         RtsClientPacketGateway.sendInteractBlockWithPinnedItem(hit, itemId, rayOrigin, rayDir);
     }
@@ -331,6 +333,7 @@ public final class BuildPlacementService {
     public void interactEntityWithPinnedItem(int entityId, Vec3 hitLocation, String itemId, Vec3 rayOrigin, Vec3 rayDir,
                                              Runnable beginRemoteMenuOpenGrace) {
         if (entityId < 0 || hitLocation == null || itemId == null || itemId.isBlank()) return;
+        RtsClientItemManager.INSTANCE.prepareForInteract();
         beginRemoteMenuOpenGrace.run();
         RtsClientPacketGateway.sendInteractEntityWithPinnedItem(entityId, hitLocation, itemId, rayOrigin, rayDir);
     }
@@ -394,6 +397,7 @@ public final class BuildPlacementService {
         this.selectedItemPreview = preview == null ? ItemStack.EMPTY : preview;
         if (!this.selectedItemId.isBlank()) {
             this.emptyHandSelected = false;
+            RtsClientItemManager.INSTANCE.setPinnedItem(itemId, preview, label, PinSource.STORAGE_BROWSER);
         }
     }
 

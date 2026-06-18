@@ -1,15 +1,15 @@
 package com.rtsbuilding.rtsbuilding.server.service.mining;
 
+import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.common.AreaOperationExecutor;
-import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.history.HistoryBlockRecord;
 import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
+import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
-import com.rtsbuilding.rtsbuilding.server.service.mining.RtsToolLease;
-import com.rtsbuilding.rtsbuilding.server.service.mining.RtsToolLeaseManager;
+import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -46,20 +46,17 @@ public final class RtsUltimineProcessor {
 
     /**
      * Starts an ultimine batch (connected-block mining) at the given seed
-     * position.  Creative mode breaks instantly; survival mode borrows a tool
-     * and begins remote break progress on the first target.
+     * position.  Creative mode breaks instantly; survival mode begins remote
+     * break progress on the first target.
+     *
+     * <p><b>Preconditions (guaranteed by pipeline):</b> feature gate passed,
+     * session resolved and dimension-sanitised, previous mining stopped,
+     * tool borrowed (stored in {@code session.mining.miningToolLease}),
+     * workflow started ({@code ctx data: workflowEntryId}).</p>
      */
-    public static void startUltimine(ServerPlayer player, RtsStorageSession session, BlockPos pos, Direction face,
-            byte toolSlot, String toolItemId, ItemStack toolPrototype, int requestedLimit, byte mode,
-            boolean toolProtectionEnabled) {
-        if (!RtsProgressionManager.canUse(player, RtsFeature.ULTIMINE)) {
-            return;
-        }
-        if (session == null) {
-            return;
-        }
-        RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
-
+    public static void startUltimine(ServerPlayer player, RtsStorageSession session,
+            BlockPos pos, Direction face, byte toolSlot, int requestedLimit,
+            byte mode, boolean toolProtectionEnabled) {
         int slot = RtsMiningValidator.clampHotbarSlot(toolSlot);
         int progressionLimit = RtsProgressionManager.getUltimineLimit(player);
         if (progressionLimit <= 0) {
@@ -71,41 +68,36 @@ public final class RtsUltimineProcessor {
             Deque<BlockPos> targets = RtsMiningValidator.collectUltimineTargets(player, pos, slot, ItemStack.EMPTY, false,
                     limit, true, mode);
             if (targets.isEmpty()) {
-                RtsMiningStateMachine.stopActiveMining(player, session);
                 return;
             }
-            RtsMiningStateMachine.stopActiveMining(player, session);
             breakCreativeUltimineTargets(player, session, targets, slot);
-            RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
+            // UiRefresh handled by pipeline
             return;
         }
 
-        RtsMiningStateMachine.stopActiveMining(player, session);
-        boolean selectedToolRequested = RtsMiningValidator.isSelectedMiningToolRequested(toolItemId, toolPrototype);
-        RtsToolLease toolLease = RtsToolLeaseManager.borrowMiningTool(player, session, toolItemId, toolPrototype, slot);
-        if (selectedToolRequested && toolLease.isEmpty()) {
+        boolean selectedToolRequested = session.mining.miningSelectedToolRequested;
+        RtsToolLease toolLease = session.mining.miningToolLease;
+        if (toolLease == null) {
             return;
         }
         Deque<BlockPos> targets = RtsMiningValidator.collectUltimineTargets(player, pos, slot, toolLease.stack(),
                 selectedToolRequested, limit, false, mode);
         if (targets.isEmpty()) {
-            RtsToolLeaseManager.returnMiningTool(player, session, toolLease);
             return;
         }
 
-        session.mining.miningToolLease = toolLease;
-        session.mining.miningSelectedToolRequested = selectedToolRequested;
         session.mining.miningToolProtectionEnabled = toolProtectionEnabled;
         session.mining.ultimineTargets.clear();
         session.mining.ultimineTargets.addAll(targets);
         session.mining.ultimineProgressPos = targets.peekFirst();
         session.mining.ultimineTotalTargets = targets.size();
         session.mining.ultimineProcessedTargets = 0;
+        session.mining.ultimineBrokenTargets = 0;
         session.mining.ultimineProcessedPositions.clear();
         session.mining.ultimineAbsorbedDrops = false;
         session.mining.miningFace = face == null ? Direction.DOWN : face;
         session.mining.miningToolSlot = slot;
-        RtsMiningNetworkHelper.sendUltimineProgress(player, 0, targets.size());
+        // Workflow token already set by upstream WorkflowStartPipe via UltimineExecutePipe
         RtsMiningStateMachine.beginRemoteMining(player, session, targets.peekFirst(), face, slot);
     }
 
@@ -117,21 +109,14 @@ public final class RtsUltimineProcessor {
      * Starts an area-mine operation: breaks all breakable blocks within the
      * specified 3D volume bounds, filtered by shape/fill type.
      *
-     * <p>Delegates position generation to {@link AreaOperationExecutor} and
-     * feeds the results into the ultimine batch processing pipeline.</p>
+     * <p><b>Preconditions (guaranteed by pipeline):</b> feature gate passed,
+     * session resolved, dimension sanitised, previous mining stopped, tool
+     * borrowed ({@code session.mining.miningToolLease}), workflow started
+     * (tracked via pipeline context).</p>
      */
     public static void areaMine(ServerPlayer player, RtsStorageSession session,
             int minX, int maxX, int minY, int maxY, int minZ, int maxZ,
-            byte toolSlot, String toolItemId, ItemStack toolPrototype,
-            byte shapeType, byte fillType, boolean toolProtectionEnabled) {
-        if (!RtsProgressionManager.canUse(player, RtsFeature.ULTIMINE)) {
-            return;
-        }
-        if (session == null) {
-            return;
-        }
-        RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
-
+            byte toolSlot, byte shapeType, byte fillType, boolean toolProtectionEnabled) {
         int slot = RtsMiningValidator.clampHotbarSlot(toolSlot);
         if (RtsProgressionManager.getUltimineLimit(player) <= 0) {
             return;
@@ -145,12 +130,11 @@ public final class RtsUltimineProcessor {
         int clampedMinY = minY;
         int clampedMaxY = Math.min(clampedMinY + RtsMiningValidator.AREA_MINE_MAX_SIZE - 1, maxY);
 
-        RtsMiningStateMachine.stopActiveMining(player, session);
-        boolean selectedToolRequested = !player.isCreative() && RtsMiningValidator.isSelectedMiningToolRequested(toolItemId, toolPrototype);
+        boolean selectedToolRequested = !player.isCreative() && session.mining.miningSelectedToolRequested;
         RtsToolLease toolLease = player.isCreative()
                 ? RtsToolLease.empty()
-                : RtsToolLeaseManager.borrowMiningTool(player, session, toolItemId, toolPrototype, slot);
-        if (selectedToolRequested && toolLease.isEmpty()) {
+                : session.mining.miningToolLease;
+        if (!player.isCreative() && toolLease == null) {
             return;
         }
 
@@ -165,30 +149,26 @@ public final class RtsUltimineProcessor {
         Deque<BlockPos> targets = new ArrayDeque<>(candidatePositions);
 
         if (targets.isEmpty()) {
-            RtsToolLeaseManager.returnMiningTool(player, session, toolLease);
             return;
         }
 
         if (player.isCreative()) {
-            RtsMiningStateMachine.stopActiveMining(player, session);
             breakCreativeUltimineTargets(player, session, targets, slot);
-            RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
             return;
         }
 
-        session.mining.miningToolLease = toolLease;
-        session.mining.miningSelectedToolRequested = selectedToolRequested;
         session.mining.miningToolProtectionEnabled = toolProtectionEnabled;
         session.mining.ultimineTargets.clear();
         session.mining.ultimineTargets.addAll(targets);
         session.mining.ultimineProgressPos = targets.peekFirst();
         session.mining.ultimineTotalTargets = targets.size();
         session.mining.ultimineProcessedTargets = 0;
+        session.mining.ultimineBrokenTargets = 0;
         session.mining.ultimineProcessedPositions.clear();
         session.mining.ultimineAbsorbedDrops = false;
         session.mining.miningFace = Direction.DOWN;
         session.mining.miningToolSlot = slot;
-        RtsMiningNetworkHelper.sendUltimineProgress(player, 0, targets.size());
+        // Workflow token already set by upstream WorkflowStartPipe via UltimineExecutePipe
         RtsMiningStateMachine.beginRemoteMining(player, session, targets.peekFirst(), null, slot);
     }
 
@@ -200,57 +180,251 @@ public final class RtsUltimineProcessor {
      * Destroys blocks at the given explicit positions (from Quick Build shape
      * preview).  Creative mode breaks instantly; survival mode feeds targets
      * into the ultimine batch processing pipeline.
+     *
+     * <p><b>Preconditions (guaranteed by pipeline):</b> feature gate passed,
+     * session resolved, dimension sanitised, previous mining stopped, tool
+     * borrowed ({@code session.mining.miningToolLease}), workflow started
+     * (tracked via pipeline context).</p>
      */
     public static void areaDestroy(ServerPlayer player, RtsStorageSession session, List<BlockPos> positions,
-            byte toolSlot, String toolItemId, ItemStack toolPrototype, boolean toolProtectionEnabled) {
-        if (!RtsProgressionManager.canUse(player, RtsFeature.AREA_DESTROY)) {
+            byte toolSlot, boolean toolProtectionEnabled) {
+        if (positions == null || positions.isEmpty()) {
             return;
         }
-        if (session == null || positions == null || positions.isEmpty()) {
-            return;
-        }
-        RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
 
         int slot = RtsMiningValidator.clampHotbarSlot(toolSlot);
         if (player.isCreative()) {
             Deque<BlockPos> targets = collectAreaDestroyTargets(player, positions, slot, ItemStack.EMPTY, false, true);
             if (targets.isEmpty()) {
-                RtsMiningStateMachine.stopActiveMining(player, session);
                 return;
             }
-            RtsMiningStateMachine.stopActiveMining(player, session);
             breakCreativeUltimineTargets(player, session, targets, slot);
-            RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
             return;
         }
 
-        RtsMiningStateMachine.stopActiveMining(player, session);
-        boolean selectedToolRequested = RtsMiningValidator.isSelectedMiningToolRequested(toolItemId, toolPrototype);
-        RtsToolLease toolLease = RtsToolLeaseManager.borrowMiningTool(player, session, toolItemId, toolPrototype, slot);
-        if (selectedToolRequested && toolLease.isEmpty()) {
+        boolean selectedToolRequested = session.mining.miningSelectedToolRequested;
+        RtsToolLease toolLease = session.mining.miningToolLease;
+        if (toolLease == null) {
             return;
         }
         Deque<BlockPos> targets = collectAreaDestroyTargets(player, positions, slot, toolLease.stack(),
                 selectedToolRequested, false);
         if (targets.isEmpty()) {
-            RtsToolLeaseManager.returnMiningTool(player, session, toolLease);
             return;
         }
 
-        session.mining.miningToolLease = toolLease;
-        session.mining.miningSelectedToolRequested = selectedToolRequested;
         session.mining.miningToolProtectionEnabled = toolProtectionEnabled;
         session.mining.ultimineTargets.clear();
         session.mining.ultimineTargets.addAll(targets);
         session.mining.ultimineProgressPos = targets.peekFirst();
         session.mining.ultimineTotalTargets = targets.size();
         session.mining.ultimineProcessedTargets = 0;
+        session.mining.ultimineBrokenTargets = 0;
         session.mining.ultimineProcessedPositions.clear();
         session.mining.ultimineAbsorbedDrops = false;
         session.mining.miningFace = Direction.DOWN;
         session.mining.miningToolSlot = slot;
-        RtsMiningNetworkHelper.sendUltimineProgress(player, 0, targets.size());
+        RtsbuildingMod.LOGGER.info("[RtsUltimineProcessor] areaDestroy: {} valid targets out of {} positions for {}",
+                targets.size(), positions.size(), player.getGameProfile().getName());
+        // Workflow token already set by upstream WorkflowStartPipe via UltimineExecutePipe
         RtsMiningStateMachine.beginRemoteMining(player, session, targets.peekFirst(), null, slot);
+    }
+
+    // =========================================================================
+    //  Queue Mode (deferred execution for independent threads)
+    // =========================================================================
+
+    /**
+     * Queues an area-destroy operation as a pending {@code MiningJob}.  The
+     * targets will be processed when all earlier jobs in the queue complete.
+     *
+     * <p>In creative mode the blocks are broken immediately and the workflow
+     * entry is completed right away, since creative-mode breaking requires
+     * special handling that cannot go through the normal
+     * {@link #processUltimineTargets} path.</p>
+     *
+     * @param workflowEntryId  the workflow entry created by WorkflowStartPipe
+     * @return number of targets queued (or broken immediately for creative),
+     *         or 0 if no valid targets
+     */
+    public static int queueAreaDestroy(ServerPlayer player, RtsStorageSession session, List<BlockPos> positions,
+            byte toolSlot, boolean toolProtectionEnabled, int workflowEntryId) {
+        if (positions == null || positions.isEmpty()) {
+            return 0;
+        }
+
+        int slot = RtsMiningValidator.clampHotbarSlot(toolSlot);
+
+        // Creative mode: break immediately to avoid slow per-tick processing
+        if (player.isCreative()) {
+            Deque<BlockPos> targets = collectAreaDestroyTargets(player, positions, slot, ItemStack.EMPTY, false, true);
+            if (targets.isEmpty()) {
+                return 0;
+            }
+            // Preserve the current (active job's) tool lease by temporarily clearing it
+            RtsToolLease savedLease = session.mining.miningToolLease;
+            session.mining.miningToolLease = RtsToolLease.empty();
+            try {
+                breakCreativeUltimineTargets(player, session, targets, slot);
+            } finally {
+                session.mining.miningToolLease = savedLease;
+            }
+            // Complete the workflow entry immediately (blocks already broken)
+            RtsWorkflowEngine.getInstance().from(player, workflowEntryId)
+                    .ifPresent(token -> {
+                        token.setTotalBlocks(targets.size());
+                        token.setCompletedBlocks(targets.size());
+                        token.complete();
+                    });
+            return targets.size();
+        }
+
+        // Survival mode: queue for deferred processing
+        boolean selectedToolRequested = session.mining.miningSelectedToolRequested;
+        RtsToolLease toolLease = session.mining.miningToolLease;
+        if (toolLease == null) {
+            return 0;
+        }
+        Deque<BlockPos> targets = collectAreaDestroyTargets(player, positions, slot, toolLease.stack(),
+                selectedToolRequested, false);
+        if (targets.isEmpty()) {
+            return 0;
+        }
+
+        session.mining.ultimineJobQueue.addLast(
+                new RtsMiningStateMachine.MiningJob(workflowEntryId, targets, targets.size()));
+        RtsbuildingMod.LOGGER.info("[RtsUltimineProcessor] queueAreaDestroy: queued {} targets, queue size = {} for {}",
+                targets.size(), session.mining.ultimineJobQueue.size(), player.getGameProfile().getName());
+        return targets.size();
+    }
+
+    /**
+     * Queues an ultimine (connected-block) operation as a pending {@code MiningJob}.
+     *
+     * @param workflowEntryId  the workflow entry created by WorkflowStartPipe
+     * @return number of targets queued, or 0 if no valid targets
+     */
+    public static int queueStartUltimine(ServerPlayer player, RtsStorageSession session,
+            BlockPos pos, Direction face, byte toolSlot, int requestedLimit,
+            byte mode, boolean toolProtectionEnabled, int workflowEntryId) {
+        int slot = RtsMiningValidator.clampHotbarSlot(toolSlot);
+        int progressionLimit = RtsProgressionManager.getUltimineLimit(player);
+        if (progressionLimit <= 0) {
+            return 0;
+        }
+        int limit = Math.max(1, Math.min(Math.min(RtsMiningValidator.ULTIMINE_MAX_BLOCKS, progressionLimit), requestedLimit));
+
+        // Creative mode: break immediately
+        if (player.isCreative()) {
+            Deque<BlockPos> targets = RtsMiningValidator.collectUltimineTargets(player, pos, slot, ItemStack.EMPTY, false,
+                    limit, true, mode);
+            if (targets.isEmpty()) {
+                return 0;
+            }
+            RtsToolLease savedLease = session.mining.miningToolLease;
+            session.mining.miningToolLease = RtsToolLease.empty();
+            try {
+                breakCreativeUltimineTargets(player, session, targets, slot);
+            } finally {
+                session.mining.miningToolLease = savedLease;
+            }
+            RtsWorkflowEngine.getInstance().from(player, workflowEntryId)
+                    .ifPresent(token -> {
+                        token.setTotalBlocks(targets.size());
+                        token.setCompletedBlocks(targets.size());
+                        token.complete();
+                    });
+            return targets.size();
+        }
+
+        boolean selectedToolRequested = session.mining.miningSelectedToolRequested;
+        RtsToolLease toolLease = session.mining.miningToolLease;
+        if (toolLease == null) {
+            return 0;
+        }
+        Deque<BlockPos> targets = RtsMiningValidator.collectUltimineTargets(player, pos, slot, toolLease.stack(),
+                selectedToolRequested, limit, false, mode);
+        if (targets.isEmpty()) {
+            return 0;
+        }
+
+        session.mining.ultimineJobQueue.addLast(
+                new RtsMiningStateMachine.MiningJob(workflowEntryId, targets, targets.size()));
+        return targets.size();
+    }
+
+    /**
+     * Queues an area-mine operation as a pending {@code MiningJob}.
+     *
+     * @param workflowEntryId  the workflow entry created by WorkflowStartPipe
+     * @return number of targets queued, or 0 if no valid targets
+     */
+    public static int queueAreaMine(ServerPlayer player, RtsStorageSession session,
+            int minX, int maxX, int minY, int maxY, int minZ, int maxZ,
+            byte toolSlot, byte shapeType, byte fillType, boolean toolProtectionEnabled, int workflowEntryId) {
+        int slot = RtsMiningValidator.clampHotbarSlot(toolSlot);
+        if (RtsProgressionManager.getUltimineLimit(player) <= 0) {
+            return 0;
+        }
+
+        // Clamp bounds
+        int clampedMinX = minX;
+        int clampedMaxX = Math.min(clampedMinX + RtsMiningValidator.AREA_MINE_MAX_SIZE - 1, maxX);
+        int clampedMinZ = minZ;
+        int clampedMaxZ = Math.min(clampedMinZ + RtsMiningValidator.AREA_MINE_MAX_SIZE - 1, maxZ);
+        int clampedMinY = minY;
+        int clampedMaxY = Math.min(clampedMinY + RtsMiningValidator.AREA_MINE_MAX_SIZE - 1, maxY);
+
+        // Creative mode: break immediately
+        if (player.isCreative()) {
+            List<BlockPos> candidatePositions = AreaOperationExecutor.scanAreaMineTargets(
+                    player.serverLevel(),
+                    clampedMinX, clampedMaxX,
+                    clampedMinY, clampedMaxY,
+                    clampedMinZ, clampedMaxZ,
+                    player,
+                    shapeType, fillType);
+            Deque<BlockPos> targets = new ArrayDeque<>(candidatePositions);
+            if (targets.isEmpty()) {
+                return 0;
+            }
+            RtsToolLease savedLease = session.mining.miningToolLease;
+            session.mining.miningToolLease = RtsToolLease.empty();
+            try {
+                breakCreativeUltimineTargets(player, session, targets, slot);
+            } finally {
+                session.mining.miningToolLease = savedLease;
+            }
+            RtsWorkflowEngine.getInstance().from(player, workflowEntryId)
+                    .ifPresent(token -> {
+                        token.setTotalBlocks(targets.size());
+                        token.setCompletedBlocks(targets.size());
+                        token.complete();
+                    });
+            return targets.size();
+        }
+
+        boolean selectedToolRequested = session.mining.miningSelectedToolRequested;
+        RtsToolLease toolLease = session.mining.miningToolLease;
+        if (toolLease == null) {
+            return 0;
+        }
+
+        List<BlockPos> candidatePositions = AreaOperationExecutor.scanAreaMineTargets(
+                player.serverLevel(),
+                clampedMinX, clampedMaxX,
+                clampedMinY, clampedMaxY,
+                clampedMinZ, clampedMaxZ,
+                player,
+                shapeType, fillType);
+        Deque<BlockPos> targets = new ArrayDeque<>(candidatePositions);
+        if (targets.isEmpty()) {
+            return 0;
+        }
+
+        session.mining.ultimineJobQueue.addLast(
+                new RtsMiningStateMachine.MiningJob(workflowEntryId, targets, targets.size()));
+        return targets.size();
     }
 
     /**
@@ -263,8 +437,11 @@ public final class RtsUltimineProcessor {
             return new ArrayDeque<>();
         }
         ServerLevel level = player.serverLevel();
+        // 从上往下逐层破坏：按Y降序排列
+        List<BlockPos> sortedPositions = new ArrayList<>(positions);
+        sortedPositions.sort(Comparator.<BlockPos>comparingInt(BlockPos::getY).reversed());
         LinkedHashSet<BlockPos> unique = new LinkedHashSet<>();
-        for (BlockPos raw : positions) {
+        for (BlockPos raw : sortedPositions) {
             if (raw == null || unique.size() >= RtsMiningValidator.AREA_DESTROY_MAX_TARGETS) {
                 continue;
             }
@@ -297,12 +474,16 @@ public final class RtsUltimineProcessor {
      */
     static void processUltimineTargets(ServerPlayer player, RtsStorageSession session) {
         if (session.mining.ultimineTargets.isEmpty()) {
+            RtsbuildingMod.LOGGER.info("[RtsUltimineProcessor] processUltimineTargets: no remaining targets, finishing batch for {}",
+                    player.getGameProfile().getName());
             finishUltimineBatch(player, session);
             return;
         }
 
         ServerLevel level = player.serverLevel();
         int processedThisTick = 0;
+        int brokenBeforeThisTick = session.mining.ultimineBrokenTargets;
+
         while (processedThisTick < RtsMiningValidator.ULTIMINE_BLOCKS_PER_TICK && !session.mining.ultimineTargets.isEmpty()) {
             if (RtsMiningValidator.isToolNearBreak(player, session)) {
                 finishUltimineBatch(player, session);
@@ -334,6 +515,7 @@ public final class RtsUltimineProcessor {
 
             if (result.broken() && preRecord != null) {
                 session.mining.ultimineProcessedPositions.add(preRecord);
+                session.mining.ultimineBrokenTargets++;
                 // Record any collateral multi-block destruction
                 recordCollateralBlocks(level, session, neighborRecords, target);
             }
@@ -344,6 +526,18 @@ public final class RtsUltimineProcessor {
                 finishUltimineBatch(player, session);
                 return;
             }
+        }
+
+        // Report per-tick broken block delta to the workflow manager so the
+        // progress bar updates in real time instead of staying at 0 until
+        // the entire batch finishes.
+        int brokenDelta = session.mining.ultimineBrokenTargets - brokenBeforeThisTick;
+        if (brokenDelta > 0) {
+            // 连锁挖掘中途进度：触发储存页面刷新以保证GUI实时更新
+            RtsStorageTickService.INSTANCE.forceRefresh(player);
+            session.transfer.pageDataVersion.incrementAndGet();
+            RtsPageService.requestPage(player, session.browser.page, session.browser.search,
+                    session.browser.category, session.browser.sort, session.browser.ascending);
         }
 
         RtsMiningNetworkHelper.sendUltimineBatchProgress(player, session);
@@ -357,17 +551,18 @@ public final class RtsUltimineProcessor {
      * marks the storage page dirty, and resets the mining state.
      */
     static void finishUltimineBatch(ServerPlayer player, RtsStorageSession session) {
-        if (!session.mining.ultimineProcessedPositions.isEmpty()) {
-            ServerHistoryManager.recordBreakWithRecords(player, new ArrayList<>(session.mining.ultimineProcessedPositions), session.mining.miningFace);
-            session.mining.ultimineProcessedPositions.clear();
-        }
+        RtsbuildingMod.LOGGER.info("[RtsUltimineProcessor] finishUltimineBatch: {} broken / {} processed / {} total for {}",
+                session.mining.ultimineBrokenTargets, session.mining.ultimineProcessedTargets,
+                session.mining.ultimineTotalTargets, player.getGameProfile().getName());
+        // Copy history records before clearing the session list
+        List<HistoryBlockRecord> records = new ArrayList<>(session.mining.ultimineProcessedPositions);
+        session.mining.ultimineProcessedPositions.clear();
+
         RtsMiningNetworkHelper.sendUltimineProgress(player, -1, 0);
-        RtsToolLeaseManager.returnMiningTool(player, session, session.mining.miningToolLease);
-        RtsPageService.markStorageViewDirty(player, session);
         if (session.mining.ultimineProgressPos != null) {
             RtsMiningNetworkHelper.clearMineProgress(player, session.mining.ultimineProgressPos);
         }
-        RtsMiningStateMachine.resetMiningState(session);
+        RtsMiningStateMachine.finalizeMiningOperation(player, session, records, session.mining.miningFace);
     }
 
     /**

@@ -18,6 +18,60 @@ public final class RtsTransferExtractor {
     private RtsTransferExtractor() {
     }
 
+    // ---- route-based extraction (preferred: uses aggregate extraction cache) ----
+
+    /**
+     * 基于预计算提取路由单物品提取。只遍历预测持有该物品的handler。
+     */
+    public static ItemStack extractFromAggregate(ServerPlayer player, Item targetItem) {
+        if (player == null || targetItem == null)
+            return ItemStack.EMPTY;
+        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+        if (aggregate != null && !aggregate.isEmpty()) {
+            ItemStack extracted = aggregate.executeExtractRoute(targetItem, null, 1);
+            if (!extracted.isEmpty()) {
+                RtsStorageTickService.INSTANCE.alert(player.getUUID());
+                return extracted;
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
+    /**
+     * 基于预计算提取路由多物品提取（支持NBT精确匹配）。
+     */
+    public static ItemStack extractMatchingFromAggregate(
+            ServerPlayer player, Item targetItem, ItemStack preferred, int limit) {
+        if (player == null || targetItem == null || limit <= 0)
+            return ItemStack.EMPTY;
+        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+        if (aggregate != null && !aggregate.isEmpty()) {
+            ItemStack extracted = aggregate.executeExtractRoute(targetItem, preferred, limit);
+            if (!extracted.isEmpty()) {
+                RtsStorageTickService.INSTANCE.alert(player.getUUID());
+                return extracted;
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
+    /**
+     * 基于预计算提取路由的精确NBT原型提取。跳过全量O(handlers×slots)扫描。
+     */
+    public static ItemStack extractPrototypeFromAggregate(ServerPlayer player, ItemStack prototype, int limit) {
+        if (player == null || prototype == null || prototype.isEmpty())
+            return ItemStack.EMPTY;
+        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+        if (aggregate != null && !aggregate.isEmpty()) {
+            ItemStack extracted = aggregate.extractMatchingPrototype(prototype, limit);
+            if (!extracted.isEmpty()) {
+                RtsStorageTickService.INSTANCE.alert(player.getUUID());
+                return extracted;
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
     // ---- single-item extraction --------------------------------------------------
 
     /** 委托给 {@link #extractMatching} 使用批量提取路径。 */

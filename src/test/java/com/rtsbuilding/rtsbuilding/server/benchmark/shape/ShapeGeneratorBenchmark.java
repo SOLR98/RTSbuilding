@@ -199,13 +199,13 @@ class ShapeGeneratorBenchmark {
         for (int i = 0; i < CALLS; i++) {
             BlockPos end = new BlockPos(16, 0, 16);
             long start = System.nanoTime();
-            com.rtsbuilding.rtsbuilding.common.AreaOperationExecutor.generatePlacementPositions(
+            com.rtsbuilding.rtsbuilding.common.AreaOperationExecutor.generatePositions(
                     AreaShape.BOX, ORIGIN, end, 8, Direction.UP, ShapeFillMode.FILL);
             long endNanos = System.nanoTime();
             totalNanos += (endNanos - start);
         }
         long avgNanos = totalNanos / CALLS;
-        System.out.println(String.format("[Shape] AreaOperationExecutor.generatePlacementPositions(BOX, 16x16x8) \u00d7 %,d: avg %,d ns/op",
+        System.out.println(String.format("[Shape] AreaOperationExecutor.generatePositions(BOX, 16x16x8) × %,d: avg %,d ns/op",
                 CALLS, avgNanos));
     }
 

@@ -2,6 +2,7 @@ package com.rtsbuilding.rtsbuilding.server.service.transfer;
 
 import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import com.rtsbuilding.rtsbuilding.server.storage.OverflowOutcome;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsAggregateStorage;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedHandlerViews;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -10,6 +11,7 @@ import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.items.IItemHandler;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Handles insertion of items into linked storage handlers and player inventory.
@@ -50,8 +52,24 @@ public final class RtsTransferInserter {
         return remain;
     }
 
-    // ---- multi-handler store ----------------------------------------------------
+    // ---- route-based store (preferred: uses aggregate insertion cache) ---------
 
+    /**
+     * 基于预计算路由计划执行单物品插入。只遍历预测有空间的handler。
+     */
+    public static ItemStack storeToAggregate(RtsAggregateStorage aggregate, ItemStack stack) {
+        if (aggregate == null || aggregate.isEmpty() || stack == null || stack.isEmpty()) {
+            return stack == null ? ItemStack.EMPTY : stack;
+        }
+        return aggregate.executeInsertRoute(stack, false);
+    }
+
+    // ---- multi-handler store (legacy — callers should migrate to storeToAggregate) ----
+
+    /**
+     * @deprecated 直接遍历handler列表，未使用路由缓存。新调用方请用 {@link #storeToAggregate(RtsAggregateStorage, ItemStack)}。
+     */
+    @Deprecated
     public static ItemStack storeToLinkedOnly(List<IItemHandler> handlers, ItemStack stack) {
         ItemStack remain = stack.copy();
         for (IItemHandler handler : handlers) {
@@ -63,6 +81,10 @@ public final class RtsTransferInserter {
         return remain;
     }
 
+    /**
+     * @deprecated 直接遍历handler列表，未使用路由缓存。新调用方请用 {@link #storeToAggregate(RtsAggregateStorage, ItemStack)}。
+     */
+    @Deprecated
     public static ItemStack storeToLinkedOnlyPreferExisting(List<IItemHandler> handlers, ItemStack stack) {
         ItemStack remain = stack.copy();
         for (IItemHandler handler : handlers) {
@@ -74,10 +96,15 @@ public final class RtsTransferInserter {
         return remain;
     }
 
-    // ---- with fallback ----------------------------------------------------------
+    // ---- with fallback (route-based via aggregate) ------------------------------
 
     public static OverflowOutcome storeToLinkedWithFallback(
             List<IItemHandler> handlers, ServerPlayer player, ItemStack stack) {
+        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+        if (aggregate != null && !aggregate.isEmpty()) {
+            return RtsBatchInsertService.insertOneWithFallback(player, aggregate, stack);
+        }
+        // Fallback: old direct-handler path when aggregate not available
         ItemStack remain = stack.copy();
         for (IItemHandler handler : handlers) {
             if (remain.isEmpty()) {
@@ -98,13 +125,17 @@ public final class RtsTransferInserter {
             dropped = remain.getCount();
             player.drop(remain, false);
         }
-        // Refresh cache so subsequent page builds see the updated state immediately
         refreshCache(player);
         return new OverflowOutcome(movedToInventory, dropped);
     }
 
     public static OverflowOutcome storeToLinkedWithFallbackPreferExisting(
             List<IItemHandler> handlers, ServerPlayer player, ItemStack stack) {
+        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+        if (aggregate != null && !aggregate.isEmpty()) {
+            return RtsBatchInsertService.insertOneWithFallback(player, aggregate, stack);
+        }
+        // Fallback: old direct-handler path when aggregate not available
         ItemStack remain = stack.copy();
         for (IItemHandler handler : handlers) {
             if (remain.isEmpty()) {
@@ -125,7 +156,6 @@ public final class RtsTransferInserter {
             dropped = remain.getCount();
             player.drop(remain, false);
         }
-        // Refresh cache so subsequent page builds see the updated state immediately
         refreshCache(player);
         return new OverflowOutcome(movedToInventory, dropped);
     }

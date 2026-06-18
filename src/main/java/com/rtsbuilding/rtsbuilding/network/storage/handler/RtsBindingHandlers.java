@@ -131,6 +131,14 @@ public final class RtsBindingHandlers {
         });
     }
 
+    public static void handleBatchLinkStorage(com.rtsbuilding.rtsbuilding.network.storage.C2SRtsBatchLinkStoragePayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                RtsBindingService.linkStorageBatch(serverPlayer, payload.positions(), payload.linkMode());
+            }
+        });
+    }
+
     public static void handleInventoryFullRequest(com.rtsbuilding.rtsbuilding.network.storage.C2SRtsRequestInventoryFullPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer serverPlayer) {

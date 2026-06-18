@@ -29,19 +29,16 @@ import com.rtsbuilding.rtsbuilding.client.screen.overlay.PlayerStatusRenderer;
 import com.rtsbuilding.rtsbuilding.client.screen.overlay.RtsScreenOverlayRenderer;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.BottomPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsFloatingWindowLayer;
-import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
-import com.rtsbuilding.rtsbuilding.client.render.layer.RenderLayer;
-import com.rtsbuilding.rtsbuilding.client.render.layer.RenderLayerManager;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildMode;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeDataRecords;
 import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeGeometryUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.storage.LinkedStoragePanel;
-import com.rtsbuilding.rtsbuilding.client.screen.storage.PlayerInventoryPanel;
-import com.rtsbuilding.rtsbuilding.client.screen.storage.VanillaInventoryPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarTypes;
+import com.rtsbuilding.rtsbuilding.client.screen.workflow.RtsResumePlacementPanel;
+import com.rtsbuilding.rtsbuilding.client.screen.workflow.RtsWorkflowPanel;
 import com.rtsbuilding.rtsbuilding.client.service.MiningOperationService;
 import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
 import com.rtsbuilding.rtsbuilding.client.state.RtsScreenUiStateManager;
@@ -124,12 +121,6 @@ public final class BuilderScreen extends Screen {
     private final BlueprintNameWindowPanel blueprintNameWindowPanel = new BlueprintNameWindowPanel();
     /** Windowed blueprint material details prompt. */
     private final BlueprintMaterialWindowPanel blueprintMaterialWindowPanel = new BlueprintMaterialWindowPanel();
-    /** Floating player inventory panel showing backpack contents and hotbar selection. */
-    private final PlayerInventoryPanel playerInventoryPanel = new PlayerInventoryPanel();
-    /** Floating vanilla-style inventory panel with armour, offhand, and player preview. */
-    private final VanillaInventoryPanel vanillaInventoryPanel = new VanillaInventoryPanel();
-    /** Whether to use the vanilla Minecraft inventory screen instead of the custom RTS panel. */
-    private boolean useVanillaInventory;
     /** Top bar panel with mode buttons, shape selection, and action controls. */
     private final TopBarPanel topBarPanel = new TopBarPanel();
     /** Bottom panel containing storage grid, crafting, blueprints, and pin slots. */
@@ -154,6 +145,10 @@ public final class BuilderScreen extends Screen {
     private final RtsFloatingWindowLayer floatingWindowLayer;
     /** Handler for storage link detail action rendering and clicks. */
     private final StorageLinkDetailHandler storageLinkDetailHandler;
+    /** Movable window panel for workflow progress and controls. */
+    private final RtsWorkflowPanel workflowPanel = new RtsWorkflowPanel();
+    /** Panel for reviewing and resuming suspended placement jobs. */
+    private final RtsResumePlacementPanel resumePlacementPanel = new RtsResumePlacementPanel();
     /** Whether the user is currently dragging the input sensitivity slider. */
     private boolean draggingInputSensitivity = false;
     /** Whether the funnel hotkey (quick-activate funnel mode) is currently held down. */
@@ -188,8 +183,6 @@ public final class BuilderScreen extends Screen {
      * 冷却计数器，防止 Alt+Space 按键重复事件导致飞行开关快速抖动。
      */
     private int rtsFlightToggleCooldownTicks = 0;
-    /** 渲染层级管理器，管理 RTS 模式下所有界面层的渲染顺序。 */
-    private final RenderLayerManager renderLayerManager = new RenderLayerManager();
     /**
      * Constructs the main RTS Builder screen.
      *
@@ -212,8 +205,8 @@ public final class BuilderScreen extends Screen {
                 this.gearMenuPanel,
                 this.guidePanel,
                 this.quickBuildPanel,
-                this.playerInventoryPanel,
-                this.vanillaInventoryPanel);
+                this.workflowPanel,
+                this.resumePlacementPanel);
         this.uiStateManager.registerWindowPanel("settings", this.gearMenuPanel);
         this.uiStateManager.registerWindowPanel("blueprints", this.blueprintWindowPanel);
         this.uiStateManager.registerWindowPanel("guide", this.guidePanel);
@@ -221,8 +214,6 @@ public final class BuilderScreen extends Screen {
         this.uiStateManager.registerWindowPanel("craft_quantity", this.craftQuantityWindowPanel);
         this.uiStateManager.registerWindowPanel("blueprint_name", this.blueprintNameWindowPanel);
         this.uiStateManager.registerWindowPanel("blueprint_materials", this.blueprintMaterialWindowPanel);
-        this.uiStateManager.registerWindowPanel("player_inventory", this.playerInventoryPanel);
-        this.uiStateManager.registerWindowPanel("vanilla_inventory", this.vanillaInventoryPanel);
         this.storageLinkDetailHandler.init(this, this.controller);
         this.guidePanel.init(this, this.controller);
         this.gearMenuPanel.init(this, this.controller);
@@ -232,129 +223,15 @@ public final class BuilderScreen extends Screen {
         this.craftQuantityWindowPanel.init(this, this.controller);
         this.funnelBufferPanel.init(this, this.controller);
         this.quickBuildPanel.init(this, this.controller);
+        this.workflowPanel.init(this, this.controller);
+        this.resumePlacementPanel.init(this, this.controller);
         this.linkedStoragePanel.init(this, this.controller);
-        this.playerInventoryPanel.init(this, this.controller);
-        this.vanillaInventoryPanel.init(this, this.controller);
         this.topBarPanel.init(this, this.controller);
         this.bottomPanel.init(this, this.controller);
         this.shapeController.init(this, this.controller);
         this.cursorPicker.init(this, this.controller, this.shapeController);
         this.cameraInput.init(this, this.controller);
-        initRenderLayers();
     }
-
-    /** 注册所有固定 UI 元素的渲染层到管理器。 */
-    private void initRenderLayers() {
-        // Z-index 布局:
-        //   0   背景遮罩
-        //   10  TopBarPanel
-        //   20  PlayerStatusRenderer
-        //   30  BottomPanel
-        //   40  FunnelBufferPanel
-        //   50  浮动窗口 (RtsFloatingWindowLayer 自行管理每窗口的层)
-        //   60  浮动窗口遮罩层 (tooltip)
-        //   70  QuestDetect / StorageScan 弹窗
-        //   80  物品提示 Tooltips
-        //   90  CraftFeedback
-        //  100  DamageFlash
-
-        renderLayerManager.addLayer(new RenderLayer(10) {
-            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
-                topBarPanel.render(g, mx, my);
-            }
-        });
-
-        renderLayerManager.addLayer(new RenderLayer(20) {
-            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
-                if (controller.isPlayerStatusOverlayEnabled()) {
-                    playerStatusRenderer.render(g);
-                }
-            }
-        });
-
-        renderLayerManager.addLayer(new RenderLayer(30) {
-            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
-                bottomPanel.render(g, mx, my, pt);
-            }
-        });
-
-        renderLayerManager.addLayer(new RenderLayer(40) {
-            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
-                funnelBufferPanel.render(g, mx, my);
-            }
-        });
-
-        renderLayerManager.addLayer(new RenderLayer(50) {
-            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
-                floatingWindowLayer.renderFloatingWindows(g, mx, my);
-            }
-        });
-
-        renderLayerManager.addLayer(new RenderLayer(60) {
-            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
-                floatingWindowLayer.renderFloatingWindowOverlays(g, mx, my);
-            }
-        });
-
-        renderLayerManager.addLayer(new RenderLayer(70) {
-            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
-                overlayRenderer.renderQuestDetectPopup(g);
-                overlayRenderer.renderStorageScanPopup(g);
-            }
-        });
-
-        renderLayerManager.addLayer(new RenderLayer(80) {
-            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
-                renderHoveredItemTooltips(g, mx, my);
-            }
-        });
-
-        renderLayerManager.addLayer(new RenderLayer(90) {
-            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
-                bottomPanel.renderCraftFeedback(g);
-            }
-        });
-
-        renderLayerManager.addLayer(new RenderLayer(100) {
-            protected void renderContent(GuiGraphics g, int mx, int my, float pt) {
-                overlayRenderer.renderDamageFlash(g);
-            }
-        });
-    }
-
-    /**
-     * 通用悬浮窗口开关方法。
-     *
-     * <p>这是所有悬浮窗口打开的<b>唯一入口</b>。无论是 TopBar 按钮、键盘快捷键还是
-     * 任何其他触发来源，都应调用此方法，而不是在每个调用处重复 open/close 的样板代码。
-     *
-     * <p>调用时需要确保面板已通过 {@link #init初始化} 并已添加到
-     * {@link RtsFloatingWindowLayer}。
-     *
-     * <p>窗口已打开 → 调用 {@link RtsWindowPanel#toggleOpen()} 关闭；
-     * 窗口已关闭 → 调用 {@link RtsWindowPanel#setOpen(boolean)} 打开并
-     * {@link RtsWindowPanel#markBroughtToFront()} 置顶。
-     *
-     * <p>如果面板每次打开时需要额外初始化（如重置滚动条、折叠状态等），
-     * 应在面板自身的 open 方法中处理，而不是在这里添加特殊判断。
-     * 参见 {@link com.rtsbuilding.rtsbuilding.client.screen.gear.GearMenuPanel#open()}
-     *
-     * @param panel 要切换开关的悬浮面板
-     */
-    public void toggleWindow(RtsWindowPanel panel) {
-        if (panel.isOpen()) {
-            panel.toggleOpen();
-        } else {
-            panel.setOpen(true);
-            panel.markBroughtToFront();
-        }
-    }
-
-    /** 切换紧凑型玩家背包悬浮面板。 */
-    public void togglePlayerInventory() {
-        toggleWindow(this.playerInventoryPanel);
-    }
-
     /** Returns the Minecraft font renderer for use by sub-panels and utilities. */
     public Font font() {
         return this.font;
@@ -422,6 +299,13 @@ public final class BuilderScreen extends Screen {
     /** Returns the Minecraft client instance for access by sub-panels and utilities. */
     public net.minecraft.client.Minecraft getMinecraft() {
         return this.minecraft;
+    }
+
+    /**
+     * Returns the resume placement panel, so external handlers can open it.
+     */
+    public RtsResumePlacementPanel getResumePlacementPanel() {
+        return this.resumePlacementPanel;
     }
     /** Returns the last recorded mouse X position (updated each render frame). */
     public double getCurrentMouseX() {
@@ -517,6 +401,7 @@ public final class BuilderScreen extends Screen {
     @Override
     public void tick() {
         super.tick();
+        enforceBlueprintPlacementModeLock();
         if (this.rtsFlightToggleCooldownTicks > 0) {
             this.rtsFlightToggleCooldownTicks--;
         }
@@ -645,6 +530,7 @@ public final class BuilderScreen extends Screen {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             return false;
         }
+        enforceBlueprintPlacementModeLock();
         if (this.topBarPanel.handleClick(mouseX, mouseY)) {
             return true;
         }
@@ -669,7 +555,11 @@ public final class BuilderScreen extends Screen {
         if (isWorldArea(mouseX, mouseY) && this.controller.getMode() == BuilderMode.LINK_STORAGE) {
             BlockHitResult hit = this.cursorPicker.pickBlockHit();
             if (hit != null) {
-                this.controller.linkStorage(hit.getBlockPos());
+                if (hasShiftDown()) {
+                    handleLinkStorageAreaClick(hit.getBlockPos());
+                } else {
+                    this.controller.linkStorage(hit.getBlockPos());
+                }
                 return true;
             }
         }
@@ -688,6 +578,13 @@ public final class BuilderScreen extends Screen {
         }
         boolean primaryMouse = CameraInputHandler.isPrimaryActionMouse(button);
         boolean rotateMouse = CameraInputHandler.isRotateDragActionMouse(button);
+        boolean panMouse = CameraInputHandler.isPanDragActionMouse(button);
+        boolean pickMouse = CameraInputHandler.isPickBlockActionMouse(button);
+        /*
+         * After key binding swap:
+         *   Right button → primary action + camera pan (movement)
+         *   Middle button → camera rotation + pick block
+         */
         if (primaryMouse || rotateMouse) {
             if (isSearchFocused()) {
                 blurSearchFocus();
@@ -695,13 +592,13 @@ public final class BuilderScreen extends Screen {
             if (primaryMouse && this.pendingGuiBindSlot >= 0 && isWorldArea(mouseX, mouseY)) {
                 return true;
             }
-            if (primaryMouse && !rotateMouse && isWorldArea(mouseX, mouseY) && this.controller.getMode() == BuilderMode.LINK_STORAGE) {
+            if (primaryMouse && !panMouse && isWorldArea(mouseX, mouseY) && this.controller.getMode() == BuilderMode.LINK_STORAGE) {
                 return true;
             }
             if (primaryMouse && isInsideBottomPanel(mouseX, mouseY)) {
                 return this.bottomPanel.handleRightClick(mouseX, mouseY);
             }
-            if (primaryMouse && isWorldArea(mouseX, mouseY) && this.controller.getMode() == BuilderMode.ROTATE && !rotateMouse) {
+            if (primaryMouse && isWorldArea(mouseX, mouseY) && this.controller.getMode() == BuilderMode.ROTATE && !panMouse) {
                 BlockHitResult hit = this.cursorPicker.pickBlockHit();
                 if (hit != null) {
                     clearShapeBuildSession();
@@ -710,6 +607,8 @@ public final class BuilderScreen extends Screen {
                 return true;
             }
             if (primaryMouse && isWorldArea(mouseX, mouseY) && Screen.hasControlDown()) {
+                // Ctrl + RightClick → 向目标点直线移动
+                // 双击（300ms 内连续两次）→ 飞到目标上方指定高度
                 long now = System.currentTimeMillis();
                 boolean isDoubleClick = (now - this.lastCtrlRightClickTime) < CTRL_DOUBLE_CLICK_THRESHOLD_MS;
                 this.lastCtrlRightClickTime = now;
@@ -718,8 +617,10 @@ public final class BuilderScreen extends Screen {
                 if (hit != null) {
                     if (isDoubleClick) {
                         this.lastCtrlRightClickTime = 0;
+                        // Ctrl + 双击右键 → 强制降落到目标方块表面（3D到达判定）
                         RtsClientPathfinding.goToAbove(hit.getBlockPos(), 1);
                     } else {
+                        // Ctrl + 单次右键 → 普通直线移动（仅 XZ 到达判定）
                         RtsClientPathfinding.goTo(hit.getBlockPos());
                     }
                 }
@@ -731,8 +632,6 @@ public final class BuilderScreen extends Screen {
             }
             return true;
         }
-        boolean panMouse = CameraInputHandler.isPanDragActionMouse(button);
-        boolean pickMouse = CameraInputHandler.isPickBlockActionMouse(button);
         if (panMouse || pickMouse) {
             this.cameraInput.beginMiddlePress(isWorldArea(mouseX, mouseY), button, panMouse, pickMouse);
             return true;
@@ -868,6 +767,7 @@ public final class BuilderScreen extends Screen {
      * @return true if the action was consumed
      */
     private boolean runPrimaryActionAt(double mouseX, double mouseY, int mouseButton) {
+        enforceBlueprintPlacementModeLock();
         if (this.pendingGuiBindSlot >= 0) {
             return true;
         }
@@ -892,7 +792,11 @@ public final class BuilderScreen extends Screen {
             this.shapeController.clearShapeBuildSession();
             BlockHitResult hit = this.cursorPicker.pickBlockHit();
             if (hit != null) {
-                this.controller.linkStorage(hit.getBlockPos(), mouseButton == GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                if (hasShiftDown()) {
+                    handleLinkStorageAreaClick(hit.getBlockPos());
+                } else {
+                    this.controller.linkStorage(hit.getBlockPos(), mouseButton == GLFW.GLFW_MOUSE_BUTTON_LEFT);
+                }
             }
             return true;
         }
@@ -1035,6 +939,18 @@ public final class BuilderScreen extends Screen {
             }
         }
         return true;
+    }
+
+    private void handleLinkStorageAreaClick(BlockPos pos) {
+        if (!this.controller.isSelectingLinkStorageArea()) {
+            this.controller.startLinkStorageArea(pos);
+            if (this.minecraft != null && this.minecraft.player != null) {
+                this.minecraft.player.displayClientMessage(
+                        Component.literal("选区角点A: " + pos.toShortString() + " | Shift+右键点击角点B"), false);
+            }
+        } else {
+            this.controller.completeLinkStorageArea(pos);
+        }
     }
 
     private boolean tryUseMainHandItemInAir() {
@@ -1180,6 +1096,7 @@ public final class BuilderScreen extends Screen {
         if (hasControlDown() && keyCode == GLFW.GLFW_KEY_Z) {
             return this.shapeController.undoLastPlacementBatch();
         }
+        // Alt+Space: toggle creative flight for the player entity in RTS mode
         if (!isSearchFocused() && (modifiers & GLFW.GLFW_MOD_ALT) != 0 && keyCode == GLFW.GLFW_KEY_SPACE) {
             if (this.rtsFlightToggleCooldownTicks <= 0) {
                 this.rtsFlightToggleCooldownTicks = 10;
@@ -1205,6 +1122,11 @@ public final class BuilderScreen extends Screen {
             return runPrimaryActionAt(currentMouseX(), currentMouseY());
         }
         if (!isSearchFocused() && handleModeKeyPressed(keyCode, scanCode)) {
+            return true;
+        }
+        if (!isSearchFocused()
+                && isBlueprintPlacementModeLocked()
+                && ClientKeyMappings.QUICK_FUNNEL.matches(keyCode, scanCode)) {
             return true;
         }
         if (!isSearchFocused() && ClientKeyMappings.QUICK_FUNNEL.matches(keyCode, scanCode)) {
@@ -1334,6 +1256,8 @@ public final class BuilderScreen extends Screen {
         boolean wasFlying = this.minecraft.player.getAbilities().flying;
         this.minecraft.player.getAbilities().flying = !wasFlying;
 
+        // When enabling flight while on ground, apply a jump impulse to lift off.
+        // Vanilla MC won't actually start flying if the player stays on ground.
         if (!wasFlying && this.minecraft.player.onGround()) {
             this.minecraft.player.jumpFromGround();
         }
@@ -1347,6 +1271,14 @@ public final class BuilderScreen extends Screen {
      * @return true if a mode switch was performed
      */
     private boolean handleModeKeyPressed(int keyCode, int scanCode) {
+        boolean modeKey = ClientKeyMappings.MODE_INTERACT.matches(keyCode, scanCode)
+                || ClientKeyMappings.MODE_LINK_STORAGE.matches(keyCode, scanCode)
+                || ClientKeyMappings.MODE_ROTATE.matches(keyCode, scanCode)
+                || ClientKeyMappings.MODE_FUNNEL.matches(keyCode, scanCode);
+        if (isBlueprintPlacementModeLocked() && modeKey) {
+            enforceBlueprintPlacementModeLock();
+            return true;
+        }
         if (ClientKeyMappings.MODE_INTERACT.matches(keyCode, scanCode)) {
             return switchToModeFromKey(BuilderMode.INTERACT, false);
         }
@@ -1416,18 +1348,19 @@ public final class BuilderScreen extends Screen {
         this.lastMouseX = mouseX;
         this.lastMouseY = mouseY;
         resetHoverStates();
-
-        // 背景
         guiGraphics.fill(0, 0, this.width, TOP_H, 0xC0101116);
-
-        // 出生点选择模式 — 只渲染覆盖层
         if (this.controller.isHomeSelectionMode()) {
             this.overlayRenderer.renderHomeSelectionOverlay(guiGraphics, mouseX, mouseY);
             this.overlayRenderer.renderDamageFlash(guiGraphics);
             return;
         }
-
-        // 蓝图状态同步 (非渲染)
+        this.topBarPanel.render(guiGraphics, mouseX, mouseY);
+        if (this.controller.isPlayerStatusOverlayEnabled()) {
+            this.playerStatusRenderer.render(guiGraphics);
+        }
+        this.storageLinkDetailHandler.updateVisibility(mouseX, mouseY);
+        this.bottomPanel.render(guiGraphics, mouseX, mouseY, partialTick);
+        this.funnelBufferPanel.render(guiGraphics, mouseX, mouseY);
         if (this.bottomPanel.bottomPanelTab == BottomPanelLayoutTypes.BottomPanelTab.BLUEPRINTS && BlueprintPanel.isCaptureModeActive()) {
             BlockHitResult hit = isWorldArea(mouseX, mouseY) ? this.cursorPicker.pickBlockHit() : null;
             BlueprintPanel.updateCaptureHoverPoint(hit == null ? null : hit.getBlockPos());
@@ -1435,15 +1368,14 @@ public final class BuilderScreen extends Screen {
         this.blueprintWindowPanel.syncWithBlueprintState();
         this.blueprintMaterialWindowPanel.syncWithBlueprintState();
         this.blueprintNameWindowPanel.syncWithBlueprintState();
-
-        // 存储链接详情更新 (非渲染)
-        this.storageLinkDetailHandler.updateVisibility(mouseX, mouseY);
-
-        // 所有 UI 渲染层 — 由 RenderLayerManager 按 z 顺序统一管理
-        renderLayerManager.renderAll(guiGraphics, mouseX, mouseY, partialTick);
-
-        // 光标更新 (非渲染层)
+        this.floatingWindowLayer.renderFloatingWindows(guiGraphics, mouseX, mouseY);
+        this.floatingWindowLayer.renderFloatingWindowOverlays(guiGraphics, mouseX, mouseY);
+        this.overlayRenderer.renderQuestDetectPopup(guiGraphics);
+        this.overlayRenderer.renderStorageScanPopup(guiGraphics);
+        renderHoveredItemTooltips(guiGraphics, mouseX, mouseY);
         this.overlayRenderer.updateNativeCursor(this.floatingWindowLayer.resizeCursorAt(mouseX, mouseY));
+        this.bottomPanel.renderCraftFeedback(guiGraphics);
+        this.overlayRenderer.renderDamageFlash(guiGraphics);
     }
 
     /** Resets all panel hover states before each render frame. */
@@ -1763,9 +1695,8 @@ public final class BuilderScreen extends Screen {
         this.pendingGuiBindSlot = -1;
     }
     /** Toggles the quick-build panel open/closed. */
-    /** 切换快速建造悬浮面板。 */
     public void toggleQuickBuild() {
-        toggleWindow(this.quickBuildPanel);
+        this.quickBuildPanel.toggleOpen();
     }
 
     /** Opens the window-layer craft quantity picker for a craftable entry. */
@@ -1811,11 +1742,7 @@ public final class BuilderScreen extends Screen {
     public void closeGearMenu() {
         this.gearMenuPanel.close();
     }
-    /**
-     * 切换设置面板。不能直接用 {@link #toggleWindow}，因为
-     * {@link GearMenuPanel#open()} 有额外的初始化逻辑
-     * （重置滚动条、折叠状态等）。
-     */
+    /** Toggles the gear (settings) menu open/closed. */
     public void toggleGearMenu() {
         if (this.gearMenuPanel.isOpen()) {
             this.gearMenuPanel.close();
@@ -1834,39 +1761,7 @@ public final class BuilderScreen extends Screen {
             this.guidePanel.open(GuideTypes.GuideContext.TOP, x, y);
         }
     }
-
-    /**
-     * 根据当前模式切换背包显示。
-     * 原版模式 → 原版风格悬浮窗口；否则 → 紧凑格子面板。
-     */
-    public void toggleInventory() {
-        toggleWindow(useVanillaInventory ? this.vanillaInventoryPanel : this.playerInventoryPanel);
-    }
-
-    /** 切换原版风格背包悬浮窗口。 */
-    public void toggleVanillaInventory() {
-        toggleWindow(this.vanillaInventoryPanel);
-    }
-
-    /** 原版风格背包面板是否打开。 */
-    public boolean isVanillaInventoryOpen() {
-        return this.vanillaInventoryPanel.isOpen();
-    }
-
-    public boolean isInventoryPanelOpen() {
-        return useVanillaInventory
-                ? this.vanillaInventoryPanel.isOpen()
-                : this.playerInventoryPanel.isOpen();
-    }
-
-    public void setUseVanillaInventory(boolean vanilla) {
-        this.useVanillaInventory = vanilla;
-    }
-
-    public boolean isUseVanillaInventory() {
-        return this.useVanillaInventory;
-    }
-
+    /** Opens the bottom guide panel at the given position. */
     public void openBottomGuide(int x, int y) {
         this.guidePanel.open(GuideTypes.GuideContext.BOTTOM, x, y);
     }
@@ -1887,6 +1782,10 @@ public final class BuilderScreen extends Screen {
      * saves the current mode, and switches to funnel mode with funnel enabled.
      */
     private void activateFunnelHotkey() {
+        if (isBlueprintPlacementModeLocked()) {
+            enforceBlueprintPlacementModeLock();
+            return;
+        }
         this.cameraInput.stopActiveMining();
         this.shapeController.clearShapeBuildSession();
         if (this.controller.getMode() != BuilderMode.FUNNEL) {
@@ -1907,6 +1806,25 @@ public final class BuilderScreen extends Screen {
                     : this.modeBeforeFunnelHotkey);
         }
     }
+
+    public boolean isBlueprintPlacementModeLocked() {
+        return BlueprintPanel.isPlacementSessionActive();
+    }
+
+    private void enforceBlueprintPlacementModeLock() {
+        if (!isBlueprintPlacementModeLocked()) {
+            return;
+        }
+        if (this.controller.getMode() == BuilderMode.INTERACT && !this.controller.isFunnelEnabled()) {
+            return;
+        }
+        this.cameraInput.stopActiveMining();
+        this.shapeController.clearShapeBuildSession();
+        this.controller.setFunnelEnabled(false);
+        this.controller.setMode(BuilderMode.INTERACT);
+        this.funnelHotkeyHeld = false;
+    }
+
     /**
      * Drops one item of the currently selected item (or the tool slot item) at the
      * cursor's target position in the world. Used by the quick-drop keybind.

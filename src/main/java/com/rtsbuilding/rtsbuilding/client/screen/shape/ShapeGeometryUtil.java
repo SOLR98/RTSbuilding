@@ -186,7 +186,12 @@ public final class ShapeGeometryUtil {
         int dz = end.getZ() - start.getZ();
         int aOffset = clampShapeOffset(dotDelta(dx, dy, dz, axes[0]));
         int bOffset = clampShapeOffset(dotDelta(dx, dy, dz, axes[1]));
-        addRotatedPlaneRectangleTargets(targets, start, axes[0], axes[1], aOffset, bOffset, fillMode, 0);
+        // 先收集到临时集，再按距点击点距离排序
+        LinkedHashSet<BlockPos> tmp = new LinkedHashSet<>();
+        addRotatedPlaneRectangleTargets(tmp, start, axes[0], axes[1], aOffset, bOffset, fillMode, 0);
+        List<BlockPos> sorted = new ArrayList<>(tmp);
+        sorted.sort(Comparator.comparingDouble(pos -> pos.distSqr(start)));
+        targets.addAll(sorted);
     }
 
     /** 生成墙壁方块，支持连接模式 */
@@ -206,10 +211,11 @@ public final class ShapeGeometryUtil {
         int minY = Math.min(0, yOffset);
         int maxY = Math.max(0, yOffset);
         List<BlockPos> base = new ArrayList<>(baseLine);
-        for (int i = 0; i < base.size(); i++) {
-            BlockPos basePos = base.get(i);
-            boolean endColumn = i == 0 || i == base.size() - 1;
-            for (int iy = minY; iy <= maxY; iy++) {
+        // 从下往上逐层放置
+        for (int iy = minY; iy <= maxY; iy++) {
+            for (int i = 0; i < base.size(); i++) {
+                BlockPos basePos = base.get(i);
+                boolean endColumn = i == 0 || i == base.size() - 1;
                 if (fillMode != ShapeFillMode.FILL && !endColumn && iy != minY && iy != maxY) {
                     continue;
                 }
@@ -250,9 +256,13 @@ public final class ShapeGeometryUtil {
             rotatedCells = fillPlaneInteriorHoles(rotatedCells);
         }
 
+        // 先收集到列表，再按距点击点距离排序
+        List<BlockPos> positions = new ArrayList<>();
         for (PlaneCell cell : rotatedCells) {
-            targets.add(offsetPos(start, axes[0], cell.a(), axes[1], cell.b()));
+            positions.add(offsetPos(start, axes[0], cell.a(), axes[1], cell.b()));
         }
+        positions.sort(Comparator.comparingDouble(pos -> pos.distSqr(start)));
+        targets.addAll(positions);
     }
 
     /** 生成立方体方块 */
@@ -274,14 +284,19 @@ public final class ShapeGeometryUtil {
         }
 
         if (fillMode == ShapeFillMode.FILL) {
-            for (PlaneCell cell : rotatedFootprint) {
-                for (int iy = minY; iy <= maxY; iy++) {
-                    targets.add(start.offset(cell.a(), iy, cell.b()));
+            // 从下往上逐层放置，每层内按距点击点距离排序
+            for (int iy = minY; iy <= maxY; iy++) {
+                List<BlockPos> layerPositions = new ArrayList<>();
+                for (PlaneCell cell : rotatedFootprint) {
+                    layerPositions.add(start.offset(cell.a(), iy, cell.b()));
                 }
+                layerPositions.sort(Comparator.comparingDouble(pos -> pos.distSqr(start)));
+                targets.addAll(layerPositions);
             }
             return;
         }
 
+        // HOLLOW / SKELETON: 先构建完整体积集以判断边界
         Set<BlockPos> fullVolume = new HashSet<>(rotatedFootprint.size() * Math.max(1, (maxY - minY) + 1));
         for (PlaneCell cell : rotatedFootprint) {
             for (int iy = minY; iy <= maxY; iy++) {
@@ -289,6 +304,8 @@ public final class ShapeGeometryUtil {
             }
         }
 
+        // 先收集所有边界方块
+        Set<BlockPos> boundary = new HashSet<>();
         for (BlockPos pos : fullVolume) {
             boolean xBoundary = !fullVolume.contains(pos.east()) || !fullVolume.contains(pos.west());
             boolean yBoundary = !fullVolume.contains(pos.above()) || !fullVolume.contains(pos.below());
@@ -296,13 +313,24 @@ public final class ShapeGeometryUtil {
             int boundaryAxes = (xBoundary ? 1 : 0) + (yBoundary ? 1 : 0) + (zBoundary ? 1 : 0);
             if (fillMode == ShapeFillMode.HOLLOW) {
                 if (boundaryAxes >= 1) {
-                    targets.add(pos);
+                    boundary.add(pos);
                 }
-                continue;
+            } else if (boundaryAxes >= 2) {
+                boundary.add(pos);
             }
-            if (boundaryAxes >= 2) {
-                targets.add(pos);
+        }
+
+        // 从下往上逐层添加边界方块，每层内按距点击点距离排序
+        for (int iy = minY; iy <= maxY; iy++) {
+            List<BlockPos> layerPositions = new ArrayList<>();
+            for (PlaneCell cell : rotatedFootprint) {
+                BlockPos pos = start.offset(cell.a(), iy, cell.b());
+                if (boundary.contains(pos)) {
+                    layerPositions.add(pos);
+                }
             }
+            layerPositions.sort(Comparator.comparingDouble(p -> p.distSqr(start)));
+            targets.addAll(layerPositions);
         }
     }
 

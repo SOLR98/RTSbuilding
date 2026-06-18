@@ -17,11 +17,19 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Manages client-side inventory cache synchronisation.
+ * 客户端库存缓存同步服务。
  *
- * <p>Pushes incremental delta updates when linked storage contents change
- * and full snapshots on initial activation or manual refresh.  Coalesces
- * rapid changes within the merge window to avoid network storms.
+ * <p>当关联存储内容变更时推送增量 delta 更新，首次激活或手动刷新时
+ * 推送完整快照。在合并窗口内合并快速变化以避免网络风暴。
+ *
+ * <h3>线程模型</h3>
+ * <ul>
+ *   <li>{@link #queueDelta} / {@link #flushDelta} — 仅由服务端 tick 线程调用</li>
+ *   <li>{@link #handleFullRequest} — 由网络线程调用，通过 {@link ConcurrentHashMap}
+ *       冷却检查和 {@code volatile} 标志安全访问共享状态</li>
+ *   <li>{@link #pushFull} — 可由网络线程或 tick 线程调用，所有迭代的会话字段
+ *       （{@code internalFluidMb / recentEntries}）已升级为线程安全集合</li>
+ * </ul>
  */
 public final class RtsInventorySyncService {
 

@@ -83,6 +83,47 @@ public final class RtsBdCompat {
         }
     }
 
+    /**
+     * 通过 BD 原生 API 直接收集当前存储中的所有物品计数和原型。
+     * 遍历 {@code storage.getBucket(ItemStackKey.ID)} 而非 IItemHandler 槽位，
+     * 每条记录一次 map 查询，O(物品类型数)。
+     */
+    public static void getCurrentCountsAndProtos(
+            IItemHandler handler, Map<String, Long> counts, Map<String, ItemStack> protos) {
+        if (!(handler instanceof BdDirectItemHandler bd)) {
+            return;
+        }
+        var bucket = bd.storage.getBucket(ItemStackKey.ID);
+        if (bucket.isEmpty()) {
+            return;
+        }
+        AbstractUnorderedStackHandler.TypeBucket tb = bucket.get();
+        if (tb == null) {
+            return;
+        }
+        for (int i = 0; i < tb.size(); i++) {
+            var rawKey = tb.get(i);
+            if (!(rawKey instanceof ItemStackKey key)) {
+                continue;
+            }
+            KeyAmount entry = bd.storage.getStackByKey(key);
+            long amount = entry.amount();
+            if (amount <= 0L) {
+                continue;
+            }
+            String itemId = key.getSource().toString();
+            counts.put(itemId, amount);
+            if (!protos.containsKey(itemId)) {
+                Object outStack = bd.storage.getOutStackByKey(key);
+                if (outStack instanceof ItemStack stack && !stack.isEmpty()) {
+                    ItemStack proto = stack.copy();
+                    proto.setCount(1);
+                    protos.put(itemId, proto);
+                }
+            }
+        }
+    }
+
     public static String getNetworkDisplayName(ServerPlayer player) {
         if (!isAvailable() || player == null || player.getServer() == null) {
             return "Beyond Dimensions Network";

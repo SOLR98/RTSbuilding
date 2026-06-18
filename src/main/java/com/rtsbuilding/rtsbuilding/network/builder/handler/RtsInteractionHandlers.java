@@ -1,16 +1,16 @@
 package com.rtsbuilding.rtsbuilding.network.builder.handler;
 
-import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsBreakPayload;
-import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsInteractPayload;
-import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsQuickDropPayload;
-import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsUndoPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.*;
 import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
 import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
-import com.rtsbuilding.rtsbuilding.server.service.RtsInteractionService;
-import com.rtsbuilding.rtsbuilding.server.service.RtsPlacedRecoveryService;
-import com.rtsbuilding.rtsbuilding.server.service.RtsTransferService;
+import com.rtsbuilding.rtsbuilding.server.service.*;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
+import com.rtsbuilding.rtsbuilding.server.workflow.core.IWorkflowEngine;
+import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
@@ -79,6 +79,75 @@ public final class RtsInteractionHandlers {
                 // Non-RTS mode undo requests are ignored
                 if (!RtsCameraManager.isActive(serverPlayer)) return;
                 ServerHistoryManager.executeUndo(serverPlayer);
+            }
+        });
+    }
+
+    public static void handleSubmitPending(C2SRtsSubmitPendingPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                RtsPlacementService.submitPendingPlacement(serverPlayer);
+            }
+        });
+    }
+
+    public static void handleDeleteWorkflow(C2SRtsDeleteWorkflowPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                IWorkflowEngine engine = RtsWorkflowEngine.getInstance();
+                engine.deleteWorkflow(serverPlayer, payload.workflowEntryId());
+            }
+        });
+    }
+
+    public static void handleScanResumePlacement(C2SRtsScanResumePlacementPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                RtsStorageSession session = RtsSessionService.getIfPresent(serverPlayer);
+                if (session != null) {
+                    RtsResumeScanResult result = RtsPendingPlacementService.scanPendingJob(serverPlayer, session, payload.workflowEntryId());
+                    if (result != null) {
+                        PacketDistributor.sendToPlayer(serverPlayer, new S2CRtsResumePlacementScanPayload(
+                                result.itemId(), result.itemLabel(),
+                                result.totalRemaining(), result.alreadyPlacedCount(),
+                                result.conflictCount(), result.availableItems(),
+                                result.neededItems(), result.missingItems(),
+                                result.workflowEntryId()));
+                    }
+                }
+            }
+        });
+    }
+
+    public static void handleResumePlacementAction(C2SRtsResumePlacementActionPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                RtsStorageSession session = RtsSessionService.getIfPresent(serverPlayer);
+                if (session != null) {
+                    RtsPendingPlacementService.resumeWithStrategy(serverPlayer, session, payload.strategy(), payload.workflowEntryId());
+                }
+            }
+        });
+    }
+
+    public static void handlePauseWorkflow(C2SRtsPauseWorkflowPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                int entryId = payload.entryId();
+                RtsWorkflowEngine engine = RtsWorkflowEngine.getInstance();
+                engine.from(serverPlayer, entryId).ifPresent(token -> {
+                    if (token.isPaused()) {
+                        token.unpause();
+                        serverPlayer.displayClientMessage(
+                                Component.literal("§7[工作流] §a▶ 已恢复 — 线程继续执行"),
+                                true);
+                    } else {
+                        token.pause();
+                        serverPlayer.displayClientMessage(
+                                Component.literal("§7[工作流] §e⏸ 已暂停 — 线程已暂停"),
+                                true);
+                    }
+                });
             }
         });
     }

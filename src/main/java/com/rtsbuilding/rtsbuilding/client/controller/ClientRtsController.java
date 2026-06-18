@@ -18,8 +18,7 @@ import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
 import com.rtsbuilding.rtsbuilding.common.shape.ShapeFillMode;
 import com.rtsbuilding.rtsbuilding.compat.remote.RtsRemoteMenuCompat;
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsMineProgressPayload;
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsUltimineProgressPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.*;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraAnchorPayload;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraStatePayload;
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftFeedbackPayload;
@@ -31,6 +30,9 @@ import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsRemoteMenuHintPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStorageDirtyPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowPriority;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.CraftingScreen;
 import net.minecraft.client.player.LocalPlayer;
@@ -48,8 +50,11 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
 
 public final class ClientRtsController {
     private static final ClientRtsController INSTANCE = new ClientRtsController();
@@ -84,6 +89,22 @@ public final class ClientRtsController {
     private int questDetectTotalTasks;
     private int questDetectCompletedTasks;
     private boolean chunkCurtainVisible;
+
+    private boolean linkAreaSelectActive;
+    private BlockPos linkAreaCornerA;
+
+    /** Maximum concurrent workflows tracked on client. */
+    private static final int CLIENT_MAX_WORKFLOWS = 8;
+
+    /** Workflow progress array, indexed by slot (0-7). idle entries have null type. */
+    private final RtsWorkflowStatus[] workflowStatuses = new RtsWorkflowStatus[CLIENT_MAX_WORKFLOWS];
+    /** Total active workflow count (from server). */
+    private int workflowActiveCount;
+    /** Whether the server has pending placement jobs waiting for items. */
+    private boolean hasPendingJobs;
+
+    /** Cached resume placement scan data (from server). */
+    private S2CRtsResumePlacementScanPayload resumeScanData;
 
     private final StorageStateManager storageStateManager = new StorageStateManager();
     private final ProgressionStateManager progressionStateManager = new ProgressionStateManager();
@@ -496,6 +517,167 @@ public final class ClientRtsController {
 
     public boolean isChunkCurtainVisible() {
         return this.chunkCurtainVisible;
+    }
+
+    // ======================================================================
+    //  Workflow Progress (from WorkflowManager)
+    // ======================================================================
+
+    /**
+     * Applies a workflow progress update from the server.
+     * Updates the slot at {@code payload.workflowIndex()}.
+     */
+    public void applyWorkflowProgress(S2CRtsWorkflowProgressPayload payload) {
+        if (payload.isIdle()) {
+            // Clear all
+            for (int i = 0; i < CLIENT_MAX_WORKFLOWS; i++) {
+                this.workflowStatuses[i] = null;
+            }
+            this.workflowActiveCount = 0;
+            return;
+        }
+        this.workflowActiveCount = payload.workflowCount() & 0xFF;
+        int idx = payload.workflowIndex() & 0xFF;
+        if (idx < 0 || idx >= CLIENT_MAX_WORKFLOWS) {
+            return;
+        }
+        byte wt = payload.workflowType();
+        RtsWorkflowType[] types = RtsWorkflowType.values();
+        RtsWorkflowType type = wt >= 0 && wt < types.length
+                ? types[wt]
+                : null;
+        if (type == null) {
+            // Slot is idle
+            this.workflowStatuses[idx] = RtsWorkflowStatus.idle();
+            return;
+        }
+        RtsWorkflowPriority[] priorities = RtsWorkflowPriority.values();
+        byte pri = payload.priority();
+        RtsWorkflowPriority priority = pri >= 0 && pri < priorities.length
+                ? priorities[pri]
+                : RtsWorkflowPriority.NORMAL;
+        this.workflowStatuses[idx] = RtsWorkflowStatus.fromRaw(
+                type,
+                priority,
+                payload.totalBlocks(),
+                payload.completedBlocks(),
+                payload.failedBlocks(),
+                payload.missingItems(),
+                payload.detailMessage(),
+                payload.suspended() != 0,
+                payload.paused() != 0,
+                payload.workflowEntryId());
+    }
+
+    /**
+     * Applies a batch of workflow progress updates received in a single packet.
+     * Identical in effect to calling {@link #applyWorkflowProgress} for each entry.
+     */
+    public void applyWorkflowProgressBatch(S2CRtsWorkflowProgressBatchPayload payload) {
+        for (S2CRtsWorkflowProgressPayload entry : payload.entries()) {
+            applyWorkflowProgress(entry);
+        }
+    }
+
+    /**
+     * Returns the workflow progress status for a specific slot.
+     * Returns {@link RtsWorkflowStatus#idle()} if the slot is empty.
+     */
+    public RtsWorkflowStatus getWorkflowStatus(int slot) {
+        if (slot < 0 || slot >= CLIENT_MAX_WORKFLOWS || this.workflowStatuses[slot] == null) {
+            return RtsWorkflowStatus.idle();
+        }
+        return this.workflowStatuses[slot];
+    }
+
+    /**
+     * Returns all non-idle workflow statuses (for UI iteration).
+     */
+    public List<RtsWorkflowStatus> getActiveWorkflows() {
+        List<RtsWorkflowStatus> result = new java.util.ArrayList<>();
+        int count = Math.min(workflowActiveCount, CLIENT_MAX_WORKFLOWS);
+        for (int i = 0; i < count; i++) {
+            RtsWorkflowStatus status = this.workflowStatuses[i];
+            if (status != null && status.type() != null) {
+                result.add(status);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Clears all cached workflow data on the client side.
+     * Called when the client disconnects from a server / leaves a world,
+     * so stale workflow entries from a previous save do not linger in the UI
+     * when the player joins a different world.
+     */
+    public void clearWorkflowData() {
+        for (int i = 0; i < CLIENT_MAX_WORKFLOWS; i++) {
+            this.workflowStatuses[i] = null;
+        }
+        this.workflowActiveCount = 0;
+        this.hasPendingJobs = false;
+    }
+
+    /**
+     * Returns the total number of active workflows.
+     */
+    public int getWorkflowActiveCount() {
+        return this.workflowActiveCount;
+    }
+
+    /**
+     * Returns the raw workflow statuses array for UI iteration.
+     */
+    public RtsWorkflowStatus[] getWorkflowStatuses() {
+        return this.workflowStatuses;
+    }
+
+    /**
+     * Returns {@code true} if the server has pending placement jobs.
+     */
+    public boolean hasPendingJobs() {
+        return this.hasPendingJobs;
+    }
+
+    /**
+     * Sets whether there are pending placement jobs (called from server sync).
+     */
+    public void setHasPendingJobs(boolean hasPendingJobs) {
+        this.hasPendingJobs = hasPendingJobs;
+    }
+
+    /**
+     * Applies a resume placement scan result from the server.
+     */
+    public void applyResumePlacementScan(S2CRtsResumePlacementScanPayload payload) {
+        this.resumeScanData = payload;
+    }
+
+    /**
+     * Returns the cached resume placement scan data, or null.
+     */
+    public S2CRtsResumePlacementScanPayload getResumeScanData() {
+        return this.resumeScanData;
+    }
+
+    /**
+     * Clears the cached resume placement scan data.
+     */
+    public void clearResumeScanData() {
+        this.resumeScanData = null;
+    }
+
+    /**
+     * Returns {@code true} if any workflow is currently active.
+     */
+    public boolean hasActiveWorkflow() {
+        for (int i = 0; i < CLIENT_MAX_WORKFLOWS; i++) {
+            if (this.workflowStatuses[i] != null && this.workflowStatuses[i].type() != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void setChunkCurtainVisible(boolean visible) {
@@ -1013,6 +1195,62 @@ public final class ClientRtsController {
 
     public void linkStorage(BlockPos pos, boolean allowStore) {
         this.storageStateManager.linkStorage(pos, allowStore);
+    }
+
+    public void startLinkStorageArea(BlockPos corner) {
+        this.linkAreaSelectActive = true;
+        this.linkAreaCornerA = corner.immutable();
+    }
+
+    public void completeLinkStorageArea(BlockPos cornerB) {
+        this.linkAreaSelectActive = false;
+        BlockPos a = this.linkAreaCornerA;
+        this.linkAreaCornerA = null;
+        if (a != null) {
+            scanAreaAndBatchLink(a, cornerB);
+        }
+    }
+
+    public void cancelLinkStorageArea() {
+        this.linkAreaSelectActive = false;
+        this.linkAreaCornerA = null;
+    }
+
+    public boolean isSelectingLinkStorageArea() {
+        return this.linkAreaSelectActive;
+    }
+
+    private void scanAreaAndBatchLink(BlockPos a, BlockPos b) {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer player = mc.player;
+        if (player == null) return;
+
+        int minX = Math.min(a.getX(), b.getX());
+        int maxX = Math.max(a.getX(), b.getX());
+        int minY = Math.min(a.getY(), b.getY());
+        int maxY = Math.max(a.getY(), b.getY());
+        int minZ = Math.min(a.getZ(), b.getZ());
+        int maxZ = Math.max(a.getZ(), b.getZ());
+
+        List<BlockPos> found = new ArrayList<>();
+        for (int x = minX; x <= maxX; x++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    BlockPos pos = new BlockPos(x, y, z);
+                    if (player.level().getBlockEntity(pos) instanceof ChestBlockEntity) {
+                        found.add(pos.immutable());
+                    }
+                }
+            }
+        }
+
+        if (found.isEmpty()) {
+            player.displayClientMessage(Component.literal("选区内没有找到容器"), false);
+            return;
+        }
+
+        RtsClientPacketGateway.sendBatchLinkStorage(found, true);
+        player.displayClientMessage(Component.literal("选区批量链接: " + found.size() + " 个容器"), false);
     }
 
     public void requestStoragePage(int page) {

@@ -31,31 +31,38 @@ public final class AreaOperationExecutor {
     }
 
     // ======================================================================
-    //  Area Placement — batch place one block state at many positions
+    //  Area Position Generation — batch generate block positions for any operation
     // ======================================================================
 
     /**
-     * Generates the target positions for an area placement operation.
+     * Generates the target positions for an area operation (placement or destruction).
+     * <p>
+     * Shape-based position generation is identical regardless of whether the
+     * caller intends to place or break blocks — the caller decides the action.
      *
      * @param shape     the shape type
      * @param start     anchor position
      * @param end       second corner position
      * @param height    height offset for 3D shapes
-     * @param face      placement face
+     * @param face      clicked / placement face
      * @param fillMode  fill strategy
-     * @return list of absolute world positions to place at
+     * @return list of absolute world positions
      */
-    public static List<BlockPos> generatePlacementPositions(AreaShape shape, BlockPos start, BlockPos end,
+    public static List<BlockPos> generatePositions(AreaShape shape, BlockPos start, BlockPos end,
                                                              int height, Direction face, ShapeFillMode fillMode) {
         AreaShapeGenerator generator = ShapeGeneratorRegistry.getGenerator(shape);
         AreaShapeInput input = AreaShapeInput.of(start, end, height, face, face);
         return generator.generatePositions(input, fillMode);
     }
 
+    // ======================================================================
+    //  Area Placement — batch place one block state at many positions
+    // ======================================================================
+
     /**
      * Generates the target positions for an area destruction operation.
      * <p>
-     * Semantically identical to {@link #generatePlacementPositions} — the
+     * Semantically identical to {@link #generatePositions} — the
      * position list is the same; the caller decides whether to place or destroy.
      *
      * @param shape     the shape type
@@ -68,7 +75,7 @@ public final class AreaOperationExecutor {
      */
     public static List<BlockPos> generateDestroyPositions(AreaShape shape, BlockPos start, BlockPos end,
                                                            int height, Direction face, ShapeFillMode fillMode) {
-        return generatePlacementPositions(shape, start, end, height, face, fillMode);
+        return generatePositions(shape, start, end, height, face, fillMode);
     }
 
     /**

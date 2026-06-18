@@ -141,6 +141,10 @@ public final class MiningOperationService {
         this.activeMineToolSlot = Mth.clamp(toolSlot, 0, 8);
         this.mineRenderPos = this.activeMinePos;
         this.mineRenderStage = 0;
+        RtsClientItemManager.INSTANCE.prepareForMining(
+                selectedMiningToolItemId(selectedItemId, selectedItemPreview),
+                selectedMiningToolPrototype(selectedItemId, selectedItemPreview),
+                this.activeMineToolSlot);
         RtsClientPacketGateway.sendMineStart(
                 this.activeMinePos,
                 face,
@@ -165,6 +169,10 @@ public final class MiningOperationService {
         this.activeMineToolSlot = Mth.clamp(toolSlot, 0, 8);
         this.mineRenderPos = this.activeMinePos;
         this.mineRenderStage = 0;
+        RtsClientItemManager.INSTANCE.prepareForMining(
+                selectedMiningToolItemId(selectedItemId, selectedItemPreview),
+                selectedMiningToolPrototype(selectedItemId, selectedItemPreview),
+                this.activeMineToolSlot);
         RtsClientPacketGateway.sendUltimineStart(
                 this.activeMinePos,
                 face,
@@ -313,6 +321,11 @@ public final class MiningOperationService {
         this.mineRenderPos = this.activeMinePos;
         this.mineRenderStage = 0;
 
+        RtsClientItemManager.INSTANCE.prepareForMining(
+                selectedMiningToolItemId(selectedItemId, selectedItemPreview),
+                selectedMiningToolPrototype(selectedItemId, selectedItemPreview),
+                this.activeMineToolSlot);
+
         RtsClientPacketGateway.sendAreaMine(
                 bounds.minX(), bounds.maxX(), bounds.minY(), bounds.maxY(),
                 bounds.minZ(), bounds.maxZ(),
@@ -338,6 +351,10 @@ public final class MiningOperationService {
         this.activeMineToolSlot = Mth.clamp(toolSlot, 0, 8);
         this.mineRenderPos = first;
         this.mineRenderStage = 0;
+        RtsClientItemManager.INSTANCE.prepareForMining(
+                selectedMiningToolItemId(selectedItemId, selectedItemPreview),
+                selectedMiningToolPrototype(selectedItemId, selectedItemPreview),
+                this.activeMineToolSlot);
         RtsClientPacketGateway.sendAreaDestroy(
                 targets,
                 this.activeMineToolSlot,

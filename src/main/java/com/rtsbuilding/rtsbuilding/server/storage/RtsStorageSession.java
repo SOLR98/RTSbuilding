@@ -1,12 +1,13 @@
 package com.rtsbuilding.rtsbuilding.server.storage;
 
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
-import net.minecraft.core.BlockPos;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 import net.neoforged.neoforge.items.IItemHandler;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 
 /**
  * 玩家 RTS 存储会话的<strong>可变状态容器</strong>。
@@ -106,7 +107,7 @@ public class RtsStorageSession {
     public boolean autoStoreMinedDrops = true;
     /** 虚拟流体容量，{@code 流体注册名 -> 容量(mB)}；
       * 用于在没有任何真实流体处理器时展示虚拟流体槽 */
-    public final Map<String, Long> internalFluidMb = new HashMap<>();
+    public final Map<String, Long> internalFluidMb = new ConcurrentHashMap<>();
 
     /** 远程挖掘与连锁挖掘状态 */
     public final RtsMiningState mining = new RtsMiningState();
@@ -138,7 +139,7 @@ public class RtsStorageSession {
     // ======================================================================
 
     /** 最近访问/移动的物品或流体记录队列（上限由客户端控制） */
-    public final Deque<RecentEntry> recentEntries = new ArrayDeque<>();
+    public final Deque<RecentEntry> recentEntries = new ConcurrentLinkedDeque<>();
     /** 快捷槽物品 ID 数组；空串 = 空槽，大小由 QUICK_SLOT_COUNT 固定 */
     public final String[] quickSlotItemIds = new String[RtsStorageBindings.QUICK_SLOT_COUNT];
     /** Full client-facing preview stacks for pinned quick slots. Keeps component-heavy tool icons intact. */

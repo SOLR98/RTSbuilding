@@ -1,5 +1,6 @@
 package com.rtsbuilding.rtsbuilding.server.service;
 
+import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
@@ -8,8 +9,11 @@ import com.rtsbuilding.rtsbuilding.server.storage.LinkedStorageRef;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageBindings;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
+import java.util.List;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
@@ -56,6 +60,47 @@ public final class RtsBindingService {
         if (!RtsLinkedStorageResolver.canAccessWorldTarget(player, pos)) return;
         RtsStorageSession session = RtsSessionService.getOrCreate(player);
         applyUpdate(player, session, RtsStorageBindings.linkStorage(player, session, pos, linkMode));
+    }
+
+    public static void linkStorageBatch(ServerPlayer player, List<BlockPos> positions, byte linkMode) {
+        if (player == null || positions == null || positions.isEmpty()) return;
+        if (!RtsProgressionManager.canUse(player, RtsFeature.LINK_STORAGE)) return;
+        RtsStorageSession session = RtsSessionService.getOrCreate(player);
+        int linked = 0;
+        int failed = 0;
+        boolean saveNeeded = false;
+        for (BlockPos pos : positions) {
+            if (pos == null) {
+                failed++;
+                continue;
+            }
+            if (!RtsLinkedStorageResolver.canAccessWorldTarget(player, pos)) {
+                failed++;
+                continue;
+            }
+            try {
+                var update = RtsStorageBindings.linkStorage(player, session, pos, linkMode);
+                saveNeeded |= update.saveSession();
+                linked++;
+            } catch (Exception e) {
+                failed++;
+                RtsbuildingMod.LOGGER.warn("RTS batch link failed for pos {}: {}", pos, e.getMessage());
+            }
+        }
+        if (linked > 0) {
+            RtsStorageTickService.INSTANCE.forceRefresh(player);
+            session.transfer.pageDataVersion.incrementAndGet();
+            if (saveNeeded) RtsSessionService.saveToPlayerNbt(player, session);
+            RtsPageService.requestPage(player, 0, session.browser.search,
+                    session.browser.category, session.browser.sort, session.browser.ascending);
+        }
+        if (linked > 0 || failed > 0) {
+            RtsbuildingMod.LOGGER.info("RTS batch link: {} linked, {} failed for {}",
+                    linked, failed, player.getGameProfile().getName());
+        }
+        if (failed > 0) {
+            player.sendSystemMessage(Component.literal("批量链接: " + linked + " 成功, " + failed + " 失败"));
+        }
     }
 
     public static void unlinkStorage(ServerPlayer player, BlockPos pos) {

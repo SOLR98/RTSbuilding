@@ -4,6 +4,7 @@ import com.rtsbuilding.rtsbuilding.compat.RefreshableSnapshotHandler;
 import com.rtsbuilding.rtsbuilding.compat.ReportedCountItemHandler;
 import com.rtsbuilding.rtsbuilding.compat.AnySlotInsertItemHandler;
 import com.rtsbuilding.rtsbuilding.compat.ae2.RtsAe2Compat;
+import com.rtsbuilding.rtsbuilding.compat.bd.RtsBdCompat;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
@@ -72,8 +73,14 @@ public final class RtsHandlerCache {
     public Set<String> update(IItemHandler handler) {
         Objects.requireNonNull(handler, "handler");
 
-        // ── AE2 fast path: KeyCounter diff ──
-        if (handler instanceof ReportedCountItemHandler && handler instanceof AnySlotInsertItemHandler) {
+        // ── BD fast path: direct count diff using getReportedCount API ──
+        if (handler instanceof RtsBdCompat.DirectExtractHandler) {
+            return updateFromBdDiff(handler);
+        }
+
+        // ── AE2 fast path: KeyCounter diff (only for AE2 — must implement RefreshableSnapshotHandler) ──
+        if (handler instanceof ReportedCountItemHandler && handler instanceof AnySlotInsertItemHandler
+                && handler instanceof RefreshableSnapshotHandler) {
             return updateFromAe2Diff(handler);
         }
 
@@ -170,6 +177,7 @@ public final class RtsHandlerCache {
             RtsAe2Compat.collectCountsAndPrototypes(handler, current, this.prototypeByItem);
             for (var entry : current.entrySet()) {
                 this.countsByItem.put(entry.getKey(), entry.getValue());
+                this.hasItemType.add(entry.getKey());
                 changes.add(entry.getKey());
             }
             this.ae2LastItemCounts = current;
@@ -186,6 +194,7 @@ public final class RtsHandlerCache {
                         this.countsByItem.put(id, newCount);
                     } else {
                         this.countsByItem.remove(id);
+                        this.hasItemType.remove(id);
                     }
                 }
             }
@@ -196,6 +205,7 @@ public final class RtsHandlerCache {
                     long count = entry.getValue();
                     changes.add(id);
                     this.countsByItem.put(id, count);
+                    this.hasItemType.add(id);
                     if (!this.prototypeByItem.containsKey(id)) {
                         ItemStack proto = RtsAe2Compat.getPrototypeFromHandler(handler, id);
                         if (!proto.isEmpty()) {
@@ -205,6 +215,63 @@ public final class RtsHandlerCache {
                 }
             }
             this.ae2LastItemCounts = current;
+        }
+
+        if (!changes.isEmpty()) {
+            this.dirtySinceLastRead = true;
+        }
+        return changes;
+    }
+
+    // ── BD DirectExtractHandler diff path ──
+
+    /**
+     * 对 BD 网络处理器做计数差分。
+     * 通过 BD 原生 API ({@code storage.getBucket(ItemStackKey.ID)}) 直接读取，
+     * 与已有 {@link #countsByItem} 对比，增量更新变更项。
+     * 首次使用时 countsByItem 为空 → 全量录入。
+     */
+    private Set<String> updateFromBdDiff(IItemHandler handler) {
+        Set<String> changes = new HashSet<>();
+
+        Map<String, Long> currentCounts = new HashMap<>();
+        RtsBdCompat.getCurrentCountsAndProtos(handler, currentCounts, this.prototypeByItem);
+
+        if (this.countsByItem.isEmpty()) {
+            // 首次: 全量录入
+            for (var entry : currentCounts.entrySet()) {
+                this.countsByItem.put(entry.getKey(), entry.getValue());
+                this.hasItemType.add(entry.getKey());
+                changes.add(entry.getKey());
+            }
+        } else {
+            // 差分: 对比已有 countsByItem
+            Set<String> seen = new HashSet<>();
+            for (var entry : this.countsByItem.entrySet()) {
+                String id = entry.getKey();
+                long oldCount = entry.getValue();
+                long newCount = currentCounts.getOrDefault(id, 0L);
+                seen.add(id);
+                if (newCount != oldCount) {
+                    changes.add(id);
+                    if (newCount > 0L) {
+                        this.countsByItem.put(id, newCount);
+                    } else {
+                        this.countsByItem.remove(id);
+                        this.hasItemType.remove(id);
+                        this.prototypeByItem.remove(id);
+                    }
+                }
+            }
+            // 新增物品
+            for (var entry : currentCounts.entrySet()) {
+                String id = entry.getKey();
+                if (!seen.contains(id)) {
+                    changes.add(id);
+                    this.countsByItem.put(id, entry.getValue());
+                    this.hasItemType.add(id);
+                }
+            }
         }
 
         if (!changes.isEmpty()) {

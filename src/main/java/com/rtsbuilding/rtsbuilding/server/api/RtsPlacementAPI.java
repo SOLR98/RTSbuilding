@@ -53,4 +53,43 @@ public interface RtsPlacementAPI {
                       String itemId, ItemStack itemPrototype,
                       double rayOriginX, double rayOriginY, double rayOriginZ,
                       double rayDirX, double rayDirY, double rayDirZ);
+
+    // ======================================================================
+    //  Placement Progress Queries
+    // ======================================================================
+
+    /**
+     * 获取当前批量范围放置的总方块数（放置方块总数）。
+     *
+     * @param player 目标玩家
+     * @return 总方块数，如果没有进行中的批量放置则返回 0
+     */
+    int getPlaceBatchTotalBlocks(ServerPlayer player);
+
+    /**
+     * 获取当前批量范围放置的已放置方块数量。
+     *
+     * @param player 目标玩家
+     * @return 已放置方块数，如果没有进行中的批量放置则返回 0
+     */
+    int getPlaceBatchCompletedBlocks(ServerPlayer player);
+
+    /**
+     * 获取当前批量范围放置的未放置方块数（剩余待放置方块）。
+     *
+     * @param player 目标玩家
+     * @return 未放置方块数，如果没有进行中的批量放置则返回 0
+     */
+    int getPlaceBatchRemainingBlocks(ServerPlayer player);
+
+    /**
+     * 获取当前批量范围放置的方块类型（物品 ID）。
+     * 返回首个活跃或挂起的放置作业所使用的物品 ID，
+     * 便于外部系统（如合成）知道当前在放置什么方块。
+     *
+     * @param player 目标玩家
+     * @return 物品 ID 字符串（如 "minecraft:diamond_block"），
+     *         如果没有进行中的批量放置则返回空字符串
+     */
+    String getPlaceBatchItemId(ServerPlayer player);
 }

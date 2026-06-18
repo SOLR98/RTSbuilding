@@ -12,8 +12,10 @@ import net.minecraft.world.phys.Vec3;
 /**
  * 远程交互辅助工具集。
  *
- * <p>封装 RTS 模式下远程使用物品/与方块交互/与实体交互的通用操作。
- * 当物品已在玩家主手上时直接使用；当物品不在主手上时临时交换后恢复。
+ * <p>所有方法均假定目标物品<b>已在玩家主手上</b>（由客户端提前通过
+ * {@code pickupLinkedToCarried} 或工具栏格选取放入），不做任何临时交换。
+ * 交互结果（消耗、耐久损失、NBT 变化）由原版自然处理，物品剩余在主手上
+ * 或自然消失——调用方负责在交互后处理主手上的剩余物品。
  */
 public final class InteractionHelper {
 
@@ -21,13 +23,12 @@ public final class InteractionHelper {
     }
 
     // ======================================================================
-    //  Block Interaction — item already on main hand (preferred path)
+    //  方块交互 —— 物品已在主手上
     // ======================================================================
 
     /**
-     * Uses the item already on the player's main hand against the given block
-     * hit.  The item is consumed, damaged, or returned by vanilla logic
-     * naturally — the remainder stays on the main hand.
+     * 使用已存在于玩家主手上的物品对指定方块位置执行右键交互。
+     * 物品的消耗、损坏或转换由原版逻辑自然处理——剩余的物品保留在主手上。
      */
     public static TemporaryContextSwitcher.UseOnOutcome useMainHandItemOnBlock(
             ServerPlayer player, ServerLevel level, BlockHitResult hit, boolean forceSecondaryUse) {
@@ -39,7 +40,7 @@ public final class InteractionHelper {
     }
 
     /**
-     * Uses the item already on the player's main hand in-air.
+     * 使用已存在于玩家主手上的物品在空中使用。
      */
     public static TemporaryContextSwitcher.UseOnOutcome useMainHandItemInAir(
             ServerPlayer player, ServerLevel level, boolean forceSecondaryUse) {
@@ -51,86 +52,17 @@ public final class InteractionHelper {
     }
 
     // ======================================================================
-    //  Block Interaction — temporary swap (for items NOT on main hand)
+    //  实体交互 —— 物品已在主手上
     // ======================================================================
 
     /**
-     * 临时将 {@code handStack} 放入玩家主手，在 {@code hit} 位置执行
-     * {@code useItemOn}，然后恢复主手并返回结果 + 剩余物品。
+     * 使用已存在于玩家主手上的物品与实体交互。
+     * 依次尝试 {@code player.interactOn} → {@code entity.interactAt} → {@code useItem}。
+     * 交互后主手上剩余的物品由调用方负责处理（客户端通常发送
+     * {@code returnCarriedToLinked} 将其存回关联存储）。
      */
-    public static TemporaryContextSwitcher.UseOnOutcome useItemOnWithMainHand(ServerPlayer player, ServerLevel level,
-            ItemStack handStack, BlockHitResult hit, boolean forceSecondaryUse) {
-        ItemStack previousMainHand = player.getMainHandItem().copy();
-        player.setItemInHand(InteractionHand.MAIN_HAND, handStack);
-        InteractionResult result;
-        ItemStack remainder;
-        try {
-            result = TemporaryContextSwitcher.withTemporaryShiftKey(player, forceSecondaryUse, () -> player.gameMode.useItemOn(
-                    player,
-                    level,
-                    player.getMainHandItem(),
-                    InteractionHand.MAIN_HAND,
-                    hit));
-        } finally {
-            remainder = player.getMainHandItem().copy();
-            player.setItemInHand(InteractionHand.MAIN_HAND, previousMainHand);
-        }
-        return new TemporaryContextSwitcher.UseOnOutcome(result, remainder);
-    }
-
-    // ======================================================================
-    //  Item Use (useItem)
-    // ======================================================================
-
-    /**
-     * 临时将 {@code handStack} 放入玩家主手，执行 {@code useItem}，
-     * 然后恢复主手并返回结果 + 剩余物品。
-     */
-    public static TemporaryContextSwitcher.UseOnOutcome useItemWithMainHand(ServerPlayer player, ServerLevel level,
-            ItemStack handStack, boolean forceSecondaryUse) {
-        ItemStack previousMainHand = player.getMainHandItem().copy();
-        player.setItemInHand(InteractionHand.MAIN_HAND, handStack);
-        InteractionResult result;
-        ItemStack remainder;
-        try {
-            result = TemporaryContextSwitcher.withTemporaryShiftKey(player, forceSecondaryUse, () -> player.gameMode.useItem(
-                    player,
-                    level,
-                    player.getMainHandItem(),
-                    InteractionHand.MAIN_HAND));
-        } finally {
-            remainder = player.getMainHandItem().copy();
-            player.setItemInHand(InteractionHand.MAIN_HAND, previousMainHand);
-        }
-        return new TemporaryContextSwitcher.UseOnOutcome(result, remainder);
-    }
-
-    // ======================================================================
-    //  Entity Interaction
-    // ======================================================================
-
-    /**
-     * 临时将 {@code handStack} 放入玩家主手，与实体交互，然后恢复主手。
-     */
-    public static TemporaryContextSwitcher.UseOnOutcome useItemOnEntityWithMainHand(ServerPlayer player, ServerLevel level,
-            ItemStack handStack, Entity entity, Vec3 hit) {
-        ItemStack previousMainHand = player.getMainHandItem().copy();
-        player.setItemInHand(InteractionHand.MAIN_HAND, handStack);
-        InteractionResult result;
-        ItemStack remainder;
-        try {
-            result = interactEntityWithMainHand(player, level, entity, hit);
-        } finally {
-            remainder = player.getMainHandItem().copy();
-            player.setItemInHand(InteractionHand.MAIN_HAND, previousMainHand);
-        }
-        return new TemporaryContextSwitcher.UseOnOutcome(result, remainder);
-    }
-
-    /**
-     * 对实体执行交互操作：先调 player.interactOn，再试 entity.interactAt，最后 fallback 到 useItem。
-     */
-    public static InteractionResult interactEntityWithMainHand(ServerPlayer player, ServerLevel level, Entity entity, Vec3 hit) {
+    public static TemporaryContextSwitcher.UseOnOutcome useMainHandItemOnEntity(
+            ServerPlayer player, ServerLevel level, Entity entity, Vec3 hit) {
         InteractionResult result = player.interactOn(entity, InteractionHand.MAIN_HAND);
         if (!result.consumesAction()) {
             Vec3 localHit = hit.subtract(entity.position());
@@ -139,11 +71,11 @@ public final class InteractionHelper {
         if (!result.consumesAction()) {
             result = player.gameMode.useItem(player, level, player.getMainHandItem(), InteractionHand.MAIN_HAND);
         }
-        return result;
+        return new TemporaryContextSwitcher.UseOnOutcome(result, player.getMainHandItem().copy());
     }
 
     // ======================================================================
-    //  Interaction Position
+    //  交互位置解析
     // ======================================================================
 
     /**
@@ -170,5 +102,82 @@ public final class InteractionHelper {
             return new Vec3(at.x, at.y + 1.1D, at.z);
         }
         return hit;
+    }
+
+    // ======================================================================
+    //  兼容方法：临时交换模式（供空手交互和放置执行器使用）
+    //  新代码优先使用上面的 useMainHandItemOn* 系列
+    // ======================================================================
+
+    @Deprecated
+    public static TemporaryContextSwitcher.UseOnOutcome useItemOnWithMainHand(ServerPlayer player, ServerLevel level,
+            ItemStack handStack, BlockHitResult hit, boolean forceSecondaryUse) {
+        ItemStack previousMainHand = player.getMainHandItem().copy();
+        player.setItemInHand(InteractionHand.MAIN_HAND, handStack);
+        InteractionResult result;
+        ItemStack remainder;
+        try {
+            result = TemporaryContextSwitcher.withTemporaryShiftKey(player, forceSecondaryUse,
+                    () -> player.gameMode.useItemOn(player, level, player.getMainHandItem(), InteractionHand.MAIN_HAND, hit));
+        } finally {
+            remainder = player.getMainHandItem().copy();
+            player.setItemInHand(InteractionHand.MAIN_HAND, previousMainHand);
+        }
+        return new TemporaryContextSwitcher.UseOnOutcome(result, remainder);
+    }
+
+    @Deprecated
+    public static TemporaryContextSwitcher.UseOnOutcome useItemWithMainHand(ServerPlayer player, ServerLevel level,
+            ItemStack handStack, boolean forceSecondaryUse) {
+        ItemStack previousMainHand = player.getMainHandItem().copy();
+        player.setItemInHand(InteractionHand.MAIN_HAND, handStack);
+        InteractionResult result;
+        ItemStack remainder;
+        try {
+            result = TemporaryContextSwitcher.withTemporaryShiftKey(player, forceSecondaryUse,
+                    () -> player.gameMode.useItem(player, level, player.getMainHandItem(), InteractionHand.MAIN_HAND));
+        } finally {
+            remainder = player.getMainHandItem().copy();
+            player.setItemInHand(InteractionHand.MAIN_HAND, previousMainHand);
+        }
+        return new TemporaryContextSwitcher.UseOnOutcome(result, remainder);
+    }
+
+    @Deprecated
+    public static TemporaryContextSwitcher.UseOnOutcome useItemOnEntityWithMainHand(ServerPlayer player, ServerLevel level,
+            ItemStack handStack, Entity entity, Vec3 hit) {
+        ItemStack previousMainHand = player.getMainHandItem().copy();
+        player.setItemInHand(InteractionHand.MAIN_HAND, handStack);
+        InteractionResult result;
+        ItemStack remainder;
+        try {
+            result = player.interactOn(entity, InteractionHand.MAIN_HAND);
+            if (!result.consumesAction()) {
+                Vec3 localHit = hit.subtract(entity.position());
+                result = entity.interactAt(player, localHit, InteractionHand.MAIN_HAND);
+            }
+            if (!result.consumesAction()) {
+                result = player.gameMode.useItem(player, level, player.getMainHandItem(), InteractionHand.MAIN_HAND);
+            }
+        } finally {
+            remainder = player.getMainHandItem().copy();
+            player.setItemInHand(InteractionHand.MAIN_HAND, previousMainHand);
+        }
+        return new TemporaryContextSwitcher.UseOnOutcome(result, remainder);
+    }
+
+    /**
+     * 对实体执行交互操作（物品已在主手上）：先调 player.interactOn，再试 entity.interactAt，最后 fallback 到 useItem。
+     */
+    public static InteractionResult interactEntityWithMainHand(ServerPlayer player, ServerLevel level, Entity entity, Vec3 hit) {
+        InteractionResult result = player.interactOn(entity, InteractionHand.MAIN_HAND);
+        if (!result.consumesAction()) {
+            Vec3 localHit = hit.subtract(entity.position());
+            result = entity.interactAt(player, localHit, InteractionHand.MAIN_HAND);
+        }
+        if (!result.consumesAction()) {
+            result = player.gameMode.useItem(player, level, player.getMainHandItem(), InteractionHand.MAIN_HAND);
+        }
+        return result;
     }
 }

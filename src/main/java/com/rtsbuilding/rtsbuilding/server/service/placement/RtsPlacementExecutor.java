@@ -188,7 +188,7 @@ public final class RtsPlacementExecutor {
                 ? RtsPlacementExtractor.creativeStack(item, preferredStack)
                 : includePlayerMainInventory
                         ? RtsPlacementExtractor.extractSelectedFromNetwork(extractHandlers, player, item, preferredStack)
-                        : RtsPlacementExtractor.extractSelectedFromLinked(extractHandlers, item, preferredStack);
+                        : RtsPlacementExtractor.extractSelectedFromLinkedCached(player, extractHandlers, item, preferredStack);
         if (extracted.isEmpty()) {
             RtsPlacementHelper.requestSessionPage(player, session, refreshStoragePage);
             return false;

@@ -1,18 +1,21 @@
 package com.rtsbuilding.rtsbuilding.server.service.mining;
 
 import com.rtsbuilding.rtsbuilding.server.service.QuestService;
+import com.rtsbuilding.rtsbuilding.server.service.RtsPendingPlacementService;
+import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
+import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsBatchInsertService;
 import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
-import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsAggregateStorage;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
-import net.neoforged.neoforge.items.IItemHandler;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Handles post-break drop absorption: scans for {@link ItemEntity}s near the
@@ -42,33 +45,51 @@ public final class RtsDropAbsorber {
         if (player == null || center == null || session == null) {
             return false;
         }
-        List<LinkedHandler> linked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
-        List<IItemHandler> handlers = RtsLinkedStorageResolver.itemHandlersForInsert(linked);
+        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
 
         AABB box = new AABB(center).inflate(DROP_SCAN_RADIUS);
         List<ItemEntity> drops = player.serverLevel().getEntitiesOfClass(
                 ItemEntity.class,
                 box,
                 entity -> entity != null && entity.isAlive() && !entity.getItem().isEmpty());
-        boolean changed = false;
+
+        if (drops.isEmpty()) {
+            return false;
+        }
+
+        // 收集所有掉落物到一个 map，批量插入以利用路由计划
+        Map<String, ItemStack> dropMap = new HashMap<>();
         for (ItemEntity drop : drops) {
             ItemStack original = drop.getItem();
-            if (original.isEmpty()) {
+            if (original.isEmpty())
                 continue;
+            String itemId = original.getItem().toString();
+            dropMap.merge(itemId, original.copy(), (existing, incoming) -> {
+                existing.grow(incoming.getCount());
+                return existing;
+            });
+        }
+
+        if (!dropMap.isEmpty()) {
+            if (aggregate != null && !aggregate.isEmpty()) {
+                RtsBatchInsertService.batchInsertWithFallback(player, aggregate, dropMap);
+            } else {
+                // Fallback: sequential insert without aggregate
+                for (ItemEntity drop : drops) {
+                    ItemStack original = drop.getItem();
+                    if (original.isEmpty())
+                        continue;
+                    RtsTransferInserter.moveToPlayerInventoryOnly(player, original);
+                }
             }
-            ItemStack remain = handlers.isEmpty()
-                    ? original.copy()
-                    : RtsTransferInserter.storeToLinkedOnly(handlers, original);
-            if (!remain.isEmpty()) {
-                remain = RtsTransferInserter.moveToPlayerInventoryOnly(player, remain);
-            }
-            if (remain.getCount() != original.getCount()) {
-                changed = true;
-            }
-            if (remain.isEmpty()) {
+        }
+
+        boolean changed = false;
+        for (ItemEntity drop : drops) {
+            ItemStack remaining = drop.getItem();
+            if (remaining.isEmpty()) {
                 drop.discard();
-            } else if (remain.getCount() != original.getCount()) {
-                drop.setItem(remain);
+                changed = true;
             }
         }
         return changed;
@@ -85,5 +106,7 @@ public final class RtsDropAbsorber {
         if (absorbNearbyMinedDrops(player, pos, session)) {
             QuestService.runQuestDetect(player, session, false);
         }
+        // 挖掘吸物后自动尝试恢复挂起放置作业
+        RtsPendingPlacementService.tryResumeAfterStorageChange(player);
     }
 }

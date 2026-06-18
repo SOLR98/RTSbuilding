@@ -1124,8 +1124,19 @@ public final class ScreenShapeController {
     }
 
     private RangeDestroyPreview buildRangeDestroyPreview(List<BlockPos> targets) {
+        List<BlockPos> breakable = collectBreakableTargets(targets);
+        return breakable.isEmpty() ? RangeDestroyPreview.EMPTY : new RangeDestroyPreview(breakable);
+    }
+
+    /**
+     * Collects breakable (non-air, non-fluid, destructible) block positions from the given list.
+     * <p>
+     * Shared by both ghost-preview and cost-count code paths to avoid
+     * duplicating the same filtering logic.
+     */
+    private List<BlockPos> collectBreakableTargets(List<BlockPos> targets) {
         if (targets == null || targets.isEmpty()) {
-            return RangeDestroyPreview.EMPTY;
+            return List.of();
         }
         LinkedHashSet<BlockPos> breakable = new LinkedHashSet<>(targets.size());
         Minecraft mc = this.screen.getMinecraft();
@@ -1135,40 +1146,7 @@ public final class ScreenShapeController {
                     breakable.add(pos.immutable());
                 }
             }
-            return new RangeDestroyPreview(new ArrayList<>(breakable));
-        }
-        for (BlockPos pos : targets) {
-            if (pos == null) {
-                continue;
-            }
-            BlockState state = mc.level.getBlockState(pos);
-            if (!state.getFluidState().isEmpty()) {
-                continue;
-            }
-            if (state.isAir()) {
-                continue;
-            }
-            if (state.getDestroySpeed(mc.level, pos) < 0.0F) {
-                continue;
-            }
-            breakable.add(pos.immutable());
-        }
-        return new RangeDestroyPreview(new ArrayList<>(breakable));
-    }
-
-    private List<BlockPos> filterBreakableRangeDestroyTargets(List<BlockPos> targets) {
-        if (targets == null || targets.isEmpty()) {
-            return List.of();
-        }
-        LinkedHashSet<BlockPos> unique = new LinkedHashSet<>(targets.size());
-        Minecraft mc = this.screen.getMinecraft();
-        if (mc == null || mc.level == null) {
-            for (BlockPos pos : targets) {
-                if (pos != null) {
-                    unique.add(pos.immutable());
-                }
-            }
-            return new ArrayList<>(unique);
+            return new ArrayList<>(breakable);
         }
         for (BlockPos pos : targets) {
             if (pos == null) {
@@ -1178,9 +1156,13 @@ public final class ScreenShapeController {
             if (!state.getFluidState().isEmpty() || state.isAir() || state.getDestroySpeed(mc.level, pos) < 0.0F) {
                 continue;
             }
-            unique.add(pos.immutable());
+            breakable.add(pos.immutable());
         }
-        return new ArrayList<>(unique);
+        return new ArrayList<>(breakable);
+    }
+
+    private List<BlockPos> filterBreakableRangeDestroyTargets(List<BlockPos> targets) {
+        return collectBreakableTargets(targets);
     }
 
     private record RangeDestroyPreview(List<BlockPos> breakableBlocks) {

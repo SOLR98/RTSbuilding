@@ -12,7 +12,6 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 服务端历史记录管理器（类似 Ultimine-Rewind 的 RewindDataManager）。
@@ -32,7 +31,7 @@ public final class ServerHistoryManager {
     /** 清理间隔 */
     private static final long CLEANUP_INTERVAL_MS = 120_000L; // 2分钟
 
-    private static final Map<UUID, PlayerHistory> playerHistories = new ConcurrentHashMap<>();
+    private static final Map<UUID, PlayerHistory> playerHistories = new HashMap<>();
     private static long lastCleanupTime = System.currentTimeMillis();
 
     private ServerHistoryManager() {
@@ -52,11 +51,9 @@ public final class ServerHistoryManager {
         }
         HistoryEntry entry = new HistoryEntry(false, records, face, player.serverLevel().dimension());
         PlayerHistory ph = playerHistories.computeIfAbsent(player.getUUID(), k -> new PlayerHistory());
-        synchronized (ph) {
-            ph.undoStack.add(entry);
-            if (ph.undoStack.size() > RtsHistoryConstants.SHAPE_HISTORY_LIMIT) {
-                ph.undoStack.removeFirst();
-            }
+        ph.undoStack.add(entry);
+        if (ph.undoStack.size() > RtsHistoryConstants.SHAPE_HISTORY_LIMIT) {
+            ph.undoStack.removeFirst();
         }
         cleanupIfNeeded();
         sendSync(player);
@@ -83,11 +80,9 @@ public final class ServerHistoryManager {
     private static void pushBreakEntry(ServerPlayer player, List<HistoryBlockRecord> records, Direction face) {
         HistoryEntry entry = new HistoryEntry(true, records, face, player.serverLevel().dimension());
         PlayerHistory ph = playerHistories.computeIfAbsent(player.getUUID(), k -> new PlayerHistory());
-        synchronized (ph) {
-            ph.undoStack.add(entry);
-            if (ph.undoStack.size() > RtsHistoryConstants.SHAPE_HISTORY_LIMIT) {
-                ph.undoStack.removeFirst();
-            }
+        ph.undoStack.add(entry);
+        if (ph.undoStack.size() > RtsHistoryConstants.SHAPE_HISTORY_LIMIT) {
+            ph.undoStack.removeFirst();
         }
         cleanupIfNeeded();
         sendSync(player);
@@ -105,9 +100,7 @@ public final class ServerHistoryManager {
         if (!entry.getDimension().equals(player.serverLevel().dimension())) {
             PlayerHistory ph = playerHistories.get(player.getUUID());
             if (ph != null) {
-                synchronized (ph) {
-                    ph.undoStack.addLast(entry);
-                }
+                ph.undoStack.addLast(entry);
             }
             return 0;
         }
@@ -117,9 +110,7 @@ public final class ServerHistoryManager {
             if (executed <= 0) {
                 PlayerHistory ph0 = playerHistories.get(player.getUUID());
                 if (ph0 != null) {
-                    synchronized (ph0) {
-                        ph0.undoStack.add(entry);
-                    }
+                    ph0.undoStack.add(entry);
                 }
             } else {
                 HistoryEntry remaining = entry.removeRestored(executed);
@@ -148,11 +139,8 @@ public final class ServerHistoryManager {
         if (player == null) return null;
         PlayerHistory ph = playerHistories.get(player.getUUID());
         if (ph == null) return null;
-
-        synchronized (ph) {
-            if (ph.undoStack.isEmpty()) return null;
-            return ph.undoStack.removeLast();
-        }
+        if (ph.undoStack.isEmpty()) return null;
+        return ph.undoStack.removeLast();
     }
 
     // ======================================================================
@@ -163,11 +151,9 @@ public final class ServerHistoryManager {
         if (player == null || entry == null) return;
         PlayerHistory ph = playerHistories.get(player.getUUID());
         if (ph == null) return;
-        synchronized (ph) {
-            if (!ph.undoStack.isEmpty()) {
-                ph.undoStack.removeLast();
-                ph.undoStack.add(entry);
-            }
+        if (!ph.undoStack.isEmpty()) {
+            ph.undoStack.removeLast();
+            ph.undoStack.add(entry);
         }
     }
 
@@ -178,10 +164,8 @@ public final class ServerHistoryManager {
     public static int getUndoSize(UUID playerId) {
         PlayerHistory ph = playerHistories.get(playerId);
         if (ph == null) return 0;
-        synchronized (ph) {
-            cleanupExpired(ph);
-            return ph.undoStack.size();
-        }
+        cleanupExpired(ph);
+        return ph.undoStack.size();
     }
 
     // ======================================================================
@@ -199,9 +183,7 @@ public final class ServerHistoryManager {
         }
         lastCleanupTime = now;
         for (Map.Entry<UUID, PlayerHistory> entry : playerHistories.entrySet()) {
-            synchronized (entry.getValue()) {
-                cleanupExpired(entry.getValue());
-            }
+            cleanupExpired(entry.getValue());
         }
     }
 
@@ -246,7 +228,8 @@ public final class ServerHistoryManager {
     //  内部数据结构
     // ======================================================================
 
+    /** Per-player undo stack. All access is single-threaded (server game thread). */
     private static final class PlayerHistory {
-        final LinkedList<HistoryEntry> undoStack = new LinkedList<>();
+        final ArrayDeque<HistoryEntry> undoStack = new ArrayDeque<>();
     }
 }

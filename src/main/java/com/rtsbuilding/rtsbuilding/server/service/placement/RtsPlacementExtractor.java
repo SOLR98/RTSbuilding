@@ -1,6 +1,8 @@
 package com.rtsbuilding.rtsbuilding.server.service.placement;
 
+import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferExtractor;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsAggregateStorage;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -62,6 +64,32 @@ public final class RtsPlacementExtractor {
      */
     public static ItemStack extractSelectedFromNetwork(List<IItemHandler> handlers, ServerPlayer player, Item item,
                                                         ItemStack preferredStack) {
+        return extractSelectedFromNetworkCached(player, handlers, item, preferredStack);
+    }
+
+    /**
+     * Extracts one unit of {@code item} from the network (linked handlers +
+     * player main inventory) via the aggregate storage cache when possible,
+     * falling back to direct extraction. Alerts the tick service to wake up
+     * the adaptive scheduler for near-immediate GUI updates.
+     */
+    public static ItemStack extractSelectedFromNetworkCached(ServerPlayer player, List<IItemHandler> handlers, Item item,
+                                                              ItemStack preferredStack) {
+        // Try aggregate storage cache first (linked handlers only)
+        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+        if (aggregate != null && !aggregate.isEmpty()) {
+            ItemStack extracted;
+            if (preferredStack != null && !preferredStack.isEmpty()) {
+                extracted = aggregate.extractMatching(item, preferredStack, 1);
+            } else {
+                extracted = aggregate.extract(item, 1);
+            }
+            if (!extracted.isEmpty()) {
+                RtsStorageTickService.INSTANCE.alert(player.getUUID());
+                return extracted;
+            }
+        }
+        // Fallback: direct linked extraction, then player inventory
         if (preferredStack != null && !preferredStack.isEmpty()) {
             return RtsTransferExtractor.extractMatchingFromNetwork(handlers, player, item, preferredStack, 1);
         }
@@ -77,5 +105,28 @@ public final class RtsPlacementExtractor {
             return RtsTransferExtractor.extractMatchingFromLinked(handlers, item, preferredStack, 1);
         }
         return RtsTransferExtractor.extractOneFromLinked(handlers, item);
+    }
+
+    /**
+     * Extracts one unit of {@code item} using the aggregate storage cache if available,
+     * falling back to direct handler extraction. This ensures pendingChanges are tracked
+     * and the tick service is alerted for near-immediate GUI updates.
+     */
+    public static ItemStack extractSelectedFromLinkedCached(ServerPlayer player, List<IItemHandler> handlers, Item item, ItemStack preferredStack) {
+        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+        if (aggregate != null && !aggregate.isEmpty()) {
+            ItemStack extracted;
+            if (preferredStack != null && !preferredStack.isEmpty()) {
+                extracted = aggregate.extractMatching(item, preferredStack, 1);
+            } else {
+                extracted = aggregate.extract(item, 1);
+            }
+            if (!extracted.isEmpty()) {
+                RtsStorageTickService.INSTANCE.alert(player.getUUID());
+                return extracted;
+            }
+        }
+        // Fallback: direct extraction
+        return extractSelectedFromLinked(handlers, item, preferredStack);
     }
 }

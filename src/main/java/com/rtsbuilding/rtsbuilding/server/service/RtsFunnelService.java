@@ -3,8 +3,9 @@ package com.rtsbuilding.rtsbuilding.server.service;
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
 import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsFunnelCollectPayload;
 import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
+import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsBatchInsertService;
 import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
-import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsAggregateStorage;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
 import net.minecraft.core.BlockPos;
@@ -14,10 +15,11 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.neoforge.items.IItemHandler;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 掉落物漏斗服务——自动收集地面掉落物并存入链接存储。
@@ -53,16 +55,16 @@ public final class RtsFunnelService {
             return;
         }
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
-        List<LinkedHandler> linked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
-        List<IItemHandler> handlers = new ArrayList<>(linked.size());
-        for (LinkedHandler h : linked) {
-            handlers.add(h.handler());
-        }
-        for (ItemStack buffered : session.funnel.funnelBuffer) {
-            if (buffered.isEmpty()) continue;
-            ItemStack remain = RtsTransferInserter.storeToLinkedOnlyPreferExisting(handlers, buffered);
-            if (!remain.isEmpty()) {
-                RtsTransferInserter.storeToLinkedWithFallback(handlers, player, remain);
+        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+        if (aggregate != null && !aggregate.isEmpty()) {
+            Map<String, ItemStack> bufferMap = collectBufferMap(session);
+            if (!bufferMap.isEmpty()) {
+                RtsBatchInsertService.batchInsertWithFallback(player, aggregate, bufferMap);
+            }
+        } else {
+            for (ItemStack buffered : session.funnel.funnelBuffer) {
+                if (buffered.isEmpty()) continue;
+                RtsTransferInserter.moveToPlayerInventoryOnly(player, buffered);
             }
         }
         session.funnel.funnelBuffer.clear();
@@ -94,13 +96,8 @@ public final class RtsFunnelService {
         if (!RtsLinkedStorageResolver.canAccessWorldTarget(player, session.funnel.funnelTarget)) return;
         if (!RtsCameraManager.isWithinActionRadius(player, session.funnel.funnelTarget)) return;
 
-        List<LinkedHandler> linked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
-        List<IItemHandler> handlers = new ArrayList<>(linked.size());
-        for (LinkedHandler lh : linked) {
-            handlers.add(lh.handler());
-        }
-
-        boolean changed = flushBuffer(handlers, player, session);
+        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+        boolean changed = flushBuffer(aggregate, player, session);
         if (changed) {
             RtsSessionService.markStorageViewDirty(player, session);
         }
@@ -124,18 +121,18 @@ public final class RtsFunnelService {
         if (!RtsLinkedStorageResolver.canAccessWorldTarget(player, session.funnel.funnelTarget)) return;
         if (!RtsCameraManager.isWithinActionRadius(player, session.funnel.funnelTarget)) return;
 
-        List<LinkedHandler> linked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
-        List<IItemHandler> handlers = new ArrayList<>(linked.size());
-        for (LinkedHandler lh : linked) {
-            handlers.add(lh.handler());
-        }
+        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
 
         var level = player.serverLevel();
         BlockPos funnelPos = session.funnel.funnelTarget;
         int processed = 0;
         boolean changed = false;
 
-        for (int i = 0; i < payload.entityIds().size() && processed < RtsServiceConstants.FUNNEL_MAX_ENTITIES_PER_TICK; i++) {
+        Map<String, ItemStack> collectMap = new HashMap<>();
+        Map<Integer, ItemStack> entitySnapshots = new HashMap<>();
+
+        for (int i = 0; i < payload.entityIds().size()
+                && processed < RtsServiceConstants.FUNNEL_MAX_ENTITIES_PER_TICK; i++) {
             int entityId = payload.entityIds().get(i);
             String itemId = payload.itemIds().get(i);
             int reportedCount = payload.counts().get(i);
@@ -154,25 +151,61 @@ public final class RtsFunnelService {
             if (rl == null || !rl.toString().equals(itemId)) continue;
 
             int actualCount = Math.min(worldStack.getCount(), reportedCount);
-            ItemStack toStore = worldStack.copy();
-            toStore.setCount(actualCount);
-            ItemStack remain = RtsTransferInserter.storeToLinkedOnlyPreferExisting(handlers, toStore);
-            if (!remain.isEmpty()) {
-                remain = RtsTransferInserter.moveToPlayerInventoryOnly(player, remain);
-            }
-            if (!remain.isEmpty()) {
-                remain = addToBuffer(session, remain);
-            }
-            int consumed = actualCount - remain.getCount();
-            if (consumed > 0) {
-                worldStack.shrink(consumed);
-                processed++;
-                changed = true;
-            }
-            if (worldStack.isEmpty()) {
-                drop.discard();
+            ItemStack toStore = worldStack.copyWithCount(actualCount);
+
+            if (aggregate != null && !aggregate.isEmpty()) {
+                collectMap.merge(itemId, toStore, (existing, incoming) -> {
+                    existing.grow(incoming.getCount());
+                    return existing;
+                });
+                entitySnapshots.put(entityId, toStore.copy());
             } else {
-                drop.setItem(worldStack);
+                ItemStack remain = RtsTransferInserter.moveToPlayerInventoryOnly(player, toStore);
+                if (!remain.isEmpty()) {
+                    addToBuffer(session, remain);
+                }
+                worldStack.shrink(actualCount - remain.getCount());
+                if (worldStack.isEmpty()) {
+                    drop.discard();
+                } else {
+                    drop.setItem(worldStack);
+                }
+            }
+            processed++;
+            changed = true;
+        }
+
+        if (!collectMap.isEmpty()) {
+            Map<String, ItemStack> overflow = aggregate.batchInsert(collectMap, false);
+            for (var entry : overflow.entrySet()) {
+                ItemStack remain = RtsTransferInserter.moveToPlayerInventoryOnly(player, entry.getValue());
+                if (!remain.isEmpty()) {
+                    addToBuffer(session, remain);
+                }
+            }
+            // 从世界实体中扣除已消费的物品
+            for (var snapshotEntry : entitySnapshots.entrySet()) {
+                int entityId = snapshotEntry.getKey();
+                Entity entity = level.getEntity(entityId);
+                if (!(entity instanceof ItemEntity drop) || !drop.isAlive()) continue;
+                ItemStack worldStack = drop.getItem();
+                if (worldStack.isEmpty()) continue;
+                String itemId = worldStack.getItem().toString();
+                ItemStack snap = snapshotEntry.getValue();
+                long consumed = snap.getCount();
+                // 从overflow中减掉未消费的部分
+                ItemStack leftover = overflow.get(itemId);
+                if (leftover != null) {
+                    consumed -= leftover.getCount();
+                }
+                if (consumed > 0) {
+                    worldStack.shrink((int) consumed);
+                }
+                if (worldStack.isEmpty()) {
+                    drop.discard();
+                } else {
+                    drop.setItem(worldStack);
+                }
             }
         }
 
@@ -183,31 +216,35 @@ public final class RtsFunnelService {
 
     // ---- 内部方法 ----
 
-    private static boolean flushBuffer(List<IItemHandler> handlers, ServerPlayer player, RtsStorageSession session) {
+    private static boolean flushBuffer(RtsAggregateStorage aggregate, ServerPlayer player, RtsStorageSession session) {
         if (session.funnel.funnelBuffer.isEmpty()) return false;
-        boolean changed = false;
-        for (int i = 0; i < session.funnel.funnelBuffer.size(); i++) {
-            ItemStack buffered = session.funnel.funnelBuffer.get(i);
-            if (buffered.isEmpty()) {
-                session.funnel.funnelBuffer.remove(i);
-                i--;
-                changed = true;
-                continue;
-            }
-            ItemStack remain = RtsTransferInserter.storeToLinkedOnlyPreferExisting(handlers, buffered);
-            if (!remain.isEmpty()) {
-                remain = RtsTransferInserter.moveToPlayerInventoryOnly(player, remain);
-            }
-            if (remain.isEmpty()) {
-                session.funnel.funnelBuffer.remove(i);
-                i--;
-                changed = true;
-            } else if (remain.getCount() != buffered.getCount()) {
-                session.funnel.funnelBuffer.set(i, remain);
-                changed = true;
+
+        Map<String, ItemStack> bufferMap = collectBufferMap(session);
+        if (bufferMap.isEmpty()) return false;
+
+        if (aggregate != null && !aggregate.isEmpty()) {
+            RtsBatchInsertService.batchInsertWithFallback(player, aggregate, bufferMap);
+        } else {
+            for (var entry : bufferMap.entrySet()) {
+                RtsTransferInserter.moveToPlayerInventoryOnly(player, entry.getValue());
             }
         }
-        return changed;
+        session.funnel.funnelBuffer.clear();
+        return true;
+    }
+
+    /** 将漏斗缓冲区中的物品堆按 itemId 合并到一个 map 中。 */
+    private static Map<String, ItemStack> collectBufferMap(RtsStorageSession session) {
+        Map<String, ItemStack> bufferMap = new HashMap<>();
+        for (ItemStack buffered : session.funnel.funnelBuffer) {
+            if (buffered.isEmpty()) continue;
+            String itemId = buffered.getItem().toString();
+            bufferMap.merge(itemId, buffered.copy(), (existing, incoming) -> {
+                existing.grow(incoming.getCount());
+                return existing;
+            });
+        }
+        return bufferMap;
     }
 
     private static ItemStack addToBuffer(RtsStorageSession session, ItemStack stack) {

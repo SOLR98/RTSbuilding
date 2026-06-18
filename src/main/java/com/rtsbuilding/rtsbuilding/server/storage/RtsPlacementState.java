@@ -30,6 +30,13 @@ public class RtsPlacementState {
     /** 待处理的放置批次作业队列 */
     public final Deque<RtsPlacementBatch.PlaceBatchJob> placeBatchJobs = new ArrayDeque<>();
 
+    /**
+     * 因物品不足而被挂起的放置作业队列。
+     * 库存满足条件后可通过 {@code RtsPendingPlacementService.resumeAllPendingJobs}
+     * 将其移回 placeBatchJobs 继续执行。
+     */
+    public final Deque<RtsPlacementBatch.PlaceBatchJob> pendingJobs = new ArrayDeque<>();
+
     /** 已放置方块被破坏后的掉落物回收作业队列 */
     public final Deque<PlacedRecoveryJob> recoveryJobs = new ArrayDeque<>();
 
