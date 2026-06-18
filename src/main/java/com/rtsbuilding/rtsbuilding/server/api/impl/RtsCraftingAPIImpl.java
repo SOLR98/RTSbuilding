@@ -7,6 +7,9 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
 
+/**
+ * {@link RtsCraftingAPI} 的实现——委托给合成服务层。
+ */
 public final class RtsCraftingAPIImpl implements RtsCraftingAPI {
 
     private static final ServiceRegistry REGISTRY = ServiceRegistry.getInstance();

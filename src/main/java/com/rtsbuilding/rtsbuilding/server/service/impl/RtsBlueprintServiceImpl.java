@@ -22,7 +22,15 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.List;
 
 /**
- * {@link BlueprintService} 的默认实现。
+ * {@link BlueprintService} 的默认实现——处理蓝图材料统计、提取、退还和页面刷新。
+ *
+ * <p>该实现类通过 {@link ServiceRegistry} 协调多个服务：
+ * 使用 {@code registry.session()} 获取会话，
+ * 使用 {@code registry.page()} 记录最近使用的物品，
+ * 使用 {@code registry.serviceOp()} 刷新页面。
+ *
+ * <p>Phase 2 服务解耦的一部分。将蓝图材料管理从 {@code RtsBlueprintService} 的
+ * 静态方法封装为实例方法，便于依赖注入和单元测试。
  */
 public final class RtsBlueprintServiceImpl implements BlueprintService {
 

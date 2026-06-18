@@ -19,6 +19,20 @@ import java.util.List;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+/**
+ * {@link MiningService} 的默认实现——处理 RTS 模式下的各种远程挖掘操作。
+ *
+ * <p>该实现类通过 {@link com.rtsbuilding.rtsbuilding.server.pipeline.core.PipelineRegistry}
+ * 执行挖掘流程：
+ * <ul>
+ *   <li>单方块挖掘（{@code MINE_SINGLE}）</li>
+ *   <li>连锁挖掘（{@code ULTIMINE}）</li>
+ *   <li>范围挖掘（{@code AREA_MINE}）</li>
+ *   <li>范围破坏（{@code AREA_DESTROY}）</li>
+ *   <li>停止挖掘（{@code STOP_MINING}）</li>
+ * </ul>
+ * 所有操作使用 {@link com.rtsbuilding.rtsbuilding.server.pipeline.context.MiningContext} 封装参数。
+ */
 public final class RtsMiningServiceImpl implements MiningService {
 
     @Override
@@ -39,7 +53,7 @@ public final class RtsMiningServiceImpl implements MiningService {
                             .build());
             return;
         }
-        // Stop — delegate to STOP_MINING pipeline
+        // 停止 — 委托给 STOP_MINING 流程
         RtsStorageSession session = ServiceRegistry.getInstance().session().getIfPresent(player);
         if (session != null && !RtsMiningValidator.isCommittedUltimineBatch(session)) {
             PipelineRegistry.execute(RtsWorkflowType.STOP_MINING,

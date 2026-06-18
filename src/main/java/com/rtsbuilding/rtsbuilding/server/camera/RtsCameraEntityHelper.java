@@ -48,12 +48,11 @@ final class RtsCameraEntityHelper {
     // ======================================================================
 
     /**
-     * 丢弃指定玩家拥有的所有相机实体（除 keepUuid 指定的以外）。
+     * 丢弃指定玩家拥有的所有相机实体。
      *
      * @param player   目标玩家
-     * @param keepUuid 需要保留的相机 UUID，为 {@code null} 则丢弃全部
      */
-    static void discardOwnedCameras(ServerPlayer player, UUID keepUuid) {
+    static void discardOwnedCameras(ServerPlayer player) {
         if (player == null || player.getServer() == null) {
             return;
         }
@@ -61,8 +60,7 @@ final class RtsCameraEntityHelper {
         for (ServerLevel level : player.getServer().getAllLevels()) {
             for (Entity entity : level.getAllEntities()) {
                 if (entity instanceof RtsCameraEntity camera
-                        && ownerUuid.equals(camera.getOwnerUuid())
-                        && !camera.getUUID().equals(keepUuid)) {
+                        && ownerUuid.equals(camera.getOwnerUuid())) {
                     camera.discard();
                 }
             }

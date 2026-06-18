@@ -21,16 +21,12 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Periodically scans all players' workflow slots and removes entries
- * that have been idle beyond a configurable threshold.
+ * 定期扫描所有玩家的工作流槽位，并移除超过可配置阈值空闲时间的条目。
  *
- * <p>This prevents "zombie" workflows — entries that were suspended or
- * left behind by disconnected players — from permanently occupying slots.
- * The service is opt-in; call {@link #start(Duration, Duration)} after
- * the engine is initialised.</p>
+ * <p>防止「僵尸」工作流——那些被挂起或被断开连接的玩家遗留的条目——
+ * 永久占用槽位。服务为选配性质；在引擎初始化后调用 {@link #start(Duration, Duration)}。</p>
  *
- * <p>Uses a single daemon background thread for the scan timer.  The
- * actual cleanup logic runs on the server tick thread via the engine.</p>
+ * <p>使用单个守护后台线程进行扫描定时器。实际的清理逻辑通过引擎在服务端 tick 线程上运行。</p>
  */
 public final class RtsWorkflowTimeoutService {
 
@@ -60,14 +56,14 @@ public final class RtsWorkflowTimeoutService {
     }
 
     /**
-     * Starts the periodic timeout scan.
+     * 启动定期超时扫描。
      *
-     * @param checkInterval how often to scan for stale workflows
-     * @param maxIdleTime   maximum allowed time without any progress update
+     * @param checkInterval 扫描过期工作流的间隔
+     * @param maxIdleTime   没有任何进度更新的最大允许时间
      */
     public void start(Duration checkInterval, Duration maxIdleTime) {
         if (scheduler != null && !scheduler.isShutdown()) {
-            return; // already running
+            return; // 已在运行
         }
         long intervalMs = checkInterval.toMillis();
         long maxIdleMs = maxIdleTime.toMillis();
@@ -87,7 +83,7 @@ public final class RtsWorkflowTimeoutService {
     }
 
     /**
-     * Stops the periodic scan.  Idempotent.
+     * 停止定期扫描。幂等操作。
      */
     public void stop() {
         if (task != null) {
@@ -101,12 +97,11 @@ public final class RtsWorkflowTimeoutService {
     }
 
     /**
-     * Performs a single cleanup pass and fires TIMEOUT events.
+     * 执行单次清理并触发 TIMEOUT 事件。
      *
-     * <p>{@code slotManagers} is a {@link ConcurrentHashMap} whose
-     * {@code keySet().toArray()} already provides a safe snapshot without
-     * external synchronization.  The cleanup iterates all slot managers
-     * internally and fires TIMEOUT events for stale entries.</p>
+     * <p>{@code slotManagers} 是一个 {@link ConcurrentHashMap}，
+     * 其 {@code keySet().toArray()} 无需外部同步即可提供安全快照。
+     * 清理内部遍历所有槽位管理器，并为过时条目触发 TIMEOUT 事件。</p>
      */
     private void scanAndCleanup(long maxIdleMs) {
         int total = 0;
@@ -135,11 +130,11 @@ public final class RtsWorkflowTimeoutService {
                 }
             }
 
-            // Remove empty dimension maps
+            // 移除空的维度映射
             playerEntry.getValue().entrySet().removeIf(e -> e.getValue().occupiedCount() == 0 && e.getValue().size() == 0);
         }
 
-        // Remove players with no dimensions
+        // 移除没有任何维度的玩家
         slotManagers.values().removeIf(Map::isEmpty);
 
         if (total > 0) {

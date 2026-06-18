@@ -17,12 +17,30 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Sound and animation effects for RTS remote block placement.
+ * RTS 远程方块放置/破坏的声音播放和动画效果。
  *
- * <p>This helper owns only auditory and visual feedback emitted after a
- * remote placement succeeds: per-block break/replace sounds, per-block
- * animation packets. It deliberately does not execute placement, extract
- * items, or manage batch jobs.
+ * <p>此类负责在远程操作成功后向玩家发送听觉和视觉反馈。
+ * 所有方法均为 {@code static}，类本身为不可实例化的工具类。
+ *
+ * <p><b>核心方法：</b>
+ * <ul>
+ *   <li>{@link #playRemotePlacedBlockAnimation(ServerPlayer, BlockPos)} —
+ *       发送方块破坏动画数据包（{@link S2CRtsPlaceAnimationPayload}）给玩家</li>
+ *   <li>{@link #playRemotePlacedBlockSound(ServerPlayer, ServerLevel, BlockPos)} —
+ *       播放远程放置方块的放置声音，每 tick 每玩家限流 {@value #MAX_SOUNDS_PER_TICK} 次</li>
+ *   <li>{@link #playRemoteBlockBreakSound(ServerPlayer, ServerLevel, BlockPos)} —
+ *       播放远程挖掘方块的破坏声音</li>
+ * </ul>
+ *
+ * <p><b>限流机制：</b>使用静态映射 {@link #PER_PLAYER_SOUNDS_THIS_TICK} 跟踪
+ * 每个游戏 tick 每玩家的声音次数，超过 {@value #MAX_SOUNDS_PER_TICK} 次后静音，
+ * 避免大批量放置/破坏时产生噪音干扰。
+ *
+ * <p><b>声音定位：</b>声音通过 {@link SoundService#sendDirectSound} 在相机位置
+ * （若玩家处于远程相机模式）或玩家眼睛位置播放，确保沉浸式听觉体验。
+ *
+ * <p><b>设计原则：</b>此类故意不执行放置、物品提取或批处理作业管理，
+ * 这些职责位于放置包的其它类中。
  */
 public final class RtsPlacementSound {
 
@@ -34,8 +52,7 @@ public final class RtsPlacementSound {
     }
 
     /**
-     * Sends a block-break animation packet to the player for the given
-     * position.
+     * 向玩家发送给定位置的方块破坏动画数据包。
      */
     public static void playRemotePlacedBlockAnimation(ServerPlayer player, BlockPos pos) {
         if (player == null || pos == null) {
@@ -46,10 +63,10 @@ public final class RtsPlacementSound {
     }
 
     /**
-     * Plays the block-place sound for a remotely placed block.
+     * 播放远程放置方块的位置声音。
      * <p>
-     * Sound is throttled to at most 2 plays per game tick per player to avoid
-     * cacophony during large batch placements.
+     * 声音被限制为每个游戏 tick 每个玩家最多播放 2 次，
+     * 以避免大批量放置时产生噪音。
      */
     public static void playRemotePlacedBlockSound(ServerPlayer player, ServerLevel level,
                                                    BlockPos pos) {
@@ -85,7 +102,7 @@ public final class RtsPlacementSound {
     }
 
     /**
-     * Plays the block-break sound for a remotely mined/destroyed block.
+     * 播放远程挖掘/破坏方块的方块破坏声音。
      */
     public static void playRemoteBlockBreakSound(ServerPlayer player, ServerLevel level,
                                                   BlockPos pos) {

@@ -7,6 +7,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
 
+/**
+ * {@link RtsInteractionAPI} 的实现——委托给交互服务层。
+ */
 public final class RtsInteractionAPIImpl implements RtsInteractionAPI {
 
     private static final ServiceRegistry REGISTRY = ServiceRegistry.getInstance();

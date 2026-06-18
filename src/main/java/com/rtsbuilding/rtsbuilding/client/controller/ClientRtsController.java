@@ -566,8 +566,19 @@ public final class ClientRtsController {
     /**
      * Applies a batch of workflow progress updates received in a single packet.
      * Identical in effect to calling {@link #applyWorkflowProgress} for each entry.
+     *
+     * <p>清空所有旧数据后再填充，确保渲染器不会看到残留的过期 slot 数据，
+     * 消除工作流移除时旧 destroy entry 仍在 statuses 数组中存留导致的闪烁。
+     * 由于 {@code enqueueWork} 保证整批操作在同一主线程帧内原子完成，
+     * 渲染器只看到最终完整状态。</p>
      */
     public void applyWorkflowProgressBatch(S2CRtsWorkflowProgressBatchPayload payload) {
+        // 先铲平所有 slot，让 batch 从干净状态重新填充
+        for (int i = 0; i < CLIENT_MAX_WORKFLOWS; i++) {
+            this.workflowStatuses[i] = null;
+        }
+        this.workflowActiveCount = 0;
+
         for (S2CRtsWorkflowProgressPayload entry : payload.entries()) {
             applyWorkflowProgress(entry);
         }

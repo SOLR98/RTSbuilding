@@ -20,8 +20,7 @@ import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
  *   <li>检测挖掘是否仍在进行中，若仍在进行则返回 {@link TickResult#running()}。</li>
  *   <li>检测排队模式的等待状态，防止将属于前一个 pipeline 的进度错误记入。</li>
  *   <li>挖掘完毕后返回 {@link TickResult#done()}，触发
- *       {@link com.rtsbuilding.rtsbuilding.server.pipeline.core.ActivePipeline#completeWorkflow()}
- *       安全网关闭工作流条目。</li>
+ *       {@code ActivePipeline} 内部安全网关闭工作流条目。</li>
  * </ol>
  *
  * <p><b>Preconditions:</b> The pipeline context must contain a resolved session
@@ -38,37 +37,37 @@ public final class UltimineTickPipe implements TickablePipe {
             return TickResult.error("No session in context");
         }
 
-        // ── Check if mining is still active ──────────────────────────────
+        // ── 检查挖掘是否仍在进行 ──────────────────────────────
         boolean miningActive = session.mining.miningPos != null
                 || !session.mining.ultimineTargets.isEmpty()
                 || session.mining.ultimineProgressPos != null
                 || !session.mining.ultimineJobQueue.isEmpty();
 
         if (miningActive) {
-            // ── Queue mode detection ────────────────────────────────────
-            //    Pipeline 2 is registered while Pipeline 1 is still running.
-            //    If our entry ID is not the one currently tracked by
-            //    RtsMiningStateMachine.WORKFLOW_ENTRY_IDS, we are waiting
-            //    in queue — just return running without any action.
+            // ── 队列模式检测 ────────────────────────────────────
+            //    Pipeline 2 在 Pipeline 1 仍在运行时注册。
+            //    如果我们的条目 ID 不是 RtsMiningStateMachine.WORKFLOW_ENTRY_IDS
+            //    当前追踪的那个，则我们正在队列中等待——
+            //    直接返回 running，不做任何操作。
             boolean inQueueWait = !mctx.hasWorkflowEntryId()
                     || RtsMiningStateMachine.getWorkflowEntryId(mctx.player().getUUID()) != mctx.getWorkflowEntryId();
             if (inQueueWait) {
                 return TickResult.running();
             }
 
-            // Mining is active — progress is reported directly by
-            // processUltimineTargets() in the tickActiveMining() call.
+            // 挖掘正在活动——进度由
+            // tickActiveMining() 调用中的 processUltimineTargets() 直接报告。
             return TickResult.running();
         }
 
-        // ── Mining is done — return done to trigger safety-net cleanup. ──
-        //    In the normal survival path the business logic
-        //    (finishUltimineBatch → finalizeMiningOperation) already
-        //    completed the entry via WorkflowCompletePipe before this pipe
-        //    detects done() — since token.complete() is idempotent, the
-        //    safety-net call in ActivePipeline.completeWorkflow() is harmless.
-        //    In edge cases (creative mode, empty targets) the safety net is
-        //    the ONLY completion call, preventing a dangling workflow entry.
+        // ── 挖掘完成——返回 done 以触发安全网清理。──
+        //    在正常生存路径中，业务逻辑
+        //    （finishUltimineBatch → finalizeMiningOperation）已经在此 Pipe
+        //    检测到 done() 之前通过 WorkflowCompletePipe 完成了条目——
+        //    因为 token.complete() 是幂等的，ActivePipeline.completeWorkflow()
+        //    中的安全网调用是无害的。
+        //    在边缘情况（创造模式、空目标）下，安全网是唯一的完成调用，
+        //    防止悬空的工作流条目。
         return TickResult.done();
     }
 }

@@ -12,14 +12,17 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Handles RTS remote interaction using items from the player's hotbar tool slot.
+ * 工具槽远程交互器——处理使用玩家快捷栏工具槽中的物品进行 RTS 远程交互。
  *
- * <p>Two sub-modes:
+ * <p>两种子模式：
  * <ul>
- *   <li><b>Block/entity interaction</b> — use item on a target block or entity
- *       (primary non-shift, primary shift, secondary non-shift, secondary shift)</li>
- *   <li><b>Air use</b> — use item in the air (no target)</li>
+ *   <li><b>方块/实体交互（{@link #interactWithToolSlot}）</b>——对目标方块或实体使用物品。
+ *   依次尝试四种交互模式：非潜行对块 → 非潜行空中 → 潜行对块 → 潜行空中。</li>
+ *   <li><b>空中使用（{@link #useItemInAirWithToolSlot}）</b>——在空中使用物品（无目标）。</li>
  * </ul>
+ *
+ * <p>操作前会临时将快捷栏选中槽位切换到工具槽，操作完成后恢复。
+ * 通过 {@link TemporaryContextSwitcher} 实现安全的临时上下文切换和潜行键模拟。
  */
 public final class RtsToolSlotInteractor {
 
@@ -29,9 +32,8 @@ public final class RtsToolSlotInteractor {
     }
 
     /**
-     * Interacts with a target block or entity using the item in the specified hotbar slot.
-     * Tries four interaction modes in sequence: non-shift on-block, non-shift in-air,
-     * shift on-block, shift in-air.
+     * 使用指定快捷栏槽位中的物品与目标方块或实体交互。
+     * 依次尝试四种交互模式：非潜行对块、非潜行空中、潜行对块、潜行空中。
      */
     public static InteractionResult interactWithToolSlot(ServerPlayer player, ServerLevel level, Entity targetEntity,
             BlockHitResult blockHit, Vec3 hit, int toolSlot, RayContext rayContext) {
@@ -91,7 +93,7 @@ public final class RtsToolSlotInteractor {
     }
 
     /**
-     * Uses the item from the specified hotbar slot in the air (no target block/entity).
+     * 在空中使用指定快捷栏槽位中的物品（无目标方块/实体）。
      */
     public static InteractionResult useItemInAirWithToolSlot(ServerPlayer player, ServerLevel level, Vec3 hit,
             int toolSlot, RayContext rayContext) {

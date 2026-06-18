@@ -7,11 +7,10 @@ import com.rtsbuilding.rtsbuilding.server.storage.resolver.RtsLinkedStorageResol
 import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 
 /**
- * Sanitises the player's storage session dimension, ensuring the session
- * dimension matches the player's current dimension.
+ * 消毒玩家的存储会话维度，确保会话维度与玩家当前维度匹配。
  *
- * <p>This pipe requires that a session has already been stored in shared data
- * under {@link SessionValidatePipe#KEY_SESSION}.</p>
+ * <p>此 Pipe 要求会话已存储在共享数据中，
+ * 键为 {@link SessionValidatePipe#KEY_SESSION}。</p>
  */
 public final class SessionDimensionPipe implements PipelinePipe<PipelineContext> {
 

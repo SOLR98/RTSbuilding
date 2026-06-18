@@ -243,15 +243,19 @@ public final class ShapeGhostRenderer {
 
     private static float rawDestroyProgress(ClientRtsController controller, ShapeDataRecords.GhostPreview preview) {
         if (controller == null) return 0.0F;
-        BlockPos progressPos = controller.getMineProgressPos();
-        if (progressPos == null || !previewContains(preview, progressPos)) return 0.0F;
+
+        // 主数据源：工作流进度（稳定，仅在工作流同步时才变化）
         RtsWorkflowStatus workflow = controller.findActiveDestroyWorkflow();
-        int processed = workflow != null ? workflow.completedBlocks() : -1;
-        int total = workflow != null ? workflow.totalBlocks() : 0;
-        int stage = controller.getMineProgressStage();
-        if (processed >= 0 && total > 0) {
-            return RenderingUtil.clamp01(processed / (float) total);
+        if (workflow != null && workflow.totalBlocks() > 0) {
+            return RenderingUtil.clamp01((float) workflow.completedBlocks() / (float) workflow.totalBlocks());
         }
+
+        // 次级 fallback：无工作流时的单方块挖掘破坏阶段
+        BlockPos progressPos = controller.getMineProgressPos();
+        if (progressPos == null || !previewContains(preview, progressPos)) {
+            return 0.0F;
+        }
+        int stage = controller.getMineProgressStage();
         return stage < 0 ? 0.0F : RenderingUtil.clamp01((Math.min(9, stage) + 1) / 10.0F);
     }
 

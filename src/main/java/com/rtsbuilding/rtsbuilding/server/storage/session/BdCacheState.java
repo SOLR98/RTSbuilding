@@ -6,39 +6,34 @@ import net.neoforged.neoforge.items.IItemHandler;
 import javax.annotation.Nullable;
 
 /**
- * Cached BD (Better Description) network state scoped to a single
- * RtsStorageSession.
+ * 单个 RtsStorageSession 范围内的 BD（更好的描述）网络缓存状态。
  *
- * <p>Extracted from RtsStorageSession to group the five BD network
- * cache fields into a single value object. Owned and mutated exclusively by
- * {@link com.rtsbuilding.rtsbuilding.server.service.resolver.RtsLinkedHandlerResolutionService}
- * and session lifecycle hooks.
+ * <p>从 RtsStorageSession 提取，将五个 BD 网络缓存字段分组到单个值对象中。
+ * 由 {@link com.rtsbuilding.rtsbuilding.server.service.resolver.RtsLinkedHandlerResolutionService}
+ * 和会话生命周期钩子独占地拥有和修改。
  */
 public final class BdCacheState {
 
-    /** BD network item handler ({@link IItemHandler}), null = not cached. */
+    /** BD 网络物品处理器（{@link IItemHandler}），null = 未缓存。 */
     @Nullable
     public IItemHandler handler;
 
-    /** BD network fluid handler ({@link IFluidHandler}), null = not cached. */
+    /** BD 网络流体处理器（{@link IFluidHandler}），null = 未缓存。 */
     @Nullable
     public IFluidHandler fluidHandler;
 
-    /** BD network display name. */
+    /** BD 网络显示名称。 */
     @Nullable
     public String name;
 
-    /** Stale flag for item handler. Set to {@code true} before resolution to
-     *  force a refresh. */
+    /** 物品处理器的过期标记。在解析前设为 {@code true} 以强制刷新。 */
     public boolean handlerStale;
 
-    /** Stale flag for fluid handler. Set to {@code true} before resolution to
-     *  force a refresh. */
+    /** 流体处理器的过期标记。在解析前设为 {@code true} 以强制刷新。 */
     public boolean fluidHandlerStale;
 
     /**
-     * Nulls out all references so the GC can reclaim the previously held
-     * handler objects immediately.
+     * 将所有引用置空，让 GC 能立即回收之前持有的处理器对象。
      */
     public void release() {
         this.handler = null;

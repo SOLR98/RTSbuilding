@@ -26,7 +26,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Handles craft grid refill from linked storage and JEI recipe transfer.
+ * 合成网格填充器，负责将物品从链接存储自动填入工作台的 3x3 合成网格。
+ *
+ * <p>支持三种填充模式：
+ * <ul>
+ *   <li><b>蓝图填充</b>（{@link #refillCraftGridFromLinked}）— 根据预定义的物品蓝图，
+ *   从链接存储逐槽填充合成网格，支持单次填充和多次堆叠填充（最多 64 轮）</li>
+ *   <li><b>网络包填充</b>（{@link #refillCurrentCraftGridFromBlueprintIds} / 
+ *   {@link #refillCurrentCraftGridFromBlueprintStacks}）— 从客户端发送的物品 ID
+ *   或物品原型栈列表填充当前合成网格</li>
+ *   <li><b>JEI 一键填充</b>（{@link #applyJeiTransfer}）— 支持 JEI 配方传输集成，
+ *   可清除现有网格、首选原型匹配、多次堆叠填充</li>
+ * </ul>
+ *
+ * <p>填充时优先匹配精确原型，回退到任意匹配的材料。
+ * 若网格中已有物品，会自动检测堆叠上限并尝试增量填充。
  */
 public final class RtsCraftingGridFiller {
 
@@ -36,7 +50,7 @@ public final class RtsCraftingGridFiller {
     // ---- refill from linked storage (player result click) -----------------------
 
     /**
-     * Refills an open crafting grid from linked storage using a one-item blueprint.
+     * 使用单物品蓝图从链接存储填充打开的合成网格。
      */
     public static void refillCraftGridFromLinked(
             ServerPlayer player, RtsStorageSession session,
@@ -68,7 +82,7 @@ public final class RtsCraftingGridFiller {
     // ---- refill from ids / stacks (network packets) ------------------------------
 
     /**
-     * Rehydrates the current crafting grid from item ids sent by the client.
+     * 从客户端发送的物品 ID 重新填充当前合成网格。
      */
     public static void refillCurrentCraftGridFromBlueprintIds(
             ServerPlayer player, RtsStorageSession session,
@@ -105,7 +119,7 @@ public final class RtsCraftingGridFiller {
     }
 
     /**
-     * Rehydrates the current crafting grid from exact item prototypes sent by the client.
+     * 从客户端发送的精确物品原型重新填充当前合成网格。
      */
     public static void refillCurrentCraftGridFromBlueprintStacks(
             ServerPlayer player, RtsStorageSession session,
@@ -265,7 +279,7 @@ public final class RtsCraftingGridFiller {
     // ---- low-level grid refill loop ----------------------------------------------
 
     /**
-     * Performs the low-level grid refill loop from linked storage / player fallback.
+     * 执行从链接存储/玩家回退的低级网格填充循环。
      */
     public static void refillCraftGridFromBlueprint(
             CraftingMenu menu, List<IItemHandler> handlers, ServerPlayer player,

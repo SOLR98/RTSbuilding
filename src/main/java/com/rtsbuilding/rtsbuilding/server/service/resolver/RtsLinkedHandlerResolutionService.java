@@ -26,13 +26,18 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Resolves linked-storage refs into live item/fluid handlers, and registers
- * them with the tick-service cache for fast slot-based reads.
+ * 链接处理器解析服务——将链接存储引用解析为实时的物品/流体处理器。
  *
- * <p>Extracted from {@link RtsLinkedStorageResolver} to isolate handler
- * resolution and ordering from access-check and summary-building concerns.
- * This class handles BD network integration, backpack-capability matching,
- * and extract-only view wrapping.
+ * <p>该服务负责：
+ * <ul>
+ *   <li>将 {@code LinkedStorageRef} 解析为 {@link LinkedHandler}（物品）和 {@link LinkedFluidHandler}（流体）</li>
+ *   <li>集成 BD 网络存储作为额外的处理器源</li>
+ *   <li>将解析后的处理器注册到 {@link RtsStorageTickService} 缓存系统</li>
+ *   <li>按优先级对手柄进行排序（提取时低优先优先，存入时高优先优先）</li>
+ * </ul>
+ *
+ * <p>从 {@link RtsLinkedStorageResolver} 提取，以将处理器解析和排序
+ * 与访问检查和摘要构建关注点分离。
  */
 public final class RtsLinkedHandlerResolutionService {
 
@@ -44,8 +49,8 @@ public final class RtsLinkedHandlerResolutionService {
     // ======================================================================
 
     /**
-     * Resolves every currently accessible item endpoint, including BD network
-     * fallback, into handlers that already enforce extract-only store rules.
+     * 解析每个当前可访问的物品端点，包括 BD 网络回退，
+     * 转换为已强制执行仅提取存储规则的处理器。
      */
     public static List<LinkedHandler> resolveLinkedHandlers(ServerPlayer player, RtsStorageSession session) {
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
@@ -114,13 +119,13 @@ public final class RtsLinkedHandlerResolutionService {
     }
 
     /**
-     * Registers the raw (unwrapped) item handlers from resolved linked handlers
-     * with the {@link RtsStorageTickService} cache system, so that subsequent
-     * page builds and transfer operations can read from the slot cache instead
-     * of calling {@code getStackInSlot()} on every handler on every operation.
+     * 将解析后的链接处理器的原始（未包装）物品处理器注册到
+     * {@link RtsStorageTickService} 缓存系统中，以便后续的页面构建
+     * 和传输操作可以从槽位缓存中读取，而不是每次操作都在每个处理器上
+     * 调用 {@code getStackInSlot()}。
      *
-     * <p>Call this after {@link #resolveLinkedHandlers(ServerPlayer, RtsStorageSession)}
-     * to seed the per-player aggregate storage.
+     * <p>在 {@link #resolveLinkedHandlers(ServerPlayer, RtsStorageSession)}
+     * 之后调用此方法，以播种每玩家的聚合存储。
      */
     public static void registerStorageCaches(ServerPlayer player, List<LinkedHandler> handlers) {
         if (player == null || handlers == null || handlers.isEmpty()) {
@@ -144,8 +149,8 @@ public final class RtsLinkedHandlerResolutionService {
     // ======================================================================
 
     /**
-     * Resolves fluid endpoints alongside item endpoints so extract-only links
-     * cannot accept stored fluid while still allowing extraction.
+     * 在物品端点旁边解析流体端点，以便仅提取链接不能接受存储的流体，
+     * 同时仍允许提取。
      */
     public static List<LinkedFluidHandler> resolveLinkedFluidHandlers(ServerPlayer player, RtsStorageSession session) {
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);

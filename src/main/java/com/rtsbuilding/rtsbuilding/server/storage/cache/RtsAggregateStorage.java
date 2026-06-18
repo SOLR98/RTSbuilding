@@ -9,50 +9,45 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Priority-ordered aggregate storage that mirrors AE2's {@code NetworkStorage}.
+ * 按优先级排序的聚合存储——模拟 AE2 的 {@code NetworkStorage}。
  *
- * <p>Manages a tree of {@link RtsHandlerCache} instances grouped by priority.
- * The highest-priority handler is tried first for inserts, with a two-phase
- * approach:
+ * <p>管理按优先级分组的 {@link RtsHandlerCache} 实例树。
+ * 插入操作采用两阶段策略，优先尝试最高优先级的处理器：
  * <ol>
- *   <li><b>Phase 1</b> — try handlers that already contain the target item
- *       (preferred storage, avoids scattering)</li>
- *   <li><b>Phase 2</b> — try remaining handlers in priority order</li>
+ *   <li><b>阶段一</b>——优先尝试已有目标物品的处理器（首选存储，避免分散）</li>
+ *   <li><b>阶段二</b>——按优先级顺序尝试其余处理器</li>
  * </ol>
  *
- * <p>Extraction follows priority order from low to high (higher priority
- * storage is preferred for keeping items, lower priority is drained first).
+ * <p>提取操作遵循从低到高的优先级顺序（高优先级存储更倾向于保留物品，低优先级优先被抽走）。
  *
- * <p>Cache updates are driven externally via {@link #tickUpdate()}, which
- * returns the set of changed item IDs so the page service can send
- * incremental updates to clients.
+ * <p>缓存更新由外部通过 {@link #tickUpdate()} 驱动，
+ * 返回变更的物品 ID 集合，以便页面服务向客户端发送增量更新。
  */
 public final class RtsAggregateStorage {
 
-    /** Priority → list of cached handler views. Sorted descending (highest first). */
+    /** 优先级 → 缓存处理器视图列表。按降序排列（最高优先排最前）。 */
     private final NavigableMap<Integer, List<CachedHandlerSlot>> priorityMounts = new TreeMap<>(
             (a, b) -> Integer.compare(b, a));
 
-    /** Flat list rebuilt after each mount/unmount change. */
+    /** 每次挂载/卸载变更后重建的扁平列表。 */
     private List<CachedHandlerSlot> flatOrdered = List.of();
 
-    /** Changes accumulated across all handlers since last poll. */
+    /** 自上次轮询以来所有处理器累积的变更。 */
     private final Set<String> pendingChanges = new HashSet<>();
 
-    /** Atomic reentrancy guard for insert/extract. */
+    /** 插入/提取的原子化可重入守卫。 */
     private final AtomicBoolean inUse = new AtomicBoolean(false);
 
     /**
-     * Pending mount/unmount operations queued during inUse=true.
-     * Applied at the end of the current insert/extract cycle so
-     * handlers are never silently dropped.
+     * 在 inUse=true 期间排队等待的挂载/卸载操作。
+     * 在当前插入/提取周期结束时执行，确保处理器不会被静默丢弃。
      */
     private final Queue<Runnable> pendingMutations = new ArrayDeque<>();
 
-    // ---- mount / unmount -------------------------------------------------------
+    // ---- 挂载 / 卸载 -------------------------------------------------------
 
     /**
-     * Mounts a handler with the given priority and associates a cache with it.
+     * 以指定优先级挂载一个处理器，并关联一个缓存。
      */
     public void mount(int priority, IItemHandler handler, RtsHandlerCache cache) {
         if (inUse.get()) {
@@ -72,7 +67,7 @@ public final class RtsAggregateStorage {
     }
 
     /**
-     * Unmounts a handler by identity.
+     * 按身份标识卸载一个处理器。
      */
     public void unmount(IItemHandler handler) {
         if (inUse.get()) {
@@ -90,18 +85,18 @@ public final class RtsAggregateStorage {
         rebuildFlatOrder();
     }
 
-    // ---- insert ----------------------------------------------------------------
+    // ---- 插入 ----------------------------------------------------------------
 
     /**
-     * Attempts to insert an item stack into the aggregate storage.
+     * 尝试将一个物品堆叠插入聚合存储。
      *
-     * <p>Two-phase insert:
+     * <p>两阶段插入：
      * <ol>
-     *   <li>Try handlers that already contain the item</li>
-     *   <li>Try remaining handlers in priority order</li>
+     *   <li>优先尝试已有该物品的处理器</li>
+     *   <li>按优先级顺序尝试其余处理器</li>
      * </ol>
      *
-     * @return the remainder (items that could not be stored)
+     * @return 剩余无法存入的物品堆叠
      */
     public ItemStack insert(ItemStack stack, boolean simulate) {
         if (stack == null || stack.isEmpty() || this.flatOrdered.isEmpty()) {
@@ -137,20 +132,20 @@ public final class RtsAggregateStorage {
         }
     }
 
-    // ---- extract ---------------------------------------------------------------
+    // ---- 提取 ---------------------------------------------------------------
 
     /**
-     * Extracts items matching the given predicate from the aggregate storage.
-     * Lower-priority handlers are drained first.
+     * 从聚合存储中提取匹配给定物品类型的物品。
+     * 低优先级处理器优先被抽走。
      *
-     * @return the extracted stack (may be empty)
+     * @return 提取的物品堆叠（可能为空）
      */
     public ItemStack extract(Item targetItem, int limit) {
         return extractMatching(targetItem, null, limit);
     }
 
     /**
-     * Extracts items matching both the item type and NBT components.
+     * 提取同时匹配物品类型和 NBT 组件的物品。
      */
     public ItemStack extractMatching(Item targetItem, ItemStack preferred, int limit) {
         if (targetItem == null || limit <= 0 || this.flatOrdered.isEmpty()) {
@@ -192,11 +187,11 @@ public final class RtsAggregateStorage {
         }
     }
 
-    // ---- available stacks ------------------------------------------------------
+    // ---- 可用物品堆叠 ------------------------------------------------------
 
     /**
-     * Populates the given map with the total counts from all cached handlers.
-     * This does NOT touch real handler slots — it reads from the cache.
+     * 将所有缓存处理器的计数汇总到给定的映射中。
+     * 此方法不会触碰真实的处理器槽位——仅读取缓存。
      */
     public void getAvailableItems(Map<String, Long> out) {
         for (CachedHandlerSlot cs : this.flatOrdered) {
@@ -204,13 +199,13 @@ public final class RtsAggregateStorage {
         }
     }
 
-    // ---- tick update -----------------------------------------------------------
+    // ---- 周期更新 -----------------------------------------------------------
 
     /**
-     * Updates all handler caches by scanning changed slots. Must be called
-     * periodically (e.g. every 10 ticks) from the server tick loop.
+     * 通过扫描变更的槽位来更新所有处理器缓存。
+     * 必须在服务端 tick 循环中周期性调用（如每 10 tick）。
      *
-     * @return set of item IDs that changed since last update
+     * @return 自上次更新以来发生变更的物品 ID 集合
      */
     public Set<String> tickUpdate() {
         Set<String> changes = new HashSet<>();
@@ -235,8 +230,7 @@ public final class RtsAggregateStorage {
     }
 
     /**
-     * Returns and clears the pending changes accumulated from insert/extract
-     * operations since the last call.
+     * 返回并清除自上次调用以来从插入/提取操作累积的待处理变更。
      */
     public Set<String> drainPendingChanges() {
         Set<String> drained = new HashSet<>(this.pendingChanges);
@@ -245,7 +239,7 @@ public final class RtsAggregateStorage {
     }
 
     /**
-     * Returns whether any cached handler reports having the given item.
+     * 返回是否有任何缓存处理器报告拥有指定物品。
      */
     public boolean hasItem(Item item) {
         String itemId = item.toString();
@@ -258,7 +252,7 @@ public final class RtsAggregateStorage {
     }
 
     /**
-     * Returns the total count of the given item across all cached handlers.
+     * 返回指定物品在所有缓存处理器中的总数量。
      */
     public long getTotalCount(Item item) {
         long total = 0L;
@@ -270,8 +264,8 @@ public final class RtsAggregateStorage {
     }
 
     /**
-     * Returns a representative (count=1) ItemStack for the given item ID,
-     * or {@link ItemStack#EMPTY} if not cached.
+     * 返回指定物品 ID 的代表性 ItemStack（数量=1），
+     * 若未缓存则返回 {@link ItemStack#EMPTY}。
      */
     public ItemStack getPrototype(String itemId) {
         for (CachedHandlerSlot cs : this.flatOrdered) {
@@ -287,7 +281,7 @@ public final class RtsAggregateStorage {
         return this.flatOrdered.isEmpty();
     }
 
-    // ---- internals -------------------------------------------------------------
+    // ---- 内部方法 -------------------------------------------------------------
 
     private void rebuildFlatOrder() {
         List<CachedHandlerSlot> list = new ArrayList<>();
@@ -302,9 +296,9 @@ public final class RtsAggregateStorage {
             return stack == null ? ItemStack.EMPTY : stack;
         }
 
-        // Optimization for AnySlotInsertItemHandler (e.g. AE2 network):
-        // skip the slot iteration since insert is slot-independent, avoiding
-        // O(slots) wasted calls on large storage networks (10000+ slots).
+        // 针对 AnySlotInsertItemHandler 的优化（如 AE2 网络）：
+        // 跳过槽位迭代，因为插入与槽位无关，
+        // 避免在大存储网络（10000+ 槽位）上产生 O(slots) 浪费调用。
         if (handler instanceof AnySlotInsertItemHandler anySlot) {
             return anySlot.insertItemAnywhere(stack, simulate);
         }
@@ -321,9 +315,9 @@ public final class RtsAggregateStorage {
             return ItemStack.EMPTY;
         }
 
-        // Bulk-extraction fast path for AnySlotInsertItemHandler (AE2, BD, etc.):
-        // skip the per-slot scan and let the handler do a bulk extract.
-        // Only safe when preferred is empty (no NBT variant required).
+        // AnySlotInsertItemHandler 的批量提取快速路径（AE2、BD 等）：
+        // 跳过逐槽位扫描，让处理器直接批量提取。
+        // 仅当 preferred 为空（无需 NBT 变体）时安全。
         if ((preferred == null || preferred.isEmpty()) && handler instanceof AnySlotInsertItemHandler anySlot) {
             return anySlot.extractItemAnywhere(targetItem, limit, false);
         }
@@ -347,16 +341,15 @@ public final class RtsAggregateStorage {
             } else if (ItemStack.isSameItemSameComponents(out, extracted)) {
                 out.grow(extracted.getCount());
             } else {
-                // Wrong variant — put it back. If the handler refuses to
-                // accept the return (concurrent modification between the
-                // getStackInSlot and extractItem calls), include it in the
-                // output to PREVENT ITEM LOSS, even if the NBT variant
-                // doesn't match. Data safety > variant purity.
+                // 错误变体——放回去。如果处理器拒绝接收（
+                // getStackInSlot 和 extractItem 调用之间的并发修改），
+                // 即使 NBT 变体不匹配也将其包含在输出中以防物品丢失。
+                // 数据安全 > 变体纯度。
                 ItemStack leftover = handler.insertItem(slot, extracted, false);
                 if (leftover.isEmpty()) {
-                    continue; // Fully returned to handler — safe to skip
+                    continue; // 完全归还给了处理器——可以安全跳过
                 }
-                // Partial or full refusal — cannot discard items.
+                // 部分或完全拒绝接收——不能丢弃物品。
                 if (out.isEmpty()) {
                     out = leftover;
                 } else {
@@ -371,8 +364,8 @@ public final class RtsAggregateStorage {
     }
 
     private void trackChange(Item originalItem, ItemStack remain, ItemStack original, boolean simulate) {
-        // Only mark pending when items were actually inserted (remain shrank),
-        // so failed/partial-store attempts don't trigger spurious UI refreshes.
+        // 仅在物品实际被插入时（剩余量减少）才标记待处理变更，
+        // 避免失败/部分存储的尝试触发虚假的 UI 刷新。
         if (!simulate && remain.getCount() < original.getCount()) {
             this.pendingChanges.add(originalItem.toString());
         }
@@ -385,7 +378,7 @@ public final class RtsAggregateStorage {
         }
     }
 
-    // ---- value type ------------------------------------------------------------
+    // ---- 值类型 ------------------------------------------------------------
 
     record CachedHandlerSlot(int priority, IItemHandler handler, RtsHandlerCache cache) {
     }

@@ -10,6 +10,8 @@ import com.rtsbuilding.rtsbuilding.server.service.ServiceRegistry;
 import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import com.rtsbuilding.rtsbuilding.server.workflow.core.IWorkflowEngine;
 import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowType;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -125,9 +127,17 @@ public final class RtsInteractionHandlers {
     public static void handleResumePlacementAction(C2SRtsResumePlacementActionPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer serverPlayer) {
+                int entryId = payload.workflowEntryId();
+                // 检查是否是蓝图工作流——蓝图没有 PlaceBatchJob，需走独立恢复路径
+                RtsWorkflowStatus status = RtsWorkflowEngine.getInstance().getProgress(serverPlayer, entryId);
+                if (status.isActive() && status.type() == RtsWorkflowType.BLUEPRINT_BUILD) {
+                    RtsPendingPlacementService.resumeBlueprintWorkflow(serverPlayer, entryId);
+                    return;
+                }
+                // 范围放置：使用 session 中的 PlaceBatchJob 恢复
                 RtsStorageSession session = ServiceRegistry.getInstance().session().getIfPresent(serverPlayer);
                 if (session != null) {
-                    RtsPendingPlacementService.resumeWithStrategy(serverPlayer, session, payload.strategy(), payload.workflowEntryId());
+                    RtsPendingPlacementService.resumeWithStrategy(serverPlayer, session, payload.strategy(), entryId);
                 }
             }
         });
@@ -138,8 +148,17 @@ public final class RtsInteractionHandlers {
             if (context.player() instanceof ServerPlayer serverPlayer) {
                 int entryId = payload.entryId();
                 RtsWorkflowEngine engine = RtsWorkflowEngine.getInstance();
+                RtsWorkflowStatus status = engine.getProgress(serverPlayer, entryId);
+                if (!status.isActive()) return;
+
                 engine.from(serverPlayer, entryId).ifPresent(token -> {
-                    if (token.isPaused()) {
+                    if (status.suspended()) {
+                        // 挂起（等待物品）→ 恢复，让管道继续 Tick
+                        token.resume();
+                        serverPlayer.displayClientMessage(
+                                Component.literal("§7[工作流] §a▶ 已恢复 — 继续执行"),
+                                true);
+                    } else if (token.isPaused()) {
                         token.unpause();
                         serverPlayer.displayClientMessage(
                                 Component.literal("§7[工作流] §a▶ 已恢复 — 线程继续执行"),
@@ -151,6 +170,21 @@ public final class RtsInteractionHandlers {
                                 true);
                     }
                 });
+            }
+        });
+    }
+
+    public static void handleScanBlueprintResume(C2SRtsScanBlueprintResumePayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer) {
+                int entryId = payload.workflowEntryId();
+                var scan = RtsPendingPlacementService.scanBlueprintMaterials(serverPlayer, entryId);
+                if (scan != null) {
+                    PacketDistributor.sendToPlayer(serverPlayer, new S2CRtsBlueprintResumeScanPayload(
+                            scan.itemIds(), scan.itemLabels(),
+                            scan.required(), scan.available(),
+                            entryId, scan.completedCount(), scan.totalCount()));
+                }
             }
         });
     }

@@ -9,6 +9,9 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
 
+/**
+ * {@link RtsPlacementAPI} 的实现——委托给放置服务层。
+ */
 public final class RtsPlacementAPIImpl implements RtsPlacementAPI {
 
     private static final ServiceRegistry REGISTRY = ServiceRegistry.getInstance();

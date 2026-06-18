@@ -20,6 +20,14 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * {@link FunnelService} 的默认实现——处理掉落物漏斗的启用/禁用、
+ * 目标更新和每 Tick 的掉落物收集逻辑。
+ *
+ * <p>掉落物漏斗自动扫描目标位置附近的 {@link net.minecraft.world.entity.item.ItemEntity}，
+ * 将掉落物吸入链接存储。当链接存储满时，多余物品会先存入玩家背包，
+ * 再存入内部缓冲区。禁用漏斗时会清空缓冲区。
+ */
 public final class RtsFunnelServiceImpl implements FunnelService {
 
     private final ServiceRegistry registry = ServiceRegistry.getInstance();
@@ -72,7 +80,7 @@ public final class RtsFunnelServiceImpl implements FunnelService {
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
         if (session.funnel.funnelTarget == null) return;
         if (!RtsLinkedStorageResolver.canAccessWorldTarget(player, session.funnel.funnelTarget)) return;
-        if (!RtsCameraManager.isWithinActionRadius(player, session.funnel.funnelTarget)) return;
+        if (!RtsCameraManager.isWithinActionRange(player, session.funnel.funnelTarget)) return;
 
         List<LinkedHandler> linked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
         List<IItemHandler> handlers = new ArrayList<>(linked.size());

@@ -2,7 +2,6 @@ package com.rtsbuilding.rtsbuilding;
 
 
 import com.mojang.logging.LogUtils;
-import com.rtsbuilding.rtsbuilding.server.service.BlueprintPlacementService;
 import com.rtsbuilding.rtsbuilding.entity.RtsCameraEntity;
 import com.rtsbuilding.rtsbuilding.server.api.impl.RtsAPIImpl;
 import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
@@ -127,7 +126,6 @@ public class RtsbuildingMod {
         static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
             if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
                 RtsCameraManager.stopIfActive(serverPlayer);
-                BlueprintPlacementService.clear(serverPlayer);
                 RtsDamageFeedbackManager.forget(serverPlayer);
                 ServiceRegistry.getInstance().session().onPlayerLogout(serverPlayer);
                 RtsProgressionManager.onPlayerLogout(serverPlayer);
@@ -151,7 +149,6 @@ public class RtsbuildingMod {
             if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
                 ServerTickOrchestrator.getInstance().onPlayerTickPost(serverPlayer);
                 RtsDamageFeedbackManager.tick(serverPlayer);
-                BlueprintPlacementService.tick(serverPlayer);
             }
         }
 

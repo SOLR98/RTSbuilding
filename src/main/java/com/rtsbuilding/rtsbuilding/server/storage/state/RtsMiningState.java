@@ -37,9 +37,9 @@ public class RtsMiningState {
     public int miningToolSlot;
     /** 当前借用的远程挖掘工具租约 */
     public RtsToolLease miningToolLease = RtsToolLease.empty();
-    /** True when a non-block RTS selected item must be used instead of silently falling back to the hotbar. */
+    /** 当需要使用 RTS 选中的非方块物品而不是静默回退到快捷栏时为 true。 */
     public boolean miningSelectedToolRequested;
-    /** True when active batch mining should stop before a damageable tool reaches its last 5% durability. */
+    /** 当活动的批量挖掘应在可损耗工具达到最后 5% 耐久前停止时为 true。 */
     public boolean miningToolProtectionEnabled = true;
     /** 当前挖掘进度[0.0, 1.0]，服务端按 tick 递增 */
     public float miningProgress;
@@ -68,7 +68,7 @@ public class RtsMiningState {
     public boolean ultimineAbsorbedDrops;
 
     /**
-     * 排队等待执行的连锁挖掘作业队列（独立线程）。
+     * 排队等待执行的连锁挖掘作业队列。
      * 当前正在处理的作业的状态直接由本类的 ultimineTargets / ultimineTotalTargets 等字段持有；
      * 此队列中的作业将在当前作业完成后依次被激活。
      */

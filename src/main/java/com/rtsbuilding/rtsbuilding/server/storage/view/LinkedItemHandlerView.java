@@ -7,10 +7,10 @@ import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.items.IItemHandler;
 
 /**
- * Wraps an {@link IItemHandler} to enforce extract-only store rules.
+ * 包装 {@link IItemHandler} 以强制执行仅提取存储规则。
  *
- * <p>When {@code allowStore} is false, {@link #insertItem} rejects all
- * insertions by returning the full stack. Extraction is always delegated.
+ * <p>当 {@code allowStore} 为 false 时，{@link #insertItem} 通过返回
+ * 完整堆叠来拒绝所有插入。提取操作始终委托给原始处理器。
  */
 public final class LinkedItemHandlerView implements IItemHandler, ReportedCountItemHandler {
     private final IItemHandler delegate;
@@ -41,7 +41,7 @@ public final class LinkedItemHandlerView implements IItemHandler, ReportedCountI
     }
 
     /**
-     * Returns the raw underlying handler (used by cache registration).
+     * 返回底层的原始处理器（用于缓存注册）。
      */
     public IItemHandler getRawHandler() {
         return this.delegate;

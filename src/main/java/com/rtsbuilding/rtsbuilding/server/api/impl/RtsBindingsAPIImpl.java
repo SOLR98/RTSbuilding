@@ -8,6 +8,9 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
+/**
+ * {@link RtsBindingsAPI} 的实现——委托给绑定服务层。
+ */
 public final class RtsBindingsAPIImpl implements RtsBindingsAPI {
     private static final ServiceRegistry REGISTRY = ServiceRegistry.getInstance();
 

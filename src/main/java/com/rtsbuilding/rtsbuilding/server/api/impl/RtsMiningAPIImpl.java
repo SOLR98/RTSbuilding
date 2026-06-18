@@ -9,6 +9,9 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
 
+/**
+ * {@link RtsMiningAPI} 的实现——委托给挖掘服务层。
+ */
 public final class RtsMiningAPIImpl implements RtsMiningAPI {
 
     private static final ServiceRegistry REGISTRY = ServiceRegistry.getInstance();

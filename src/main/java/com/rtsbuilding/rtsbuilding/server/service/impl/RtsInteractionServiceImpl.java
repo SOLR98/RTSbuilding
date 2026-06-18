@@ -36,6 +36,17 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
+/**
+ * {@link InteractionService} 的默认实现——处理 RTS 模式下与方块/实体的远程交互。
+ *
+ * <p>该实现类根据 {@code sourceType} 将交互请求分发给不同的交互器：
+ * <ul>
+ *   <li>{@link com.rtsbuilding.rtsbuilding.server.service.interaction.RtsToolSlotInteractor}——工具槽交互</li>
+ *   <li>{@link com.rtsbuilding.rtsbuilding.server.service.interaction.RtsLinkedItemInteractor}——链接物品交互</li>
+ *   <li>{@link com.rtsbuilding.rtsbuilding.server.service.interaction.RtsEmptyHandInteractor}——空手交互</li>
+ * </ul>
+ * 同时处理远程菜单追踪、放置方块检测、音效播放和最近物品记录。
+ */
 public final class RtsInteractionServiceImpl implements InteractionService {
 
     private static final double REMOTE_POV_BLOCK_REACH = 4.0D;

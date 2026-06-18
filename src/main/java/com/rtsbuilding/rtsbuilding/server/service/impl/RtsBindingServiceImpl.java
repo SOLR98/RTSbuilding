@@ -17,6 +17,19 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 
+/**
+ * {@link BindingService} 的默认实现——处理所有存储绑定相关的服务端逻辑。
+ *
+ * <p>该实现类通过 {@link ServiceRegistry} 调用其他子服务：
+ * <ul>
+ *   <li>使用 {@code registry.funnel()} 管理漏斗生命周期</li>
+ *   <li>使用 {@code registry.session()} 获取/保存玩家会话</li>
+ *   <li>使用 {@code registry.page()} 刷新储存页面</li>
+ *   <li>使用 {@code registry.serviceOp()} 执行修改后操作</li>
+ * </ul>
+ *
+ * <p>Phase 2 服务解耦的一部分。从静态方法 {@code RtsStorageBindings} 迁移而来。
+ */
 public final class RtsBindingServiceImpl implements BindingService {
 
     private final ServiceRegistry registry = ServiceRegistry.getInstance();

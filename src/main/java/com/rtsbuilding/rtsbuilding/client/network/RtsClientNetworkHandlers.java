@@ -9,6 +9,7 @@ import com.rtsbuilding.rtsbuilding.client.rendering.animation.PlacementAnimation
 import com.rtsbuilding.rtsbuilding.client.rendering.builder.ShapeGhostRenderer;
 import com.rtsbuilding.rtsbuilding.client.screen.handler.PlacementHistoryManager;
 import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
+import com.rtsbuilding.rtsbuilding.client.screen.workflow.RtsBlueprintResumePanel;
 import com.rtsbuilding.rtsbuilding.client.screen.workflow.RtsResumePlacementPanel;
 import com.rtsbuilding.rtsbuilding.network.builder.*;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraAnchorPayload;
@@ -105,6 +106,15 @@ public final class RtsClientNetworkHandlers {
             // 打开重启面板
             if (Minecraft.getInstance().screen instanceof BuilderScreen bs) {
                 RtsResumePlacementPanel panel = bs.getResumePlacementPanel();
+                panel.openWithData(payload);
+            }
+        });
+    }
+
+    public static void handleBlueprintResumeScan(S2CRtsBlueprintResumeScanPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (Minecraft.getInstance().screen instanceof BuilderScreen bs) {
+                RtsBlueprintResumePanel panel = bs.getBlueprintResumePanel();
                 panel.openWithData(payload);
             }
         });

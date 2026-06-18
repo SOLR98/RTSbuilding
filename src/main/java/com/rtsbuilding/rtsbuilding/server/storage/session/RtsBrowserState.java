@@ -9,8 +9,8 @@ import java.util.Set;
 /**
  * 存储浏览器与合成浏览器的可变状态容器。
  *
- * <p>从 RtsStorageSession 提取，按 "用户在浏览器界面上如何
- * 查看和筛选内容" 的职责聚合。包含翻页、搜索、分类排序和拼音模糊搜索。
+ * <p>从 RtsStorageSession 提取，按"用户在浏览器界面上如何
+ * 查看和筛选内容"的职责聚合。包含翻页、搜索、分类排序和拼音模糊搜索。
  *
  * <h3>设计约束</h3>
  * <ul>
@@ -27,15 +27,15 @@ public class RtsBrowserState {
     // 存储浏览器状态
     // ======================================================================
 
-    /** 当前页号（0-based） */
+    /** 当前页号（从 0 开始） */
     public int page;
-    /** 每页条目数，默认从页面构建器常量读取 */
+    /** 每页条目数，从页面构建器常量读取的默认值 */
     public int pageSize = RtsStoragePageBuilder.DEFAULT_PAGE_SIZE;
     /** 搜索关键词（空串 = 无筛选） */
     public String search = "";
-    /** 分类筛选："all" / "mod|namespace" / "tab|name" */
+    /** 分类筛选："all" / "mod|命名空间" / "tab|名称" */
     public String category = "all";
-    /** 当前排序方式：数量/名称/模组/种类 */
+    /** 当前排序方式：按数量/名称/模组/种类 */
     public RtsStorageSort sort = RtsStorageSort.QUANTITY;
     /** true = 升序，false = 降序 */
     public boolean ascending = false;
@@ -45,14 +45,14 @@ public class RtsBrowserState {
     public final Set<String> localizedSearchMatches = new HashSet<>();
 
     // ======================================================================
-    // 合成浏览器状态
+    //  合成浏览器状态
     // ======================================================================
 
     /** 合成搜索关键词 */
     public String craftSearch = "";
     /** 是否显示不可合成的配方 */
     public boolean craftShowUnavailable;
-    /** 已请求的合成配方总数（含偏移量和限制量，至少为 CRAFTABLE_BATCH_SIZE） */
+    /** 已请求的合成配方总数（包含偏移量和限制量，至少为 CRAFTABLE_BATCH_SIZE） */
     public int craftRequestedCount = CRAFTABLE_BATCH_SIZE;
     /** 合成搜索的拼音模糊搜索开关 */
     public boolean craftPinyinSearchEnabled;

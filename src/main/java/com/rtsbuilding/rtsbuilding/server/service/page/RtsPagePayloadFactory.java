@@ -22,12 +22,18 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Factory for constructing storage page payloads.
+ * 储存浏览器页面数据包工厂，负责组装发送给客户端的网络数据包。
  *
- * <p>Extracted from {@link RtsPageCore} to separate payload-assembly concerns
- * from page-building logic. This class is responsible for building
- * {@link S2CRtsStoragePagePayload} instances from raw sorted/filtered data,
- * including linked-ref metadata, funnel summaries, and UI slot payloads.
+ * <p>从 {@link RtsPageCore} 中提取，专注于数据包装配关注点。
+ * 将原始排序/过滤后的数据转换为完整的 {@link S2CRtsStoragePagePayload} 实例。
+ *
+ * <p><b>核心方法：</b>
+ * <ul>
+ *   <li>{@link #buildEmpty} — 构建表示空白储存的空页面数据包</li>
+ *   <li>{@link #buildLinkedRefPayload} — 构建链接存储引用的结构化数据包
+ *   （位置、名称、模式、优先级、图标、世界可用性）</li>
+ *   <li>{@link #summarizeFunnelBuffer} — 将漏斗缓冲区内容汇总为物品 ID→数量的有序映射</li>
+ * </ul>
  */
 public final class RtsPagePayloadFactory {
 
@@ -37,7 +43,7 @@ public final class RtsPagePayloadFactory {
     // ---- Empty payload -------------------------------------------------------
 
     /**
-     * Builds a page payload representing an empty storage (no items or fluids).
+     * 构建表示空白储存（无物品或流体）的页面数据包。
      */
     public static S2CRtsStoragePagePayload buildEmpty(ServerPlayer player, RtsStorageSession session) {
         LinkedRefPayload linkedRefs = buildLinkedRefPayload(player, session);
@@ -66,9 +72,8 @@ public final class RtsPagePayloadFactory {
     // ---- Linked ref payload ---------------------------------------------------
 
     /**
-     * Builds a structured payload describing each linked storage reference,
-     * including its position, display name, mode, priority, icon, and whether
-     * the target block is currently loaded and visible in-world.
+     * 构建描述每个链接储存引用的结构化数据包，
+     * 包括位置、显示名称、模式、优先级、图标以及目标方块是否已加载且在世界上可见。
      */
     public static LinkedRefPayload buildLinkedRefPayload(ServerPlayer player, RtsStorageSession session) {
         if (player == null || session == null || session.linkedStorageInfo.isEmpty()) {
@@ -125,7 +130,7 @@ public final class RtsPagePayloadFactory {
     // ---- Funnel buffer summary -----------------------------------------------
 
     /**
-     * Summarizes the funnel buffer contents into an ordered map keyed by item id.
+     * 将漏斗缓冲区内容汇总为以物品 ID 为键的有序映射。
      */
     public static Map<String, Long> summarizeFunnelBuffer(RtsStorageSession session) {
         Map<String, Long> counts = new LinkedHashMap<>();

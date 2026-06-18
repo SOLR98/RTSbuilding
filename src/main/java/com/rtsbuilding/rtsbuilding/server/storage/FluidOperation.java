@@ -12,10 +12,10 @@ import java.util.Objects;
 import java.util.function.Supplier;
 
 /**
- * Guards a fluid storage operation with automatic rollback-on-failure.
+ * 流体存储操作守卫——失败时自动回滚。
  *
- * <p>Wraps the common "extract → simulate → execute → refund on failure"
- * pattern found in {@link RtsStorageFluids}. Usage:</p>
+ * <p>包装了 {@link RtsStorageFluids} 中常见的"提取 → 模拟 → 执行 → 失败退款"
+ * 模式。用法：</p>
  * <pre>{@code
  * FluidOperation op = new FluidOperation(gate, insertHandlers, player);
  * if (!op.extract(extractHandlers, targetItem)) return false;
@@ -25,12 +25,12 @@ import java.util.function.Supplier;
  * if (!op.attempt(() -> executeAction(targetFluid))) return false;
  *
  * op.commit();
- * // post-commit: handle remainder, record recent entry
+ * // 提交后：处理剩余物，记录最近条目
  * return true;
  * }</pre>
  *
- * <p>If any {@link #attempt(Supplier)} returns {@code false}, the extracted
- * item is refunded to linked storage (with player inventory as fallback).</p>
+ * <p>如果任何 {@link #attempt(Supplier)} 返回 {@code false}，
+ * 已提取的物品将退回到链接存储（玩家物品栏作为回退）。</p>
  */
 public final class FluidOperation {
 
@@ -42,9 +42,9 @@ public final class FluidOperation {
     private boolean finalized;
 
     /**
-     * @param gate           the transfer gate providing extract/refund primitives
-     * @param insertHandlers handlers to refund the extracted item to on failure
-     * @param player         the player executing the operation
+     * @param gate           提供提取/退款原语的传输门
+     * @param insertHandlers 失败时退回已提取物品的处理器
+     * @param player         执行操作的玩家
      */
     public FluidOperation(FluidTransferGate gate, List<IItemHandler> insertHandlers, ServerPlayer player) {
         this.gate = Objects.requireNonNull(gate, "gate");
@@ -53,14 +53,14 @@ public final class FluidOperation {
     }
 
     // ──────────────────────────────────────────────────────────────────
-    //  Extract
+    //  提取
     // ──────────────────────────────────────────────────────────────────
 
     /**
-     * Extracts one item matching {@code targetItem} from the given handlers.
-     * The extracted item is remembered and will be refunded if the operation fails.
+     * 从给定处理器中提取一个匹配 {@code targetItem} 的物品。
+     * 提取的物品会被记住，如果操作失败将退款。
      *
-     * @return true if an item was successfully extracted
+     * @return 如果成功提取了物品则返回 true
      */
     public boolean extract(List<IItemHandler> handlers, Item targetItem) {
         if (finalized) return false;
@@ -69,14 +69,14 @@ public final class FluidOperation {
     }
 
     // ──────────────────────────────────────────────────────────────────
-    //  Attempt
+    //  尝试
     // ──────────────────────────────────────────────────────────────────
 
     /**
-     * Attempts an operation. If {@code action} returns false (or throws),
-     * the extracted item is refunded and no further attempts are accepted.
+     * 尝试执行一个操作。如果 {@code action} 返回 false（或抛出异常），
+     * 已提取的物品将被退款，且不再接受后续尝试。
      *
-     * @return the result of {@code action}
+     * @return {@code action} 的执行结果
      */
     public boolean attempt(Supplier<Boolean> action) {
         if (finalized) return false;
@@ -90,23 +90,23 @@ public final class FluidOperation {
     }
 
     // ──────────────────────────────────────────────────────────────────
-    //  Commit / rollback
+    //  提交 / 回滚
     // ──────────────────────────────────────────────────────────────────
 
     /**
-     * Marks the operation as successful. No refund will occur.
+     * 将操作标记为成功。不会执行退款。
      */
     public void commit() {
         finalized = true;
     }
 
     // ──────────────────────────────────────────────────────────────────
-    //  Accessors
+    //  访问器
     // ──────────────────────────────────────────────────────────────────
 
     /**
-     * Returns the extracted item (may have been modified by drain operations).
-     * Only valid after {@link #extract(List, Item)} returned true.
+     * 返回已提取的物品（可能已被排出操作修改）。
+     * 仅在 {@link #extract(List, Item)} 返回 true 后有效。
      */
     @Nullable
     public ItemStack getExtracted() {
@@ -114,7 +114,7 @@ public final class FluidOperation {
     }
 
     // ──────────────────────────────────────────────────────────────────
-    //  Internal
+    //  内部方法
     // ──────────────────────────────────────────────────────────────────
 
     private void rollback() {

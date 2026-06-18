@@ -1,10 +1,11 @@
 package com.rtsbuilding.rtsbuilding.network.blueprint;
 
-import com.rtsbuilding.rtsbuilding.Config;
 import com.rtsbuilding.rtsbuilding.common.blueprint.BlueprintParseException;
 import com.rtsbuilding.rtsbuilding.common.blueprint.RtsBlueprint;
 import com.rtsbuilding.rtsbuilding.common.blueprint.format.BlueprintReaders;
-import com.rtsbuilding.rtsbuilding.server.service.BlueprintPlacementService;
+import com.rtsbuilding.rtsbuilding.server.pipeline.context.BlueprintContext;
+import com.rtsbuilding.rtsbuilding.server.pipeline.core.PipelineRegistry;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowType;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -18,10 +19,6 @@ public final class BlueprintNetworkHandlers {
             if (!(context.player() instanceof ServerPlayer player)) {
                 return;
             }
-            if (!Config.areBlueprintsEnabled()) {
-                send(player, S2CBlueprintStatusPayload.ERROR, "screen.rtsbuilding.blueprints.status.disabled", "");
-                return;
-            }
             if (payload.data() == null || payload.data().length <= 0) {
                 send(player, S2CBlueprintStatusPayload.ERROR, "screen.rtsbuilding.blueprints.status.empty", "");
                 return;
@@ -32,13 +29,15 @@ public final class BlueprintNetworkHandlers {
             }
             try {
                 RtsBlueprint blueprint = BlueprintReaders.parse(payload.data(), payload.fileName(), player.registryAccess());
-                BlueprintPlacementService.queuePlacement(
-                        player,
-                        blueprint,
-                        payload.anchor(),
-                        payload.yRotationSteps(),
-                        payload.xRotationSteps(),
-                        payload.zRotationSteps());
+                BlueprintContext ctx = BlueprintContext.builder(player)
+                        .blueprint(blueprint)
+                        .anchor(payload.anchor())
+                        .yRotationSteps(payload.yRotationSteps())
+                        .xRotationSteps(payload.xRotationSteps())
+                        .zRotationSteps(payload.zRotationSteps())
+                        .totalBlocks(blueprint.blocks().size())
+                        .build();
+                PipelineRegistry.execute(RtsWorkflowType.BLUEPRINT_BUILD, ctx);
             } catch (BlueprintParseException ex) {
                 send(player, S2CBlueprintStatusPayload.ERROR, "screen.rtsbuilding.blueprints.status.parse_failed", ex.getMessage());
             }

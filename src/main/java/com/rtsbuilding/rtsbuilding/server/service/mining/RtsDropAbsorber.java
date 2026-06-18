@@ -16,28 +16,32 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.List;
 
 /**
- * Handles post-break drop absorption: scans for {@link ItemEntity}s near the
- * mined position and stores them into linked storage (or the player's inventory
- * as a fallback) when {@code autoStoreMinedDrops} is enabled.
+ * 挖掘掉落物吸收器，负责在方块被远程破坏后自动收集掉落物品。
  *
- * <p>This is a stateless utility class.  All configuration lives in the
- * session and progression system.</p>
+ * <p>当会话启用了 {@code autoStoreMinedDrops}（且科技树解锁 {@code AUTO_STORE_MINED_DROPS} 功能）时，
+ * 在破坏位置周围 1.25 格半径内扫描 {@link ItemEntity}，优先存入链接存储处理器，
+ * 回退到玩家背包。若两个目标均已满，剩余物品留在世界中。
+ *
+ * <p>无状态工具类，所有配置存在于会话和科技树进度系统中。
+ * 核心方法：
+ * <ul>
+ *   <li>{@link #absorbNearbyMinedDrops} — 执行扫描和吸收逻辑</li>
+ *   <li>{@link #absorbMinedDropsImmediately} — 便捷包装，吸收后自动触发任务检测和恢复挂起放置</li>
+ * </ul>
  */
 public final class RtsDropAbsorber {
 
-    /** Radius around the block break position to search for item entities. */
+    /** 方块破坏位置周围搜索物品实体的半径。 */
     private static final double DROP_SCAN_RADIUS = 1.25D;
 
     private RtsDropAbsorber() {
     }
 
     /**
-     * Scans for {@link ItemEntity}s within a 1.25-block radius of the mined
-     * position and stores each matching drop into linked storage first, then the
-     * player's inventory. If both destinations are full, the remaining item
-     * stays in the world.
+     * 扫描开采位置周围 1.25 格半径内的 {@link ItemEntity}，将每个匹配的掉落物优先存入
+     * 链接储存，再存入玩家背包。如果两个目标都已满，剩余物品留在世界中。
      *
-     * @return {@code true} if at least one drop was absorbed
+     * @return 至少吸收了一个掉落物时返回 {@code true}
      */
     public static boolean absorbNearbyMinedDrops(ServerPlayer player, BlockPos center, RtsStorageSession session) {
         if (player == null || center == null || session == null) {
@@ -76,8 +80,8 @@ public final class RtsDropAbsorber {
     }
 
     /**
-     * Convenience wrapper: calls {@link #absorbNearbyMinedDrops} and, if any
-     * drops were absorbed, triggers quest detection.
+     * 便捷包装方法：调用 {@link #absorbNearbyMinedDrops}，如果吸收了任何掉落物，
+     * 则触发任务检测。
      */
     public static void absorbMinedDropsImmediately(ServerPlayer player, RtsStorageSession session, BlockPos pos) {
         if (player == null || session == null || pos == null) {

@@ -15,6 +15,13 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.List;
 import java.util.function.Predicate;
 
+/**
+ * {@link TransferService} 的默认实现——处理链接存储与玩家之间的物品传输操作。
+ *
+ * <p>该实现类作为薄代理层，将所有传输操作委托给
+ * {@link com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferPlayerIntegration}
+ * 处理。负责协调会话获取和链接存储查询。
+ */
 public final class RtsTransferServiceImpl implements TransferService {
 
     private final ServiceRegistry registry = ServiceRegistry.getInstance();

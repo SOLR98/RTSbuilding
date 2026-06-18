@@ -9,25 +9,22 @@ import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 import net.neoforged.neoforge.items.IItemHandler;
 
 /**
- * Probes block capabilities for item and fluid handlers at linked-storage positions.
+ * 在链接存储坐标处探测方块容纳物的物品和流体处理器（Capability）。
  *
- * <p>This class owns only the low-level {@link IItemHandler} and
- * {@link IFluidHandler} capability lookup logic for block positions in the
- * world. It scans direct and sided capabilities and delegates to AE2 virtual
- * network handlers when applicable.
+ * <p>本类仅持有世界中方块坐标的低级 {@link IItemHandler} 和
+ * {@link IFluidHandler} 能力查询逻辑。它扫描直接和侧面的能力，
+ * 并在适用时委托给 AE2 虚拟网络处理器。
  *
- * <p>It deliberately does not resolve session refs, build storage pages,
- * transfer items/fluids, mutate inventories, or manage permissions. Those
- * responsibilities stay in {@link RtsLinkedStorageResolver} and the other
- * storage helpers.
+ * <p>它刻意不解析会话引用、构建存储页面、转移物品/流体、
+ * 修改物品栏或管理权限。这些职责保留在 {@link RtsLinkedStorageResolver}
+ * 和其他存储辅助类中。
  */
 public final class RtsLinkedCapabilities {
     private RtsLinkedCapabilities() {
     }
 
     /**
-     * Probes a block position for an item handler, checking direct and then all
-     * sided capabilities.
+     * 探测方块坐标的物品处理器，先检查直接能力，再检查所有侧面。
      */
     public static IItemHandler findHandler(ServerPlayer player, BlockPos pos) {
         if (!player.serverLevel().hasChunkAt(pos)) {
@@ -47,8 +44,8 @@ public final class RtsLinkedCapabilities {
     }
 
     /**
-     * Probes a block position for an item handler, preferring an AE2 virtual
-     * network handler before falling back to direct/sided capability scans.
+     * 探测方块坐标的物品处理器，优先使用 AE2 虚拟网络处理器，
+     * 回退到直接/侧面能力扫描。
      */
     public static IItemHandler findLinkedItemHandler(ServerPlayer player, BlockPos pos) {
         IItemHandler ae2Network = RtsAe2Compat.createNetworkItemHandler(player, pos);
@@ -59,8 +56,7 @@ public final class RtsLinkedCapabilities {
     }
 
     /**
-     * Probes a block position for a fluid handler, checking direct and then all
-     * sided capabilities.
+     * 探测方块坐标的流体处理器，先检查直接能力，再检查所有侧面。
      */
     public static IFluidHandler findFluidHandler(ServerPlayer player, BlockPos pos) {
         if (!player.serverLevel().hasChunkAt(pos)) {

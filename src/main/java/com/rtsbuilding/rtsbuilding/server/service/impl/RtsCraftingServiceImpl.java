@@ -14,6 +14,14 @@ import net.neoforged.neoforge.items.IItemHandler;
 
 import java.util.List;
 
+/**
+ * {@link CraftingService} 的默认实现——处理所有合成终端相关的服务端逻辑。
+ *
+ * <p>该实现类作为 {@link com.rtsbuilding.rtsbuilding.server.storage.RtsStorageCrafting}
+ * 静态工具方法的代理层，将请求委托给RTS储存合成系统处理。
+ * 负责管理合成终端GUI的打开、可合成物品列表的请求、
+ * 配方合成到链接存储、JEI 一键传输以及合成格填充等操作。
+ */
 public final class RtsCraftingServiceImpl implements CraftingService {
 
     private final ServiceRegistry registry = ServiceRegistry.getInstance();

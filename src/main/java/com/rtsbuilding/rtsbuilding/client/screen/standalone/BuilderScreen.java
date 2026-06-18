@@ -37,6 +37,7 @@ import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeGeometryUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.storage.LinkedStoragePanel;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarTypes;
+import com.rtsbuilding.rtsbuilding.client.screen.workflow.RtsBlueprintResumePanel;
 import com.rtsbuilding.rtsbuilding.client.screen.workflow.RtsResumePlacementPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.workflow.RtsWorkflowPanel;
 import com.rtsbuilding.rtsbuilding.client.service.MiningOperationService;
@@ -149,6 +150,8 @@ public final class BuilderScreen extends Screen {
     private final RtsWorkflowPanel workflowPanel = new RtsWorkflowPanel();
     /** Panel for reviewing and resuming suspended placement jobs. */
     private final RtsResumePlacementPanel resumePlacementPanel = new RtsResumePlacementPanel();
+    /** Panel for showing blueprint material requirements when resuming. */
+    private final RtsBlueprintResumePanel blueprintResumePanel = new RtsBlueprintResumePanel();
     /** Whether the user is currently dragging the input sensitivity slider. */
     private boolean draggingInputSensitivity = false;
     /** Whether the funnel hotkey (quick-activate funnel mode) is currently held down. */
@@ -206,7 +209,8 @@ public final class BuilderScreen extends Screen {
                 this.guidePanel,
                 this.quickBuildPanel,
                 this.workflowPanel,
-                this.resumePlacementPanel);
+                this.resumePlacementPanel,
+                this.blueprintResumePanel);
         this.uiStateManager.registerWindowPanel("settings", this.gearMenuPanel);
         this.uiStateManager.registerWindowPanel("blueprints", this.blueprintWindowPanel);
         this.uiStateManager.registerWindowPanel("guide", this.guidePanel);
@@ -225,6 +229,7 @@ public final class BuilderScreen extends Screen {
         this.quickBuildPanel.init(this, this.controller);
         this.workflowPanel.init(this, this.controller);
         this.resumePlacementPanel.init(this, this.controller);
+        this.blueprintResumePanel.init(this, this.controller);
         this.linkedStoragePanel.init(this, this.controller);
         this.topBarPanel.init(this, this.controller);
         this.bottomPanel.init(this, this.controller);
@@ -306,6 +311,10 @@ public final class BuilderScreen extends Screen {
      */
     public RtsResumePlacementPanel getResumePlacementPanel() {
         return this.resumePlacementPanel;
+    }
+
+    public RtsBlueprintResumePanel getBlueprintResumePanel() {
+        return this.blueprintResumePanel;
     }
     /** Returns the last recorded mouse X position (updated each render frame). */
     public double getCurrentMouseX() {

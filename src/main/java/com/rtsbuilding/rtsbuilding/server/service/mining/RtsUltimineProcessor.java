@@ -19,19 +19,27 @@ import net.minecraft.world.level.block.state.BlockState;
 import java.util.*;
 
 /**
- * Ultimine / area-mine / area-destroy batch processing.
+ * 连锁挖掘/区域挖掘/区域破坏的批次处理器。
  *
- * <p>This class owns the collection, per-tick processing, and finalisation of
- * multi-block mining batches.  It delegates single-block operations to
- * {@link RtsMiningStateMachine} and validation to
- * {@link RtsMiningValidator}.</p>
+ * <p>负责多方块挖掘批次的收集、每 tick 处理和结束。单方块操作委托给
+ * {@link RtsMiningStateMachine}，验证委托给 {@link RtsMiningValidator}。
  *
- * <p><b>Improvements over the monolithic original:</b>
+ * <p><b>三种挖掘模式：</b>
  * <ul>
- *   <li>Waterlogged blocks are no longer incorrectly excluded in
- *       {@link #collectAreaDestroyTargets}.</li>
- *   <li>Multi-block collateral (doors, beds) is tracked via
- *   <li>All session state manipulation is explicit and local.</li>
+ *   <li><b>连锁挖掘</b>（{@link #startUltimine}）— 从种子位置 BFS 收集同类型连通方块，
+ *   创造模式立即破坏，生存模式进入每 tick 处理</li>
+ *   <li><b>区域挖掘</b>（{@link #areaMine}）— 在限定 3D 体积内按形状/填充类型过滤破坏</li>
+ *   <li><b>区域破坏</b>（{@link #areaDestroy}）— 破坏给定显式位置列表的方块（来自形状预览）</li>
+ * </ul>
+ *
+ * <p><b>队列模式</b>：{@link #queueAreaDestroy} / {@link #queueStartUltimine} / {@link #queueAreaMine}
+ * 将操作排队为 {@link RtsMiningStateMachine.MiningJob}，支持独立线程或管道延迟执行。
+ *
+ * <p><b>改进亮点：</b>
+ * <ul>
+ *   <li>含水方块不再被错误排除</li>
+ *   <li>多方块附属（门、床）通过邻居记录追踪</li>
+ *   <li>工作流进度节流上报，避免每 tick 通信开销</li>
  * </ul>
  */
 public final class RtsUltimineProcessor {
@@ -40,18 +48,16 @@ public final class RtsUltimineProcessor {
     }
 
     // =========================================================================
-    //  Ultimine Start
+    //  连锁挖掘启动
     // =========================================================================
 
     /**
-     * Starts an ultimine batch (connected-block mining) at the given seed
-     * position.  Creative mode breaks instantly; survival mode begins remote
-     * break progress on the first target.
+     * 在给定种子位置启动连锁挖掘批次（连接方块挖掘）。
+     * 创造模式立即破坏；生存模式开始对第一个目标进行远程破坏进度。
      *
-     * <p><b>Preconditions (guaranteed by pipeline):</b> feature gate passed,
-     * session resolved and dimension-sanitised, previous mining stopped,
-     * tool borrowed (stored in {@code session.mining.miningToolLease}),
-     * workflow started ({@code ctx data: workflowEntryId}).</p>
+     * <p><b>前置条件（由 pipeline 保证）：</b>功能门已通过、会话已解析且维度已清理、
+     * 之前的挖掘已停止、工具已借用（存储在 {@code session.mining.miningToolLease} 中）、
+     * 工作流已启动（{@code ctx data: workflowEntryId}）。</p>
      */
     public static void startUltimine(ServerPlayer player, RtsStorageSession session,
             BlockPos pos, Direction face, byte toolSlot, int requestedLimit,
@@ -97,22 +103,21 @@ public final class RtsUltimineProcessor {
         session.mining.ultimineAbsorbedDrops = false;
         session.mining.miningFace = face == null ? Direction.DOWN : face;
         session.mining.miningToolSlot = slot;
-        // Workflow token already set by upstream WorkflowStartPipe via UltimineExecutePipe
+        // 工作流 token 已由上游 WorkflowStartPipe 通过 UltimineExecutePipe 设置
         RtsMiningStateMachine.beginRemoteMining(player, session, targets.peekFirst(), face, slot);
     }
 
     // =========================================================================
-    //  Area Mine
+    //  区域挖掘
     // =========================================================================
 
     /**
-     * Starts an area-mine operation: breaks all breakable blocks within the
-     * specified 3D volume bounds, filtered by shape/fill type.
+     * 启动区域挖掘操作：破坏指定 3D 体积边界内所有可破坏的方块，
+     * 按形状/填充类型过滤。
      *
-     * <p><b>Preconditions (guaranteed by pipeline):</b> feature gate passed,
-     * session resolved, dimension sanitised, previous mining stopped, tool
-     * borrowed ({@code session.mining.miningToolLease}), workflow started
-     * (tracked via pipeline context).</p>
+     * <p><b>前置条件（由 pipeline 保证）：</b>功能门已通过、会话已解析、维度已清理、
+     * 之前的挖掘已停止、工具已借用（{@code session.mining.miningToolLease}）、
+     * 工作流已启动（通过 pipeline 上下文追踪）。</p>
      */
     public static void areaMine(ServerPlayer player, RtsStorageSession session,
             int minX, int maxX, int minY, int maxY, int minZ, int maxZ,
@@ -122,7 +127,7 @@ public final class RtsUltimineProcessor {
             return;
         }
 
-        // Clamp bounds
+        // 限定范围
         int clampedMinX = minX;
         int clampedMaxX = Math.min(clampedMinX + RtsMiningValidator.AREA_MINE_MAX_SIZE - 1, maxX);
         int clampedMinZ = minZ;
@@ -138,7 +143,7 @@ public final class RtsUltimineProcessor {
             return;
         }
 
-        // Use shared shape system
+        // 使用共享形状系统
         List<BlockPos> candidatePositions = AreaOperationExecutor.scanAreaMineTargets(
                 player.serverLevel(),
                 clampedMinX, clampedMaxX,
@@ -169,23 +174,21 @@ public final class RtsUltimineProcessor {
         session.mining.ultimineAbsorbedDrops = false;
         session.mining.miningFace = Direction.DOWN;
         session.mining.miningToolSlot = slot;
-        // Workflow token already set by upstream WorkflowStartPipe via UltimineExecutePipe
+        // 工作流 token 已由上游 WorkflowStartPipe 通过 UltimineExecutePipe 设置
         RtsMiningStateMachine.beginRemoteMining(player, session, targets.peekFirst(), null, slot);
     }
 
     // =========================================================================
-    //  Area Destroy
+    //  区域破坏
     // =========================================================================
 
     /**
-     * Destroys blocks at the given explicit positions (from Quick Build shape
-     * preview).  Creative mode breaks instantly; survival mode feeds targets
-     * into the ultimine batch processing pipeline.
+     * 破坏给定显式位置的方块（来自快速建造形状预览）。
+     * 创造模式立即破坏；生存模式将目标送入连锁挖掘批次处理流程。
      *
-     * <p><b>Preconditions (guaranteed by pipeline):</b> feature gate passed,
-     * session resolved, dimension sanitised, previous mining stopped, tool
-     * borrowed ({@code session.mining.miningToolLease}), workflow started
-     * (tracked via pipeline context).</p>
+     * <p><b>前置条件（由 pipeline 保证）：</b>功能门已通过、会话已解析、维度已清理、
+     * 之前的挖掘已停止、工具已借用（{@code session.mining.miningToolLease}）、
+     * 工作流已启动（通过 pipeline 上下文追踪）。</p>
      */
     public static void areaDestroy(ServerPlayer player, RtsStorageSession session, List<BlockPos> positions,
             byte toolSlot, boolean toolProtectionEnabled) {
@@ -228,26 +231,24 @@ public final class RtsUltimineProcessor {
         session.mining.miningToolSlot = slot;
         RtsbuildingMod.LOGGER.info("[RtsUltimineProcessor] areaDestroy: {} valid targets out of {} positions for {}",
                 targets.size(), positions.size(), player.getGameProfile().getName());
-        // Workflow token already set by upstream WorkflowStartPipe via UltimineExecutePipe
+        // 工作流 token 已由上游 WorkflowStartPipe 通过 UltimineExecutePipe 设置
         RtsMiningStateMachine.beginRemoteMining(player, session, targets.peekFirst(), null, slot);
     }
 
     // =========================================================================
-    //  Queue Mode (deferred execution for independent threads)
+    //  队列模式（为独立线程延迟执行）
     // =========================================================================
 
     /**
-     * Queues an area-destroy operation as a pending {@code MiningJob}.  The
-     * targets will be processed when all earlier jobs in the queue complete.
+     * 将区域破坏操作排队为待处理的 {@code MiningJob}。
+     * 当队列中所有更早的作业完成时，目标将被处理。
      *
-     * <p>In creative mode the blocks are broken immediately and the workflow
-     * entry is completed right away, since creative-mode breaking requires
-     * special handling that cannot go through the normal
-     * {@link #processUltimineTargets} path.</p>
+     * <p>在创造模式下，方块被立即破坏且工作流条目立即完成，
+     * 因为创造模式破坏需要特殊处理，不能走常规的
+     * {@link #processUltimineTargets} 路径。</p>
      *
-     * @param workflowEntryId  the workflow entry created by WorkflowStartPipe
-     * @return number of targets queued (or broken immediately for creative),
-     *         or 0 if no valid targets
+     * @param workflowEntryId  WorkflowStartPipe 创建的工作流条目
+     * @return 排队的（或创造模式立即破坏的）目标数，如果没有有效目标则返回 0
      */
     public static int queueAreaDestroy(ServerPlayer player, RtsStorageSession session, List<BlockPos> positions,
             byte toolSlot, boolean toolProtectionEnabled, int workflowEntryId) {
@@ -369,7 +370,7 @@ public final class RtsUltimineProcessor {
             return 0;
         }
 
-        // Clamp bounds
+        // 限定范围
         int clampedMinX = minX;
         int clampedMaxX = Math.min(clampedMinX + RtsMiningValidator.AREA_MINE_MAX_SIZE - 1, maxX);
         int clampedMinZ = minZ;
@@ -467,12 +468,12 @@ public final class RtsUltimineProcessor {
     }
 
     // =========================================================================
-    //  Ultimine Batch Processing
+    //  连锁挖掘批次处理
     // =========================================================================
 
     /**
-     * Processes up to {@link RtsMiningValidator#ULTIMINE_BLOCKS_PER_TICK}
-     * queued ultimine targets.
+     * 处理最多 {@link RtsMiningValidator#ULTIMINE_BLOCKS_PER_TICK}
+     * 个排队的连锁挖掘目标。
      */
     static void processUltimineTargets(ServerPlayer player, RtsStorageSession session) {
         if (session.mining.ultimineTargets.isEmpty()) {
@@ -555,8 +556,7 @@ public final class RtsUltimineProcessor {
     }
 
     /**
-     * Finalises an ultimine batch: clears progress, returns the borrowed tool,
-     * marks the storage page dirty, and resets the mining state.
+     * 完成连锁挖掘批次：清除进度、归还借用的工具、标记储存页面为脏并重置挖掘状态。
      */
     static void finishUltimineBatch(ServerPlayer player, RtsStorageSession session) {
         RtsbuildingMod.LOGGER.info("[RtsUltimineProcessor] finishUltimineBatch: {} broken / {} processed / {} total for {}",
@@ -573,7 +573,7 @@ public final class RtsUltimineProcessor {
     }
 
     /**
-     * Instantly breaks all queued ultimine targets for a creative-mode player.
+     * 为创造模式玩家立即破坏所有排队的连锁挖掘目标。
      */
     static void breakCreativeUltimineTargets(ServerPlayer player, RtsStorageSession session, Deque<BlockPos> targets,
             int toolSlot) {
@@ -599,12 +599,11 @@ public final class RtsUltimineProcessor {
     }
 
     // =========================================================================
-    //  Multi-Block Collateral Tracking
+    //  多方块附属追踪
     // =========================================================================
 
     /**
-     * Captures the before-break state of all 6 neighbors for multi-block
-     * structure tracking.
+     * 捕获所有 6 个邻居的破坏前状态，用于多方块结构追踪。
      */
     private static List<HistoryBlockRecord> captureNeighborRecords(ServerLevel level, BlockPos pos) {
         List<HistoryBlockRecord> records = new ArrayList<>(6);
@@ -619,8 +618,7 @@ public final class RtsUltimineProcessor {
     }
 
     /**
-     * After a block is broken, checks which neighbor positions changed to air
-     * and records them as collateral in the session.
+     * 方块被破坏后，检查哪些邻居位置变成了空气并将会话中记录为附属破坏。
      */
     private static void recordCollateralBlocks(ServerLevel level, RtsStorageSession session,
             List<HistoryBlockRecord> neighborRecords, BlockPos brokenPos) {

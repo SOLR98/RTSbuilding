@@ -5,6 +5,9 @@ import com.rtsbuilding.rtsbuilding.server.service.ServiceRegistry;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
+/**
+ * {@link RtsTransferAPI} 的实现——委托给物品转移服务层。
+ */
 public final class RtsTransferAPIImpl implements RtsTransferAPI {
 
     private static final ServiceRegistry REGISTRY = ServiceRegistry.getInstance();

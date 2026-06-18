@@ -32,7 +32,7 @@ public class RtsTransferState {
     /** 下次检测 RTS 任务或进度的 tick 时间 */
     public long nextQuestDetectTick;
 
-    /** True when the client's storage browser page no longer matches storage contents. */
+    /** 当客户端的存储浏览器页面不再匹配存储内容时为 true。 */
     public boolean storageViewDirty;
 
     /**

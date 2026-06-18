@@ -22,6 +22,18 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * {@link SessionService} 的默认实现——管理 RTS 模式会话的完整生命周期。
+ *
+ * <p>使用 {@link ConcurrentHashMap} 维护玩家 UUID 到 {@link RtsStorageSession} 的映射。
+ * 负责：
+ * <ul>
+ *   <li>会话的懒加载创建（{@link #getOrCreate}）</li>
+ *   <li>会话持久化（通过 {@link com.rtsbuilding.rtsbuilding.server.data.RtsStorageSessionCodec} 序列化到 NBT）</li>
+ *   <li>玩家启用/禁用 RTS 模式时的资源初始化/清理</li>
+ *   <li>玩家登出时的完整清理（释放挖掘、漏斗、远程菜单、BD 缓存等资源）</li>
+ * </ul>
+ */
 public final class RtsSessionServiceImpl implements SessionService {
 
     private final Map<UUID, RtsStorageSession> sessions = new ConcurrentHashMap<>();

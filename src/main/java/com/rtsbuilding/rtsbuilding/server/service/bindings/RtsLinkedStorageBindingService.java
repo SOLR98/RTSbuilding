@@ -18,16 +18,20 @@ import net.minecraft.world.level.block.state.properties.ChestType;
 import java.util.UUID;
 
 /**
- * Manages linked storage ref lifecycle (add, toggle, update settings, remove).
+ * 管理链接存储引用的生命周期（添加、切换、更新设置、移除）。
  *
- * <p>Extracted from {@link RtsStorageBindings} to isolate linked-storage binding
- * logic from quick-slot and GUI-binding concerns. This class handles the session
- * mutation side of linking, including ref creation, double-chest detection,
- * backpack metadata tracking, and extract-only mode toggles.
+ * <p>该服务处理链接存储引用的会话变更方面：
+ * <ul>
+ *   <li>添加新的链接存储引用（支持双箱子检测）</li>
+ *   <li>切换（点击已链接的存储 = 解绑，再次点击 = 切换模式后重新链接）</li>
+ *   <li>更新已有引用的设置（链接模式、优先级）</li>
+ *   <li>管理精制背包的 UUID 和物品 ID 元数据</li>
+ * </ul>
  *
- * <p>Only the pure binding logic lives here; capability probing for chunk/block
- * existence and progression gates still come from {@link RtsLinkedCapabilities}
- * and {@link RtsLinkedStorageResolver}.
+ * <p>从 {@link RtsStorageBindings} 提取，将链接存储绑定逻辑与快速槽
+ * 和 GUI 绑定关注点分离。方块/区块存在性的能力探测和进度门控
+ * 仍来自 {@link RtsLinkedCapabilities} 和 {@link RtsLinkedStorageResolver}。
+ * 属于 Phase 2 服务解耦的一部分。
  */
 public final class RtsLinkedStorageBindingService {
 
@@ -39,9 +43,8 @@ public final class RtsLinkedStorageBindingService {
     // ======================================================================
 
     /**
-     * Toggles or retargets a linked storage ref while preserving the existing
-     * extract-only mode behavior. A target with no item or fluid endpoint still
-     * asks the UI to return to page zero without saving session data.
+     * 切换或重定向链接存储引用，同时保留现有的仅提取模式行为。
+     * 没有物品或流体端点的目标会要求 UI 返回第零页而不保存会话数据。
      */
     public static RtsStorageBindings.UpdateResult linkStorage(ServerPlayer player, RtsStorageSession session,
             BlockPos pos, byte linkMode) {
@@ -93,10 +96,9 @@ public final class RtsLinkedStorageBindingService {
     }
 
     /**
-     * Updates settings for an existing linked storage row. This is intentionally
-     * not a link/create operation: the detail panel can edit mode and AE-style
-     * priority, but the server still requires the ref to already belong to the
-     * player's session.
+     * 更新已有链接存储行的设置。这有意不作为链接/创建操作：
+     * 详情面板可以编辑模式和 AE 式优先级，但服务器仍然要求
+     * 引用已经属于玩家的会话。
      */
     public static RtsStorageBindings.UpdateResult updateSettings(ServerPlayer player, RtsStorageSession session,
             BlockPos pos, byte linkMode, int priority) {
@@ -159,8 +161,7 @@ public final class RtsLinkedStorageBindingService {
     }
 
     /**
-     * Checks whether the given block position belongs to a double chest whose
-     * other half is already linked in the session.
+     * 检查给定的方块位置是否属于双箱子，且其另一半已在会话中链接。
      */
     private static boolean isDoubleChestHalfAlreadyLinked(ServerPlayer player, RtsStorageSession session, BlockPos pos) {
         if (player == null || session == null || pos == null) {
@@ -185,8 +186,8 @@ public final class RtsLinkedStorageBindingService {
     }
 
     /**
-     * Finds the already-linked ref of the connected chest half, or null if
-     * the target is not part of a double chest or the other half is not linked.
+     * 查找已链接的相邻箱子半边的引用，如果目标不是双箱子的一部分
+     * 或另一半未链接，则返回 null。
      */
     private static LinkedStorageRef findDoubleChestLinkedRef(ServerPlayer player, RtsStorageSession session, BlockPos pos) {
         if (player == null || session == null || pos == null) {

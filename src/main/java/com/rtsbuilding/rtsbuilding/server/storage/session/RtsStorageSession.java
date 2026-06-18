@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.storage.session;
 
 import com.rtsbuilding.rtsbuilding.common.BuilderMode;
+import com.rtsbuilding.rtsbuilding.server.storage.state.RtsDestructionState;
 import com.rtsbuilding.rtsbuilding.server.storage.state.RtsFunnelState;
 import com.rtsbuilding.rtsbuilding.server.storage.state.RtsMiningState;
 import com.rtsbuilding.rtsbuilding.server.storage.state.RtsPlacementState;
@@ -96,4 +97,16 @@ public class RtsStorageSession {
 
     /** 远程放置与回收状态 */
     public final RtsPlacementState placement = new RtsPlacementState();
+
+    // ======================================================================
+    // §11  范围破坏队列
+    // ======================================================================
+
+    /**
+     * 范围破坏（AREA_DESTROY）的异步队列状态。
+     *
+     * <p>仅存储待处理的破坏作业和挂起的破坏作业，
+     * 无业务逻辑。工具租赁仍使用 {@link #mining} 中的字段。
+     */
+    public final RtsDestructionState destruction = new RtsDestructionState();
 }

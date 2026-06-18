@@ -9,6 +9,9 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.function.Predicate;
 
+/**
+ * {@link RtsStorageQueryAPI} 的实现——委托给存储查询服务层。
+ */
 public final class RtsStorageQueryAPIImpl implements RtsStorageQueryAPI {
 
     private static final ServiceRegistry REGISTRY = ServiceRegistry.getInstance();

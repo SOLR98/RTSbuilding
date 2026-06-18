@@ -30,14 +30,35 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.*;
 
 /**
- * 已放置方块恢复服务——管理远程破坏后掉落物回收。
+ * 已放置方块恢复服务——管理 RTS 远程放置方块的破坏和掉落物回收。
  *
- * <p>职责范围：
+ * <p>此服务处理已放置方块（由 {@code PlacedBlockTrackerData} 追踪）的
+ * 远程破坏流程，包括模拟精准采集、掉落物收集、入队回收和自动存储。
+ * 所有方法均为 {@code static}，类本身为不可实例化的工具类。
+ *
+ * <p><b>核心流程：</b>
  * <ul>
- *   <li>已放置方块的远程破坏</li>
- *   <li>掉落物回收队列管理</li>
- *   <li>自动回收到链接存储</li>
+ *   <li>{@link #breakPlaced(ServerPlayer, BlockPos, Direction, boolean)} —
+ *       远程破坏已放置方块：检查权限和追踪状态、模拟下界合金镐+精准采集破坏、
+ *       收集新增掉落物入队、从链接存储引用中移除已破坏方块、刷新工作流进度</li>
+ *   <li>{@link #tick(ServerPlayer, RtsStorageSession)} —
+ *       每 tick 处理恢复作业队列，将掉落物栈依次存入链接存储；
+ *       每 tick 最多处理 {@code PLACED_RECOVERY_MAX_JOBS_PER_TICK} 个作业
+ *       和 {@code PLACED_RECOVERY_MAX_STACKS_PER_TICK} 个栈</li>
  * </ul>
+ *
+ * <p><b>内部方法：</b>
+ * <ul>
+ *   <li>{@link #snapshotNearbyDropIds(ServerLevel, BlockPos)} — 破坏前快照附近掉落物 UUID 集合</li>
+ *   <li>{@link #collectNewNearbyDrops(ServerLevel, BlockPos, Set)} — 破坏后收集新增掉落物</li>
+ *   <li>{@link #breakWithSimulatedSilkTouch(ServerPlayer, ServerLevel, BlockPos)} —
+ *       使用模拟精准采集工具破坏方块</li>
+ *   <li>{@link #recoveryHandlersExcluding(List, BlockPos)} — 获取恢复用的处理器列表，排除刚破坏的方块自身</li>
+ * </ul>
+ *
+ * <p><b>存储策略：</b>掉落物优先存入链接存储的同类型堆叠，
+ * 溢出时存入玩家背包，再溢出则丢弃并提示玩家。
+ * 使用 {@link RtsLinkedHandlerResolutionService#orderHandlersForInsert} 获取有序的插入处理器。
  */
 public final class RtsPlacedRecoveryService {
 

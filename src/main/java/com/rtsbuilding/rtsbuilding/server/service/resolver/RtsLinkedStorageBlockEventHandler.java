@@ -17,15 +17,18 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Handles block-event lifecycle for linked storage blocks.
+ * 链接存储方块事件处理器——响应链接存储方块的世界事件（破坏/放置）。
  *
- * <p>This service is responsible for responding to linked storage block
- * break and place events: removing stale refs from player sessions,
- * refreshing storage pages, and migrating backpack UUID-based refs
- * when a Sophisticated Backpack is broken and re-placed.
+ * <p>此服务负责处理以下场景：
+ * <ul>
+ *   <li><b>方块破坏</b>：当链接存储方块被破坏时，自动从所有相关玩家的
+ *   会话中移除过期引用，并刷新其储存页面。</li>
+ *   <li><b>方块放置</b>：当精制背包（Sophisticated Backpacks）被破坏后
+ *   重新放置时，迁移基于背包 UUID 的引用到新的坐标位置。</li>
+ * </ul>
  *
- * <p>Extracted from {@link RtsLinkedStorageResolver} to isolate block-event
- * logic from resolver access-check and summary-building concerns.
+ * <p>从 {@link RtsLinkedStorageResolver} 提取，以将方块事件逻辑
+ * 与解析器的访问检查和摘要构建关注点分离。
  */
 public final class RtsLinkedStorageBlockEventHandler {
 
@@ -37,8 +40,8 @@ public final class RtsLinkedStorageBlockEventHandler {
     // ======================================================================
 
     /**
-     * Called when a linked storage block is broken. Removes the reference
-     * from all affected sessions and refreshes their storage page.
+     * 当链接存储方块被破坏时调用。从所有受影响的会话中移除引用
+     * 并刷新其存储页面。
      */
     public static void onLinkedStorageBlockBroken(ServerLevel level, BlockPos pos) {
         if (level == null || pos == null || level.getServer() == null) {
@@ -58,8 +61,7 @@ public final class RtsLinkedStorageBlockEventHandler {
     }
 
     /**
-     * Called when a backpack storage block is placed. Updates all sessions
-     * that own the backpack with the new position.
+     * 当背包存储方块被放置时调用。更新所有拥有该背包的会话的新位置。
      */
     public static void onLinkedStorageBlockPlaced(ServerLevel level, BlockPos pos) {
         if (level == null || pos == null || level.getServer() == null || !RtsBackpackCompat.isAvailable()) {
@@ -183,9 +185,9 @@ public final class RtsLinkedStorageBlockEventHandler {
     }
 
     /**
-     * Removes orphaned metadata entries whose {@link LinkedStorageRef} is no
-     * longer present in {@code session.linkedStorageInfo}. Called after any
-     * operation that removes refs from the list.
+     * 移除其 {@link LinkedStorageRef} 不再存在于
+     * {@code session.linkedStorageInfo} 中的孤立元数据条目。
+     * 在从列表中移除引用的任何操作后调用。
      */
     public static void cleanupOrphanRefs(RtsStorageSession session) {
         session.linkedStorageInfo.cleanupOrphans();

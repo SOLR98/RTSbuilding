@@ -21,6 +21,16 @@ import net.neoforged.neoforge.items.IItemHandler;
 
 import java.util.List;
 
+/**
+ * {@link FluidService} 的默认实现——处理远程流体抽取和放置操作。
+ *
+ * <p>该实现类协调多个系统组件：
+ * <ul>
+ *   <li>使用 {@link com.rtsbuilding.rtsbuilding.server.storage.RtsStorageFluids} 执行实际的流体存取逻辑</li>
+ *   <li>使用 {@link com.rtsbuilding.rtsbuilding.server.service.resolver.RtsLinkedHandlerResolutionService} 解析流体处理器</li>
+ *   <li>使用 {@link com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager} 检查相机状态</li>
+ * </ul>
+ */
 public final class RtsFluidServiceImpl implements FluidService {
 
     private final ServiceRegistry registry = ServiceRegistry.getInstance();

@@ -6,6 +6,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
 
+/**
+ * {@link RtsFluidAPI} 的实现——委托给流体服务层。
+ */
 public final class RtsFluidAPIImpl implements RtsFluidAPI {
 
     private static final ServiceRegistry REGISTRY = ServiceRegistry.getInstance();

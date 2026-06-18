@@ -20,14 +20,24 @@ import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.List;
 
-final class VanillaStructureNbtReader {
+public final class VanillaStructureNbtReader {
     private VanillaStructureNbtReader() {
     }
 
     static RtsBlueprint parse(byte[] data, String fileName, RegistryAccess registryAccess) throws BlueprintParseException {
         CompoundTag root = readCompressed(data, fileName);
+        return parse(root, cleanName(fileName), fileName, registryAccess);
+    }
+
+    /**
+     * 从已经解压的 {@link CompoundTag} 解析蓝图（内部格式，由
+     * {@link BlueprintWriters#toVanillaStructureTag(RtsBlueprint)} 生成）。
+     *
+     * <p>用于持久化恢复路径——直接从存储的 NBT 重建蓝图，无需经过文件 I/O。</p>
+     */
+    public static RtsBlueprint parse(CompoundTag root, String name, String sourceName, RegistryAccess registryAccess) {
         if (!root.contains("palette", Tag.TAG_LIST) || !root.contains("blocks", Tag.TAG_LIST)) {
-            throw new BlueprintParseException("NBT file is not a vanilla structure blueprint: " + fileName);
+            return RtsBlueprint.create(name, sourceName, BlueprintFormat.VANILLA_NBT, Vec3i.ZERO, List.of());
         }
 
         HolderGetter<Block> blocks = registryAccess.lookupOrThrow(Registries.BLOCK);
@@ -68,7 +78,7 @@ final class VanillaStructureNbtReader {
             }
             out.add(new RtsBlueprintBlock(pos, state, blockEntityTag, "", materialItemId));
         }
-        return RtsBlueprint.create(cleanName(fileName), fileName, BlueprintFormat.VANILLA_NBT, size, out);
+        return RtsBlueprint.create(name, sourceName, BlueprintFormat.VANILLA_NBT, size, out);
     }
 
     private static String missingBlockId(CompoundTag paletteEntry) {

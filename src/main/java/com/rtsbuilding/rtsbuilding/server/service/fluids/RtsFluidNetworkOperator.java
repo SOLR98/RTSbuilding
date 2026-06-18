@@ -11,17 +11,21 @@ import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 import java.util.List;
 
 /**
- * Owns the fluid network operations across linked fluid handlers and the
- * internal session buffer.
+ * 跨链接流体处理器和内部缓冲区的流体网络操作器。
  *
- * <p>This service handles counting, extracting from, and inserting into the
- * fluid network (linked handlers first, then internal buffer as overflow).
- * It deliberately does not handle world placement, container draining, or
- * item-level fluid transfer — those belong to {@link RtsFluidWorldPlacer}
- * and {@link RtsFluidBufferService} respectively.
+ * <p>提供流体网络层的三个核心操作，均按"先链接处理器，再内部缓冲区回退"的顺序执行：
+ * <ul>
+ *   <li>{@link #countFluidInNetwork} — 统计网络中指定流体的总量</li>
+ *   <li>{@link #extractFluidFromNetwork} — 从网络提取流体（先排空链接处理器，再排空内部缓冲区）</li>
+ *   <li>{@link #insertFluidIntoNetwork} — 将流体插入网络（先填充链接处理器，再溢入内部缓冲区）</li>
+ * </ul>
  *
- * <p>Extracted from {@link com.rtsbuilding.rtsbuilding.server.storage.RtsStorageFluids}
- * to isolate the network-layer fluid logic from the public-facing fluid API.
+ * <p><b>职责边界：</b>
+ * <ul>
+ *   <li>不处理世界级流体放置（由 {@link RtsFluidWorldPlacer} 负责）</li>
+ *   <li>不处理物品容器的排空/填充（由 {@link RtsFluidBufferService#drainContainer} 负责）</li>
+ *   <li>不暴露在 {@code service} API 层之外——通过 {@link com.rtsbuilding.rtsbuilding.server.storage.RtsStorageFluids} 桥接</li>
+ * </ul>
  */
 public final class RtsFluidNetworkOperator {
 
@@ -33,8 +37,7 @@ public final class RtsFluidNetworkOperator {
     // ======================================================================
 
     /**
-     * Counts the total amount of a specific fluid across all linked fluid
-     * handlers and the internal buffer.
+     * 统计所有链接流体处理器和内部缓冲区中特定流体的总量。
      */
     public static long countFluidInNetwork(RtsStorageSession session, List<LinkedFluidHandler> fluidHandlers, Fluid fluid) {
         if (session == null || fluidHandlers == null || fluid == null) {
@@ -61,8 +64,8 @@ public final class RtsFluidNetworkOperator {
     // ======================================================================
 
     /**
-     * Extracts fluid from the network (linked handlers first, then internal
-     * buffer). Returns the amount (in mb) actually drained.
+     * 从网络提取流体（先链接处理器，再内部缓冲区）。
+     * 返回实际排出的量（以 mb 为单位）。
      */
     public static int extractFluidFromNetwork(RtsStorageSession session, List<LinkedFluidHandler> fluidHandlers,
             Fluid fluid, int amount, boolean execute) {
@@ -95,8 +98,8 @@ public final class RtsFluidNetworkOperator {
     // ======================================================================
 
     /**
-     * Inserts fluid into the network (linked handlers first, then internal
-     * buffer as overflow). Returns the amount (in mb) actually stored.
+     * 将流体插入网络（先链接处理器，再内部缓冲区作为溢出）。
+     * 返回实际存储的量（以 mb 为单位）。
      */
     public static int insertFluidIntoNetwork(net.minecraft.server.level.ServerPlayer player,
             com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession session,
@@ -136,9 +139,8 @@ public final class RtsFluidNetworkOperator {
     // ======================================================================
 
     /**
-     * Drains a specific fluid from a single handler. Tries exact-match drain
-     * first, then falls back to generic drain if the handler does not support
-     * FluidStack-based drain filtering.
+     * 从单个处理器排空特定流体。先尝试精确匹配排空，
+     * 如果处理器不支持基于 FluidStack 的排空过滤，则回退到通用排空。
      */
     private static FluidStack drainMatchingFluid(IFluidHandler handler, Fluid fluid, int amount, boolean execute) {
         if (handler == null || fluid == null || amount <= 0) {

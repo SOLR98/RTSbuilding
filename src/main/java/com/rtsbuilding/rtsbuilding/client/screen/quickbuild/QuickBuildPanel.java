@@ -407,7 +407,7 @@ public final class QuickBuildPanel extends RtsWindowPanel {
         RtsWorkflowStatus workflow = this.controller.findActiveDestroyWorkflow();
         int processed = workflow != null ? workflow.completedBlocks() : -1;
         int total = workflow != null ? workflow.totalBlocks() : 0;
-        if (processed >= 0 && total > 0 && workflow.remainingBlocks() > 0) {
+        if (processed >= 0 && total > 0) {
             int filled = Math.min(barW, Math.round(barW * (processed / (float) total)));
             g.fill(barX, barY, barX + filled, barY + barH, 0xFFFF8EAD);
         } else {
@@ -517,7 +517,7 @@ public final class QuickBuildPanel extends RtsWindowPanel {
 
             if (effectiveMode() == QuickBuildMode.DESTROY) {
                 RtsWorkflowStatus workflow = this.controller.findActiveDestroyWorkflow();
-                if (workflow != null && workflow.remainingBlocks() > 0) {
+                if (workflow != null) {
                     String fullText = workflow.progressText() + "    "
                             + screen.text("screen.rtsbuilding.quick_build.destroy_remaining", workflow.remainingBlocks());
                     g.drawString(screen.font(), fullText, x + 8, textY, 0xFFB8FFB8, false);

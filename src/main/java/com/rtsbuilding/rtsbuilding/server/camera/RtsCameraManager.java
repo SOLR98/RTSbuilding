@@ -99,7 +99,7 @@ public final class RtsCameraManager {
      */
     private static void startNormal(ServerPlayer player, boolean startAtPlayerHead) {
         cleanupOrphanCameras(player.getServer());
-        RtsCameraEntityHelper.discardOwnedCameras(player, null);
+        RtsCameraEntityHelper.discardOwnedCameras(player);
         ServerLevel level = player.serverLevel();
         Vec3 playerPos = player.position();
         // 将锚点对齐到方块中心，使相机边界与放置边界匹配
@@ -164,7 +164,7 @@ public final class RtsCameraManager {
      */
     private static void startHomeSelection(ServerPlayer player, boolean startAtPlayerHead) {
         cleanupOrphanCameras(player.getServer());
-        RtsCameraEntityHelper.discardOwnedCameras(player, null);
+        RtsCameraEntityHelper.discardOwnedCameras(player);
         ServerLevel level = player.serverLevel();
         BlockPos playerPos = player.blockPosition();
         // 计算玩家所在区块的中心坐标
@@ -216,7 +216,7 @@ public final class RtsCameraManager {
                 RtsProgressionManager.endHomeSelection(player);
             }
         }
-        RtsCameraEntityHelper.discardOwnedCameras(player, null);
+        RtsCameraEntityHelper.discardOwnedCameras(player);
 
         PacketDistributor.sendToPlayer(player, new S2CRtsCameraStatePayload(false, -1, 0.0D, 0.0D, 0.0D,
                 RtsProgressionManager.DEFAULT_MAX_ACTION_RADIUS_BLOCKS, 18.0D, 0.0F, 70.0F, false, false));
@@ -264,15 +264,6 @@ public final class RtsCameraManager {
     public static Vec3 getCameraPosition(ServerPlayer player) {
         Session session = SESSIONS.get(player.getUUID());
         return session != null ? session.cameraPos() : null;
-    }
-
-    /**
-     * 判断指定方块位置是否在玩家的 RTS 动作半径内。
-     *
-     * @see #isWithinActionRange(ServerPlayer, BlockPos)
-     */
-    public static boolean isWithinActionRadius(ServerPlayer player, BlockPos pos) {
-        return isWithinActionRange(player, pos);
     }
 
     /**
@@ -399,6 +390,7 @@ public final class RtsCameraManager {
     /**
      * 获取或恢复相机实体。<p>如果相机丢失（因维度切换等），则按上次记录的会话状态重新创建。</p>
      */
+    @SuppressWarnings("resource")
     private static RtsCameraEntity getOrRestoreCamera(ServerPlayer player, Session session) {
         Entity baseEntity = RtsCameraEntityHelper.findCameraEntity(player.getServer(), session.cameraUuid());
         if (baseEntity instanceof RtsCameraEntity camera && baseEntity.level() == player.serverLevel()) {

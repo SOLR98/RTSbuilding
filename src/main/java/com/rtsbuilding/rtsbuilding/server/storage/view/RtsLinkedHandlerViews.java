@@ -5,29 +5,26 @@ import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.items.IItemHandler;
 
 /**
- * Handler wrapper views and item-insertion helpers for linked storage resolution.
+ * 处理器包装视图和链接存储解析的物品插入辅助方法。
  *
- * <p>This class owns the {@link IItemHandler} and {@link IFluidHandler}
- * wrapper views that enforce extract-only store rules, and the
- * any-slot-insertion helper methods used by item transfer flows.
+ * <p>本类持有强制执行仅提取存储规则的 {@link IItemHandler} 和 {@link IFluidHandler}
+ * 包装视图，以及物品传输流程中使用的任意槽位插入辅助方法。
  *
- * <p>It deliberately does not probe capabilities, resolve session refs, build
- * pages, transfer items/fluids, or manage permissions. Capability probing stays
- * in {@link RtsLinkedCapabilities} and session resolution stays in
- * {@link RtsLinkedStorageResolver}.
+ * <p>它刻意不探测能力、解析会话引用、构建页面、
+ * 转移物品/流体或管理权限。能力探测保留在 {@link RtsLinkedCapabilities}，
+ * 会话解析保留在 {@link RtsLinkedStorageResolver}。
  */
 public final class RtsLinkedHandlerViews {
     private RtsLinkedHandlerViews() {
     }
 
     // =====================================================================
-    //  INSERTION HELPERS
+    //  插入辅助
     // =====================================================================
 
     /**
-     * Tries to insert a stack using any-slot-insert support first, returning
-     * {@code null} if the handler does not support it so callers can fall back
-     * to slot-by-slot insertion.
+     * 优先尝试使用任意槽位插入支持来插入堆叠，
+     * 如果处理器不支持则返回 {@code null}，调用者可回退到逐槽位插入。
      */
     public static ItemStack insertItemAnywhereIfSupported(IItemHandler handler, ItemStack stack, boolean simulate) {
         if (handler == null || stack == null || stack.isEmpty()) {
@@ -43,8 +40,8 @@ public final class RtsLinkedHandlerViews {
     }
 
     /**
-     * Inserts an item stack into a handler, preferring any-slot-insert when
-     * available, otherwise falling back to sequential slot-by-slot insertion.
+     * 将物品堆叠插入处理器，优先使用任意槽位插入（如可用），
+     * 否则回退到顺序逐槽位插入。
      */
     public static ItemStack insertItemAnywhere(IItemHandler handler, ItemStack stack, boolean simulate) {
         ItemStack supported = insertItemAnywhereIfSupported(handler, stack, simulate);

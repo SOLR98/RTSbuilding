@@ -9,14 +9,14 @@ import com.rtsbuilding.rtsbuilding.server.service.ServiceRegistry;
 import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 
 /**
- * Refreshes the storage/UI page after a workflow operation completes.
+ * 在工作流操作完成后刷新存储/UI 页面。
  *
- * <p>Requires a session in shared data under
- * {@link SessionValidatePipe#KEY_SESSION}.</p>
+ * <p>需要在共享数据中有一个键为
+ * {@link SessionValidatePipe#KEY_SESSION} 的会话。</p>
  *
- * <p>Expected context args (optional):</p>
+ * <p>预期的上下文参数（可选）：</p>
  * <ul>
- *   <li>{@code "pageNumber"} — {@code int} page to refresh (default: session's current page)</li>
+ *   <li>{@code "pageNumber"} —— {@code int} 要刷新的页面（默认：会话的当前页面）</li>
  * </ul>
  */
 public final class UiRefreshPipe implements PipelinePipe<PipelineContext> {

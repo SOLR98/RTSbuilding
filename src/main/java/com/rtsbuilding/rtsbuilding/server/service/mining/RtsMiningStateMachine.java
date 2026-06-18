@@ -34,37 +34,46 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
- * State machine for single-block remote mining progress.
+ * 远程挖掘状态机，管理单方块挖掘的每 tick 进度累积和多方块挖掘的作业队列调度。
  *
- * <p>This class owns the per-tick accumulation loop
- * ({@link #tickActiveMining}) and the low-level block-destruction helpers
- * ({@link #destroyMinedBlock}, {@link #computeRemoteDestroyStep}).  Every
- * method is stateless — all mutable state lives in
- * {@link RtsStorageSession}.</p>
+ * <p>这是挖掘系统的核心编排器，所有可变状态存放在 {@link RtsStorageSession} 的
+ * {@code session.mining} 中，方法本身均为无状态的静态方法。
  *
- * <p><b>Improvements over the monolithic original:</b>
+ * <p><b>核心流程：</b>
  * <ul>
- *   <li>Waterlogged blocks are no longer incorrectly excluded.</li>
- *   <li>Multi-block structures (doors, beds, double-plants) that are
- *       collateral-destroyed by vanilla are now tracked for history.</li>
- *   <li>Temporary context-switching helpers are kept package-private.</li>
+ *   <li><b>单方块模式</b>（{@link #tickActiveMining}）— 每 tick 累积破坏进度，
+ *   发送裂纹阶段更新给客户端。进度达到 1.0 时调用 {@link #destroyMinedBlock} 破坏方块，
+ *   记录历史、吸收掉落物，前进到下一个连锁挖掘目标或结束</li>
+ *   <li><b>连锁挖掘模式</b>— 委托给 {@link RtsUltimineProcessor#processUltimineTargets} 分批处理</li>
+ *   <li><b>作业队列</b>（{@link MiningJob}）— 支持多个范围挖掘任务在 FIFO 队列中排队执行</li>
+ *   <li><b>进度计算</b>（{@link #computeRemoteDestroyStep}）— 复制原版挖掘速度公式，
+ *   支持借用工具和快捷栏工具两种模式，取消水下惩罚</li>
+ *   <li><b>停止与释放</b>（{@link #stopActiveMining} / {@link #releaseMiningResources}）— 
+ *   归还借用工具、清除客户端粒子、可选保留工作流条目以支持暂停/恢复</li>
+ *   <li><b>工作流集成</b>— 通过 {@link #WORKFLOW_ENTRY_IDS} 追踪每玩家的工作流条目 ID，
+ *   与 {@link com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine} 集成</li>
+ * </ul>
+ *
+ * <p><b>改进亮点：</b>
+ * <ul>
+ *   <li>含水方块不再被错误排除</li>
+ *   <li>被原版连锁破坏的多方块结构（门、床、双高植物）会被追踪到历史记录</li>
+ *   <li>工具速度计算避免每次 tick 触发昂贵的物品交换同步包</li>
  * </ul>
  */
 public final class RtsMiningStateMachine {
 
     /**
-     * Per-player workflow entry ID tracking, decoupled from
-     * {@link com.rtsbuilding.rtsbuilding.server.storage.state.RtsMiningState}.
+     * 每玩家的工作流条目 ID 追踪，与 {@link com.rtsbuilding.rtsbuilding.server.storage.state.RtsMiningState}
+     * 解耦。
      *
-     * <p>Pipes write via {@link #setWorkflowEntryId(UUID, int)} during
-     * pipeline execution; async mining completion reads via
-     * {@link #getWorkflowEntryId(UUID)}.</p>
+     * <p>Pipe 在执行流程期间通过 {@link #setWorkflowEntryId(UUID, int)} 写入；
+     * 异步挖掘完成通过 {@link #getWorkflowEntryId(UUID)} 读取。</p>
      */
     private static final Map<UUID, Integer> WORKFLOW_ENTRY_IDS = new ConcurrentHashMap<>();
 
     /**
-     * Records a workflow entry ID for the given player, replacing any
-     * previous value.
+     * 为给定玩家记录一个工作流条目 ID，替换之前的任何值。
      */
     public static void setWorkflowEntryId(UUID playerUuid, int entryId) {
         if (entryId >= 0) {
@@ -73,14 +82,14 @@ public final class RtsMiningStateMachine {
     }
 
     /**
-     * Returns the workflow entry ID for the given player, or -1 if none.
+     * 返回给定玩家的工作流条目 ID，如果没有则返回 -1。
      */
     public static int getWorkflowEntryId(UUID playerUuid) {
         return WORKFLOW_ENTRY_IDS.getOrDefault(playerUuid, -1);
     }
 
     /**
-     * Removes and returns the workflow entry ID for the given player.
+     * 移除并返回给定玩家的工作流条目 ID。
      */
     public static int removeWorkflowEntryId(UUID playerUuid) {
         Integer removed = WORKFLOW_ENTRY_IDS.remove(playerUuid);
@@ -91,29 +100,26 @@ public final class RtsMiningStateMachine {
     }
 
     // =========================================================================
-    //  Mining Job Queue
+    //  挖掘作业队列
     // =========================================================================
 
     /**
-     * A single queued mining operation (independent thread) waiting to be
-     * activated when the current operation finishes.
+     * 一个排队的挖掘操作（独立线程），等待当前操作完成后激活。
      *
-     * <p>Analogous to {@link com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch.PlaceBatchJob}
-     * but for mining operations.  Each job carries its own workflow entry ID
-     * and target positions so multiple range-mining tasks can coexist in a
-     * FIFO queue.</p>
+     * <p>类似于 {@link com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch.PlaceBatchJob}
+     * 但用于挖掘操作。每个 job 带有自己的工作流条目 ID 和目标位置，
+     * 以便多个范围挖掘任务可以在 FIFO 队列中共存。</p>
      *
-     * @param workflowEntryId  the workflow entry tracking this job's progress
-     * @param targets          the block positions to destroy
-     * @param totalTargets     total number of targets before validation losses
+     * @param workflowEntryId  追踪此 job 进度的工作流条目
+     * @param targets          要破坏的方块位置
+     * @param totalTargets     验证损失前的总目标数
      */
     public record MiningJob(int workflowEntryId, Deque<BlockPos> targets, int totalTargets) {
     }
 
     /**
-     * Activates the next queued mining job by loading its data into the
-     * session's active mining state fields and updating the workflow entry
-     * ID tracking map.
+     * 激活下一个排队的挖掘作业，将其数据加载到会话的活跃挖掘状态字段中，
+     * 并更新工作流条目 ID 追踪映射。
      */
     private static void activateNextJob(ServerPlayer player, RtsStorageSession session) {
         MiningJob job = session.mining.ultimineJobQueue.removeFirst();
@@ -139,20 +145,18 @@ public final class RtsMiningStateMachine {
     }
 
     // =========================================================================
-    //  Main Tick Handler
+    //  主 Tick 处理
     // =========================================================================
 
     /**
-     * Main tick handler for remote mining progress, invoked every server tick
-     * while the player is in an RTS screen or remote-mining state.
+     * 远程挖掘进度的主 tick 处理器，每当玩家在 RTS 屏幕或远程挖掘状态时，
+     * 在每个服务端 tick 被调用。
      *
-     * <p><b>Single-block mode</b> ({@code session.mining.miningPos != null}):
-     * accumulates progress and sends break-stage updates to the client.  On
-     * completion, breaks the block, records history, absorbs drops, and either
-     * proceeds to the next ultimine target or finalises.</p>
+     * <p><b>单方块模式</b>（{@code session.mining.miningPos != null}）：
+     * 累积进度并向客户端发送破坏阶段更新。完成时破坏方块、记录历史、吸收掉落物，
+     * 然后前进到下一个连锁挖掘目标或结束。</p>
      *
-     * <p><b>Ultimine mode</b> delegates to
-     * {@link RtsUltimineProcessor#processUltimineTargets}.</p>
+     * <p><b>连锁挖掘模式</b>委托给 {@link RtsUltimineProcessor#processUltimineTargets}。</p>
      */
     public static void tickActiveMining(ServerPlayer player, RtsStorageSession session) {
         // 工作流状态检查：已关闭则停止挖掘，已暂停则跳过此 tick
@@ -190,7 +194,7 @@ public final class RtsMiningStateMachine {
         ServerLevel level = player.serverLevel();
         BlockPos pos = session.mining.miningPos;
         BlockState state = level.getBlockState(pos);
-        // FIXED: No longer incorrectly excludes waterlogged blocks
+        // FIXED: 不再错误排除含水方块
         if (!RtsMiningValidator.isBreakableBlock(state)
                 || !RtsMiningValidator.hasValidDestroySpeed(state, level, pos)) {
             stopActiveMining(player, session);
@@ -218,9 +222,9 @@ public final class RtsMiningStateMachine {
             return;
         }
 
-        // --- Progress complete: break the block ---
+        // --- 进度完成：破坏方块 ---
 
-        // Capture before-state for history (must be done before destroy)
+        // 破坏前捕获状态用于历史记录（必须在破坏前完成）
         HistoryBlockRecord preRecord = ServerHistoryManager.captureBlock(player.serverLevel(), pos);
         // Also capture neighbor states for multi-block tracking
         List<HistoryBlockRecord> neighborRecords = captureNeighborRecords(player.serverLevel(), pos);
@@ -270,19 +274,16 @@ public final class RtsMiningStateMachine {
     }
 
     // =========================================================================
-    //  Stop
+    //  停止
     // =========================================================================
 
     /**
-     * Stops all active mining/ultimine activity for the given session,
-     * clears break-stage particles on the client, returns the borrowed tool,
-     * and resets the session's mining state.
+     * 停止给定会话的所有活跃挖掘/连锁挖掘活动，清除客户端的破坏阶段粒子，
+     * 归还借用的工具，并重置会话的挖掘状态。
      *
-     * @param preserveEntry if {@code true}, the workflow entry is <b>not</b>
-     *                       cancelled — only the runtime mining state is
-     *                       cleared. Use when the entry was already paused
-     *                       (e.g. RTS mode disabled) and should remain
-     *                       visible in the UI.
+     * @param preserveEntry 如果为 {@code true}，工作流条目<b>不会</b>被取消——
+     *                       仅清除运行时挖掘状态。用于条目已被暂停的情况
+     *                       （例如 RTS 模式禁用），应保持条目在 UI 中可见。
      */
     public static void stopActiveMining(ServerPlayer player, RtsStorageSession session, boolean preserveEntry) {
         int queueSize = session.mining.ultimineJobQueue.size();
@@ -332,8 +333,8 @@ public final class RtsMiningStateMachine {
     }
 
     /**
-     * Stops all active mining/ultimine activity, cancelling the workflow
-     * entries. Equivalent to {@code stopActiveMining(player, session, false)}.
+     * 停止所有活跃挖掘/连锁挖掘活动，取消工作流条目。
+     * 相当于 {@code stopActiveMining(player, session, false)}。
      *
      * @see #stopActiveMining(ServerPlayer, RtsStorageSession, boolean)
      */
@@ -342,19 +343,16 @@ public final class RtsMiningStateMachine {
     }
 
     /**
-     * Releases mining resources (borrowed tool, break-stage particles) without
-     * cancelling the workflow entry or clearing the runtime mining state.
+     * 释放挖掘资源（借用的工具、破坏阶段粒子）而不取消工作流条目
+     * 或清除运行时挖掘状态。
      *
-     * <p>Use this when RTS mode is disabled — the workflow entries are paused
-     * separately via {@code pauseAllActive()}, and when the player re-enables
-     * RTS mode and unpauses, the mining operation can continue from where it
-     * left off because the mining state ({@code miningPos},
-     * {@code ultimineTargets}, etc.) is preserved.</p>
+     * <p>在 RTS 模式禁用时使用——工作流条目通过 {@code pauseAllActive()} 单独暂停，
+     * 当玩家重新启用 RTS 模式并恢复时，挖掘操作可以从上次中断处继续，
+     * 因为挖掘状态（{@code miningPos}、{@code ultimineTargets} 等）得以保留。</p>
      *
-     * <p>This is intentionally <b>not</b> equivalent to
-     * {@code stopActiveMining(player, session, true)} — that method still
-     * clears the runtime mining state via {@code resetMiningState()} and
-     * {@code ultimineJobQueue.clear()}, making resumption impossible.</p>
+     * <p>这有意<b>不等同于</b>{@code stopActiveMining(player, session, true)}——
+     * 该方法仍然通过 {@code resetMiningState()} 和 {@code ultimineJobQueue.clear()} 清除运行时挖掘状态，
+     * 使得恢复变为不可能。</p>
      */
     public static void releaseMiningResources(ServerPlayer player, RtsStorageSession session) {
         // Clear break-stage particles on the client
@@ -384,12 +382,11 @@ public final class RtsMiningStateMachine {
     }
 
     // =========================================================================
-    //  Mining Init
+    //  挖掘初始化
     // =========================================================================
 
     /**
-     * Initialises remote mining state for the given block position, clearing
-     * any previous break-stage particles from a different target.
+     * 初始化给定方块位置的远程挖掘状态，清除前一个目标的任何破坏阶段粒子。
      */
     public static void beginRemoteMining(ServerPlayer player, RtsStorageSession session, BlockPos pos, Direction face,
             int toolSlot) {
@@ -404,22 +401,21 @@ public final class RtsMiningStateMachine {
     }
 
     // =========================================================================
-    //  Block Destruction
+    //  方块破坏
     // =========================================================================
 
     /**
-     * Result of a {@link #destroyMinedBlock} call.
+     * {@link #destroyMinedBlock} 调用的结果。
      *
-     * @param broken  whether the target block was successfully broken
-     * @param remainder  the tool stack remainder after breaking
+     * @param broken    目标方块是否成功破坏
+     * @param remainder 破坏后的工具剩余物
      */
     public record MiningBreakResult(boolean broken, ItemStack remainder) {
     }
 
     /**
-     * Destroys the block at {@code pos}, either via a borrowed tool lease
-     * (which tracks the mutated remainder) or by temporarily switching the
-     * player's selected hotbar slot.
+     * 破坏 {@code pos} 处的方块，要么通过借用的工具租赁（追踪变异后的剩余物），
+     * 要么通过临时切换玩家的选中快捷栏槽位。
      */
     public static MiningBreakResult destroyMinedBlock(ServerPlayer player, RtsStorageSession session, BlockPos pos, int toolSlot) {
         BlockState beforeState = player.serverLevel().getBlockState(pos);
@@ -447,15 +443,14 @@ public final class RtsMiningStateMachine {
     }
 
     // =========================================================================
-    //  Progress Calculation
+    //  进度计算
     // =========================================================================
 
     /**
-     * Computes the per-tick destroy progress for the given block/tool
-     * combination, applying underwater penalty cancellation.
+     * 计算给定方块/工具组合的每 tick 破坏进度，应用水下惩罚抵消。
      *
-     * @return a float in (0.0, 1.0] representing progress per tick, or
-     *         ≤ 0.0 if the block cannot be mined
+     * @return (0.0, 1.0] 范围内的浮点数表示每 tick 的进度，
+     *         如果方块无法挖掘则 ≤ 0.0
      */
     public static float computeRemoteDestroyStep(ServerPlayer player, BlockState state, BlockPos pos, int toolSlot,
             ItemStack linkedTool, boolean selectedToolRequested) {
@@ -473,13 +468,12 @@ public final class RtsMiningStateMachine {
     }
 
     // =========================================================================
-    //  MiningDestroyOutcome (temporary swapper)
+    //  MiningDestroyOutcome（临时交换器）
     // =========================================================================
 
     /**
-     * Swaps the player's main hand to the given tool stack, destroys the
-     * block, reads back the (possibly damaged) remainder, and restores the
-     * original main-hand item.
+     * 将玩家的主手切换到给定的工具堆叠，破坏方块，读回（可能已损坏的）剩余物，
+     * 并恢复原主手物品。
      */
     static MiningBreakResult destroyBlockWithTemporaryMainHand(ServerPlayer player, BlockPos pos, ItemStack tool) {
         ItemStack previousMainHand = player.getMainHandItem();
@@ -496,22 +490,20 @@ public final class RtsMiningStateMachine {
     }
 
     // =========================================================================
-    //  Tool-Speed Calculation (avoids item-swap sync storms)
+    //  工具速度计算（避免物品交换同步风暴）
     // =========================================================================
 
     /**
-     * Computes the per-tick destroy progress for the given block/tool
-     * combination using the tool stack <b>directly</b>, without swapping
-     * the player's main hand item.
+     * 使用工具堆叠<b>直接</b>计算给定方块/工具组合的每 tick 破坏进度，
+     * 而不交换玩家的主手物品。
      *
-     * <p>This replicates the logic of
-     * {@code state.getDestroyProgress(player, level, pos)} but uses the
-     * provided tool stack instead of {@code player.getMainHandItem()},
-     * avoiding costly {@code player.setItemInHand()} calls that trigger
-     * a {@code ClientboundContainerSetSlotPacket} every tick.
+     * <p>这复制了 {@code state.getDestroyProgress(player, level, pos)} 的逻辑，
+     * 但使用提供的工具堆叠而不是 {@code player.getMainHandItem()}，
+     * 避免了每次 tick 触发 {@code ClientboundContainerSetSlotPacket}
+     * 的高成本 {@code player.setItemInHand()} 调用。
      *
-     * @return a float in (0.0, 1.0] representing progress per tick, or
-     *         ≤ 0.0 if the block cannot be mined
+     * @return (0.0, 1.0] 范围内的浮点数表示每 tick 的进度，
+     *         如果方块无法挖掘则 ≤ 0.0
      */
     private static float computeDestroyStepForTool(ServerPlayer player, BlockState state, BlockPos pos, ItemStack tool) {
         float destroySpeed = state.getDestroySpeed(player.serverLevel(), pos);
@@ -524,12 +516,11 @@ public final class RtsMiningStateMachine {
     }
 
     /**
-     * Replicates {@code Player.getDigSpeed(BlockState, BlockPos)} using
-     * the given {@code tool} stack instead of the player's main hand item.
+     * 使用给定的 {@code tool} 堆叠而非玩家的主手物品，
+     * 复制 {@code Player.getDigSpeed(BlockState, BlockPos)}。
      *
-     * <p>Water penalty and on-ground checks are omitted here — they are
-     * handled separately by {@link #removeMiningSpeedPenalty} and
-     * {@link #withTemporaryOnGround} respectively.
+     * <p>这里省略了水下惩罚和地面检查——它们分别由
+     * {@link #removeMiningSpeedPenalty} 和 {@link #withTemporaryOnGround} 处理。
      */
     private static float getToolDigSpeed(ServerPlayer player, BlockState state, ItemStack tool) {
         float f = tool.getDestroySpeed(state);
@@ -549,8 +540,7 @@ public final class RtsMiningStateMachine {
     }
 
     /**
-     * Returns the Efficiency enchantment level on the given ItemStack
-     * by iterating its enchantment components directly.
+     * 通过直接遍历物品堆叠的附魔组件返回给定 ItemStack 上的效率附魔等级。
      */
     private static int getEfficiencyLevel(ItemStack stack) {
         for (var entry : stack.getEnchantments().entrySet()) {
@@ -562,12 +552,12 @@ public final class RtsMiningStateMachine {
     }
 
     // =========================================================================
-    //  Underwater Speed Penalty
+    //  水下速度惩罚
     // =========================================================================
 
     /**
-     * Cancels the underwater mining speed penalty ({@code SUBMERGED_MINING_SPEED})
-     * while preserving any positive modifier from enchantments or mods.
+     * 取消水下挖掘速度惩罚（{@code SUBMERGED_MINING_SPEED}），
+     * 同时保留附魔或 Mod 带来的任何正面修正。
      */
     static float removeMiningSpeedPenalty(ServerPlayer player, float destroyStep) {
         if (destroyStep <= 0.0F) {
@@ -584,7 +574,7 @@ public final class RtsMiningStateMachine {
     }
 
     // =========================================================================
-    //  Temporary Context Switchers
+    //  临时上下文切换器
     // =========================================================================
 
     public static <T> T withTemporaryMainHandItem(ServerPlayer player, ItemStack stack, Supplier<T> action) {
@@ -620,25 +610,23 @@ public final class RtsMiningStateMachine {
     }
 
     // =========================================================================
-    //  Mining Completion (shared cleanup)
+    //  挖掘完成（共享清理）
     // =========================================================================
 
     /**
-     * Finalises a completed mining operation by delegating to the three
-     * cleanup pipes ({@link WorkflowCompletePipe}, {@link ToolReturnPipe},
-     * {@link HistoryRecordPipe}), then refreshing the storage page and
-     * resetting the mining state.
+     * 完成一个完成的挖掘操作，委托给三个清理管道
+     * （{@link WorkflowCompletePipe}、{@link ToolReturnPipe}、
+     * {@link HistoryRecordPipe}），然后刷新储存页面并重置挖掘状态。
      *
-     * <p>This method builds a {@link PipelineContext} from the current
-     * session state so that the three pipes can execute with the same
-     * data contract as the sync-phase pipeline.  Cleanup is best-effort:
-     * failures are logged via {@link WorkflowPipeline#runCleanupSequence}
-     * but do not prevent subsequent cleanup steps.</p>
+     * <p>此方法从当前会话状态构建一个 {@link PipelineContext}，
+     * 以便三个管道可以在与同步阶段流程相同的数据契约下执行。
+     * 清理尽最大努力：失败通过 {@link WorkflowPipeline#runCleanupSequence}
+     * 记录日志，但不会阻止后续清理步骤。</p>
      *
-     * @param player     the server-side player
-     * @param session    the player's storage session
-     * @param records    history records captured before block break (may be empty)
-     * @param face       the mining face used (may be null)
+     * @param player   服务端玩家
+     * @param session  玩家的储存会话
+     * @param records  方块破坏前捕获的历史记录（可能为空）
+     * @param face     使用的挖掘面（可能为 null）
      */
     static void finalizeMiningOperation(ServerPlayer player, RtsStorageSession session,
             List<HistoryBlockRecord> records, @Nullable Direction face) {
@@ -687,7 +675,7 @@ public final class RtsMiningStateMachine {
     }
 
     // =========================================================================
-    //  State Reset
+    //  状态重置
     // =========================================================================
 
     public static void resetMiningState(RtsStorageSession session) {
@@ -695,11 +683,10 @@ public final class RtsMiningStateMachine {
     }
 
     /**
-     * Resets the session's active mining state fields.
+     * 重置会话的活跃挖掘状态字段。
      *
-     * <p>When {@code preserveTool} is {@code true} (i.e., there are queued
-     * mining jobs waiting to be activated), the borrowed tool lease and
-     * related settings are kept alive so the next job can reuse them.</p>
+     * <p>当 {@code preserveTool} 为 {@code true} 时（即有排队的挖掘作业等待激活），
+     * 借用的工具租赁和相关设置会被保留，以便下一个作业可以重用它们。</p>
      */
     public static void resetMiningState(RtsStorageSession session, boolean preserveTool) {
         session.mining.miningPos = null;
@@ -718,16 +705,15 @@ public final class RtsMiningStateMachine {
             session.mining.miningSelectedToolRequested = false;
             session.mining.miningToolProtectionEnabled = true;
         }
-        // workflowEntryId no longer lives here — see WORKFLOW_ENTRY_IDS in RtsMiningStateMachine
+        // workflowEntryId 不再位于此处——参见 RtsMiningStateMachine 中的 WORKFLOW_ENTRY_IDS
     }
 
     // =========================================================================
-    //  Multi-Block Collateral Tracking
+    //  多方块附属追踪
     // =========================================================================
 
     /**
-     * Captures the before-break state of all 6 neighbors for multi-block
-     * structure tracking (doors, beds, double plants, etc.).
+     * 捕获所有 6 个邻居的破坏前状态，用于多方块结构追踪（门、床、双高植物等）。
      */
     private static List<HistoryBlockRecord> captureNeighborRecords(ServerLevel level, BlockPos pos) {
         List<HistoryBlockRecord> records = new ArrayList<>(6);
@@ -742,9 +728,9 @@ public final class RtsMiningStateMachine {
     }
 
     /**
-     * After a block is broken, checks which neighbor positions changed to air
-     * and adds them to the session's ultimine processed positions so they are
-     * included in the batch history record.
+     * 方块被破坏后，检查哪些邻居位置变成了空气，
+     * 并将它们添加到会话的连锁挖掘已处理位置中，
+     * 以便包含在批次历史记录中。
      */
     private static void recordCollateralBlocks(RtsStorageSession session, List<HistoryBlockRecord> neighborRecords,
             BlockPos brokenPos) {
@@ -762,7 +748,7 @@ public final class RtsMiningStateMachine {
     }
 
     /**
-     * Removes a specific position from the ultimine target queue.
+     * 从连锁挖掘目标队列中移除指定位置。
      */
     private static void removeUltimineTarget(RtsStorageSession session, BlockPos pos) {
         session.mining.ultimineTargets.removeIf(target -> target.equals(pos));

@@ -24,6 +24,19 @@ import net.minecraft.world.item.ItemStack;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * {@link PlacementService} 的默认实现——处理 RTS 模式下的远程方块放置操作。
+ *
+ * <p>该实现类通过 {@link com.rtsbuilding.rtsbuilding.server.pipeline.core.PipelineRegistry}
+ * 执行放置流程：
+ * <ul>
+ *   <li>单方块放置（{@code PLACE_SINGLE}）</li>
+ *   <li>快速建造（{@code QUICK_BUILD}）</li>
+ *   <li>批量放置（{@code PLACE_BATCH}）</li>
+ * </ul>
+ * 同时管理挂起放置作业的恢复、方块旋转和进度查询。
+ * 当工作流不可用时回退到直接入队（{@link com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch}）。
+ */
 public final class RtsPlacementServiceImpl implements PlacementService {
 
     private final ServiceRegistry registry = ServiceRegistry.getInstance();
@@ -66,7 +79,7 @@ public final class RtsPlacementServiceImpl implements PlacementService {
             return;
         }
 
-        // Fallback: forceEmptyHand or no session — enqueue without workflow
+        // 回退：forceEmptyHand 或无会话 — 入队但不经过工作流
         RtsPlacementBatch.enqueuePlaceBatch(
                 player,
                 session,
@@ -137,7 +150,7 @@ public final class RtsPlacementServiceImpl implements PlacementService {
             return;
         }
 
-        // Fallback: no session or empty positions — enqueue without workflow
+        // 回退：无会话或空位置 — 入队但不经过工作流
         RtsPlacementBatch.enqueuePlaceBatch(
                 player,
                 session,

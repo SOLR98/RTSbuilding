@@ -28,7 +28,39 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.List;
 
 /**
- * High-level player-facing transfer operations.
+ * 面向玩家的高级传输操作，封装完整的传输业务流程。
+ *
+ * <p>此类提供玩家可触发的传输操作，每个方法都是完整业务流程的编排，
+ * 综合调用 {@link RtsTransferExtractor}（提取）、{@link RtsTransferInserter}（插入）、
+ * 权限检查（{@code RtsProgressionManager}）、维度同步（{@code RtsLinkedStorageResolver}）
+ * 和后续处理（任务检测、页面刷新）。所有方法均为 {@code static}，
+ * 类本身为不可实例化的工具类。
+ *
+ * <p><b>核心操作：</b>
+ * <ul>
+ *   <li>{@link #returnCarriedToLinked(ServerPlayer, RtsStorageSession, String, int)} —
+ *       将玩家光标携带的物品归还到链接存储（从容器菜单的 carried 槽中提取指定数量）</li>
+ *   <li>{@link #quickDropLinkedItem(ServerPlayer, RtsStorageSession, String, byte, double, double, double)} —
+ *       从链接存储中提取物品并在指定位置生成掉落物实体（含范围/权限验证）</li>
+ *   <li>{@link #importMenuSlotToLinked(ServerPlayer, RtsStorageSession, int)} —
+ *       将当前菜单中指定槽位的物品导入链接存储；对于合成菜单的 0 号输出槽，
+ *       支持自动补料多次合成直至达到 {@code SHIFT_IMPORT_MAX_CRAFT_ITERATIONS} 次上限</li>
+ *   <li>{@link #pickupLinkedToCarried(ServerPlayer, RtsStorageSession, ItemStack, int)} —
+ *       从链接存储提取物品到玩家的光标携带槽</li>
+ *   <li>{@link #quickMoveLinkedItem(ServerPlayer, RtsStorageSession, ItemStack)} —
+ *       从链接存储快速移动物品到玩家背包或当前菜单（智能判断目标）</li>
+ *   <li>{@link #fillPlayerInventoryFromLinked(ServerPlayer, RtsStorageSession)} —
+ *       批量从链接存储填充玩家背包直至满</li>
+ * </ul>
+ *
+ * <p><b>设计特点：</b>
+ * <ul>
+ *   <li>所有操作都先检查 {@code RtsProgressionManager.canUse} 权限</li>
+ *   <li>操作完成后调用 {@code ServiceRegistry.getInstance().serviceOp().afterModification()}
+ *       触发后续处理（页面刷新、任务检测）</li>
+ *   <li>操作完成后调用 {@code QuestService.runQuestDetect()} 触发任务进度检测</li>
+ *   <li>溢出时通过 {@link RtsTransferInserter#sendStorageOverflowHint} 提示玩家</li>
+ * </ul>
  */
 public final class RtsTransferPlayerIntegration {
 
@@ -110,7 +142,7 @@ public final class RtsTransferPlayerIntegration {
         Vec3 dropPos = new Vec3(dropX, dropY, dropZ);
         BlockPos dropBlock = BlockPos.containing(dropPos);
         if (!player.serverLevel().hasChunkAt(dropBlock)
-                || !RtsCameraManager.isWithinActionRadius(player, dropBlock)
+                || !RtsCameraManager.isWithinActionRange(player, dropBlock)
                 || !RtsProgressionManager.canAccessHomeRadius(player, dropBlock)) {
             RtsTransferInserter.refundToLinked(insertHandlers, player, extracted);
             ServiceRegistry.getInstance().serviceOp().afterModification(player, session);

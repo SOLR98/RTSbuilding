@@ -8,30 +8,28 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.List;
 
 /**
- * Abstraction boundary between fluid storage operations and the item transfer
- * layer. Implementations live in {@code server/service/transfer/} and delegate
- * to {@code RtsTransferExtractor} / {@code RtsTransferInserter}.
+ * 流体存储操作与物品传输层之间的抽象边界。
+ * 实现位于 {@code server/service/transfer/}，委托给
+ * {@code RtsTransferExtractor} / {@code RtsTransferInserter}。
  *
- * <p>This interface keeps {@link RtsStorageFluids} from depending directly on
- * the service-layer transfer classes, preserving a clean layered architecture
- * where storage → service is the only allowed direction.
+ * <p>此接口防止 {@link RtsStorageFluids} 直接依赖服务层的传输类，
+ * 保持存储 → 服务为唯一允许方向的整洁分层架构。
  */
 public interface FluidTransferGate {
 
     /**
-     * Extracts one matching item from the network (linked storage with player
-     * inventory fallback).
+     * 从网络中提取一个匹配的物品（链接存储，玩家物品栏作为回退）。
      */
     ItemStack extractOneFromNetwork(List<IItemHandler> handlers, ServerPlayer player, Item targetItem);
 
     /**
-     * Refunds an item stack to linked storage with player inventory as fallback.
+     * 将物品堆叠退回到链接存储，玩家物品栏作为回退。
      */
     void refundToLinked(List<IItemHandler> handlers, ServerPlayer player, ItemStack stack);
 
     /**
-     * Tries to move a stack into the player's inventory only (no linked
-     * storage fallback). Returns any remainder that could not be stored.
+     * 尝试将堆叠仅移入玩家物品栏（无链接存储回退）。
+     * 返回任何无法存储的剩余物品。
      */
     ItemStack moveToPlayerInventoryOnly(ServerPlayer player, ItemStack stack);
 }

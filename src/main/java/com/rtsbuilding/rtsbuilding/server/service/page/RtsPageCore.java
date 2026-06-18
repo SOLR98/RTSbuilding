@@ -23,10 +23,21 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.*;
 
 /**
- * Builds the read-only storage browser page from a session and linked storage snapshot.
+ * 储存浏览器页面构建器核心，从会话和链接存储快照构建只读的储存浏览器页面。
  *
- * <p>Page caching is delegated to {@link RtsPageCache} (LRU eviction) and
- * payload construction is delegated to {@link RtsPagePayloadFactory}.
+ * <p>这是页面系统的核心编排器，负责：
+ * <ul>
+ *   <li><b>页面构建</b>（{@link #build}）— 从链接处理器、聚合缓存、玩家背包中收集物品计数，
+ *   构建精确条目、流体条目、类别列表，执行搜索过滤和排序，组装完整的
+ *   {@link com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload}</li>
+ *   <li><b>缓存集成</b>— 先检查 LRU 缓存（{@link RtsPageCache}），命中时直接返回缓存结果；
+ *   缓存未命中或 dataVersion 过期时执行完全重建并更新缓存</li>
+ *   <li><b>快速路径</b>— 优先使用 {@link com.rtsbuilding.rtsbuilding.server.storage.cache.RtsAggregateStorage}
+ *   聚合缓存加速大量物品的统计，回退到逐处理器、逐槽位扫描</li>
+ * </ul>
+ *
+ * <p>数据包组装委托给 {@link RtsPagePayloadFactory}，
+ * 搜索/排序/类别逻辑委托给 {@link RtsPageSharedHelpers}。
  */
 public final class RtsPageCore {
 
@@ -34,8 +45,7 @@ public final class RtsPageCore {
     }
 
     /**
-     * Removes a player's cached page data so the GC can reclaim memory
-     * when they disable RTS or log out.
+     * 移除玩家的缓存页面数据，以便在禁用 RTS 或退出时 GC 可以回收内存。
      */
     public static void clearCache(UUID playerUuid) {
         RtsPageCache.INSTANCE.remove(playerUuid);

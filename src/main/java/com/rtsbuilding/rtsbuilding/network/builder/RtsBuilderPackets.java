@@ -134,6 +134,11 @@ public final class RtsBuilderPackets {
                 C2SRtsPauseWorkflowPayload.STREAM_CODEC,
                 RtsInteractionHandlers::handlePauseWorkflow);
 
+        registrar.playToServer(
+                C2SRtsScanBlueprintResumePayload.TYPE,
+                C2SRtsScanBlueprintResumePayload.STREAM_CODEC,
+                RtsInteractionHandlers::handleScanBlueprintResume);
+
         registrar.playToClient(
                 S2CRtsHistorySyncPayload.TYPE,
                 S2CRtsHistorySyncPayload.STREAM_CODEC,
@@ -152,6 +157,11 @@ public final class RtsBuilderPackets {
         registrar.playToClient(
                 S2CRtsResumePlacementScanPayload.TYPE,
                 S2CRtsResumePlacementScanPayload.STREAM_CODEC,
+                ClientPayloadDispatcher::dispatchBuilder);
+
+        registrar.playToClient(
+                S2CRtsBlueprintResumeScanPayload.TYPE,
+                S2CRtsBlueprintResumeScanPayload.STREAM_CODEC,
                 ClientPayloadDispatcher::dispatchBuilder);
     }
 }

@@ -19,6 +19,18 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.List;
 
+/**
+ * {@link PageService} 的默认实现——处理远程储存浏览器的页面构建和刷新。
+ *
+ * <p>该实现类负责：
+ * <ul>
+ *   <li>接收并处理客户端的页面请求（搜索、排序、分类、分页）</li>
+ *   <li>调用 {@link com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder} 构建页面数据</li>
+ *   <li>通过 {@link com.rtsbuilding.rtsbuilding.server.service.resolver.RtsLinkedHandlerResolutionService} 注册缓存</li>
+ *   <li>记录最近使用的物品到会话</li>
+ *   <li>标记存储视图为脏以触发客户端刷新</li>
+ * </ul>
+ */
 public final class RtsPageServiceImpl implements PageService {
 
     private final ServiceRegistry registry = ServiceRegistry.getInstance();

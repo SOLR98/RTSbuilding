@@ -4,30 +4,29 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Session-level boolean flags and virtual fluid storage scoped to a single
- * RtsStorageSession.
+ * 会话级别的布尔标志和虚拟流体存储，作用于单个 RtsStorageSession。
  *
- * <p>Extracted from RtsStorageSession to group toggle flags and
- * internal (virtual) fluid capacity into a single value object.
+ * <p>从 RtsStorageSession 提取，将开关标志和内部（虚拟）流体容量
+ * 分组到单个值对象中。
  *
- * <p>Fields:
+ * <p>字段说明：
  * <ul>
- *   <li>{@link #useBdNetwork} — whether BD network participates in resolution</li>
- *   <li>{@link #autoStoreMinedDrops} — whether mined drops auto-enter linked storage</li>
- *   <li>{@link #internalFluidMb} — virtual fluid capacity keyed by fluid registry name</li>
+ *   <li>{@link #useBdNetwork}——BD 网络是否参与解析</li>
+ *   <li>{@link #autoStoreMinedDrops}——挖掘掉落物是否自动存入链接存储</li>
+ *   <li>{@link #internalFluidMb}——按流体注册名称键化的虚拟流体容量</li>
  * </ul>
  */
 public final class SessionFlags {
 
-    /** Whether to include the BD network as a unified storage backend. */
+    /** 是否将 BD 网络作为统一存储后端包含进来。 */
     public boolean useBdNetwork = true;
 
-    /** Whether mined drops are automatically stored into linked storage. */
+    /** 挖掘掉落物是否自动存入链接存储。 */
     public boolean autoStoreMinedDrops = true;
 
     /**
-     * Virtual fluid capacity, {@code fluid registry name -> capacity(mB)}.
-     * Used to display virtual fluid slots when no real fluid handlers exist.
+     * 虚拟流体容量，{@code 流体注册名 -> 容量(mB)}。
+     * 当不存在真实流体处理器时，用于显示虚拟流体槽位。
      */
     public final Map<String, Long> internalFluidMb = new HashMap<>();
 }

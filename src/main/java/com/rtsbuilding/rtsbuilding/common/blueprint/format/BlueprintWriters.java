@@ -145,7 +145,7 @@ public final class BlueprintWriters {
         }
     }
 
-    private static CompoundTag toVanillaStructureTag(RtsBlueprint blueprint) {
+    public static CompoundTag toVanillaStructureTag(RtsBlueprint blueprint) {
         CompoundTag root = new CompoundTag();
         Vec3i size = blueprint.size();
         ListTag sizeTag = new ListTag();

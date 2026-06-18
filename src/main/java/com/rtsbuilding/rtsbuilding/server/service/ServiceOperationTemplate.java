@@ -4,9 +4,28 @@ import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
- * 服务操作模板——封装 Service 方法尾部常见的重复操作模式。
+ * 服务操作模板——封装服务方法尾部常见的重复操作模式。
  *
- * <p>通过 ServiceRegistry 获取实例，支持构造器注入以便测试。
+ * <p>此类模板化了在存储操作（挖掘、放置、合成、传输等）之后需要执行的
+ * 通用后续处理流程，消除各个 Service 实现类中的重复代码。
+ * 通过 {@link ServiceRegistry#serviceOp()} 获取实例。
+ *
+ * <p><b>提供的方法：</b>
+ * <ul>
+ *   <li>{@link #afterModification(ServerPlayer, RtsStorageSession)} —
+ *       <b>完整四步操作</b>：强制刷新缓存 → 递增数据版本 → 推送页面 → 持久化会话。
+ *       适用于存储数据实际变更的场景。</li>
+ *   <li>{@link #simpleSave(ServerPlayer, RtsStorageSession)} —
+ *       <b>简化保存</b>：无 forceRefresh，仅推送页面 + 持久化会话。
+ *       适用于仅变更浏览器状态（如翻页、排序）等非存储数据场景。</li>
+ *   <li>{@link #markDirty(ServerPlayer, RtsStorageSession)} —
+ *       <b>标记脏数据</b>：强制刷新缓存 + 递增数据版本，不推送页面。
+ *       适用于页面将在下一次 tick 或显式请求时自动刷新的场景。</li>
+ *   <li>{@link #refreshPage(ServerPlayer, RtsStorageSession)} —
+ *       <b>直接刷新页面</b>：不递增版本也不保存，适用于版本已由外部递增过的场景。</li>
+ * </ul>
+ *
+ * <p><b>设计特点：</b>支持通过构造器注入 ServiceRegistry，便于单元测试。
  */
 public final class ServiceOperationTemplate {
 

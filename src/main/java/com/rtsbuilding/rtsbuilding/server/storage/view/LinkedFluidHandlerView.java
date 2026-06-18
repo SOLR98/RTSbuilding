@@ -4,10 +4,10 @@ import net.neoforged.neoforge.fluids.FluidStack;
 import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 
 /**
- * Wraps an {@link IFluidHandler} to enforce extract-only store rules.
+ * 包装 {@link IFluidHandler} 以强制执行仅提取存储规则。
  *
- * <p>When {@code allowStore} is false, {@link #fill} returns 0 to reject all
- * fluid insertions. Drain is always delegated.
+ * <p>当 {@code allowStore} 为 false 时，{@link #fill} 返回 0 以拒绝所有
+ * 流体插入。排出操作始终委托给原始处理器。
  */
 public final class LinkedFluidHandlerView implements IFluidHandler {
     private final IFluidHandler delegate;
