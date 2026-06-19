@@ -2,7 +2,7 @@ package com.rtsbuilding.rtsbuilding.client.rendering.blueprint;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanel;
+import com.rtsbuilding.rtsbuilding.client.screen.blueprint.BlueprintPanel;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.core.BlockPos;
 

@@ -238,6 +238,7 @@
   "screen.rtsbuilding.quick_build.rotation": "Rotation",
   "screen.rtsbuilding.quick_build.materials": "Materials: %s blocks",
   "screen.rtsbuilding.quick_build.destroy_hint": "LMB sets A/B, wheel height, LMB confirms.",
+  "screen.rtsbuilding.quick_build.destroy_remaining": "%s remaining",
   "screen.rtsbuilding.quick_build.chain_hint": "LMB starts Chain Break on connected matching blocks.",
   "screen.rtsbuilding.quick_build.chain_limit": "Limit: %s",
   "screen.rtsbuilding.quick_build.chain_limit_label": "Limit",

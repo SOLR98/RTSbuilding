@@ -7,9 +7,11 @@ import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsDeleteWorkflowPayload;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsPauseWorkflowPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsScanBlueprintResumePayload;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsScanResumePlacementPayload;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowProgressProcessor;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowType;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
@@ -291,8 +293,14 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
                 int resumeBtnX = baseX + rowW + 2;
                 int cancelBtnX = resumeBtnX + BTN_W + 2;
                 if (isInside(mouseX, mouseY, resumeBtnX, rowY, BTN_W, ROW_H)) {
-                    // ▶ Resume — request scan first, then open panel
-                    PacketDistributor.sendToServer(new C2SRtsScanResumePlacementPayload(status.entryId()));
+                    // ▶ Resume
+                    if (status.type() == RtsWorkflowType.BLUEPRINT_BUILD) {
+                        // 蓝图：扫描剩余材料需求，弹出材料清单面板
+                        PacketDistributor.sendToServer(new C2SRtsScanBlueprintResumePayload(status.entryId()));
+                    } else {
+                        // 范围放置：先扫描，再打开重启面板
+                        PacketDistributor.sendToServer(new C2SRtsScanResumePlacementPayload(status.entryId()));
+                    }
                     return;
                 }
                 if (isInside(mouseX, mouseY, cancelBtnX, rowY, BTN_W, ROW_H)) {

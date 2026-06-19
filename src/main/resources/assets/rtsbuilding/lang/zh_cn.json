@@ -238,6 +238,7 @@
   "screen.rtsbuilding.quick_build.rotation": "旋转",
   "screen.rtsbuilding.quick_build.materials": "材料：%s 个方块",
   "screen.rtsbuilding.quick_build.destroy_hint": "左键设 A/B，滚轮调高，再左键确认",
+  "screen.rtsbuilding.quick_build.destroy_remaining": "剩余 %s",
   "screen.rtsbuilding.quick_build.chain_hint": "左键开始连锁破坏相连的同类方块",
   "screen.rtsbuilding.quick_build.chain_limit": "上限：%s",
   "screen.rtsbuilding.quick_build.chain_limit_label": "上限",
