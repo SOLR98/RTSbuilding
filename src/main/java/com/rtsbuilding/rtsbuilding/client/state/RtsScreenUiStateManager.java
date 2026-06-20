@@ -148,9 +148,9 @@ public final class RtsScreenUiStateManager {
                 // ---- 建造形状（collect 取 QuickBuildPanel，apply 连带加载和兜底） ----
                 // quickBuild
                 new CtrlBind(
-                        state -> state.quickBuild.buildShape = this.quickBuildPanel.getBuildModeShape().name(),
+                        state -> state.quickBuild.building.buildShape = this.quickBuildPanel.getBuildModeShape().name(),
                         state -> {
-                            parseAndSetBuildShape(state.quickBuild.buildShape);
+                            parseAndSetBuildShape(state.quickBuild.building.buildShape);
                             this.quickBuildPanel.loadStoredShapes(
                                     this.controller.getBuildShape(), this.controller.getAreaMineShape());
                             this.shapeController.ensureFillModeForShape(this.controller.getBuildShape());
@@ -158,35 +158,35 @@ public final class RtsScreenUiStateManager {
                 ),
                 // ---- BUILD 填充模式 ----
                 new CtrlBind(
-                        state -> state.quickBuild.buildFillMode = this.shapeController.getBuildShapeFillMode().name(),
-                        state -> parseAndSetBuildFillMode(state.quickBuild.buildFillMode)
+                        state -> state.quickBuild.building.buildFillMode = this.shapeController.getBuildShapeFillMode().name(),
+                        state -> parseAndSetBuildFillMode(state.quickBuild.building.buildFillMode)
                 ),
                 // ---- BUILD 旋转角度 ----
                 new CtrlBind(
-                        state -> state.quickBuild.buildRotationDegrees = this.shapeController.getBuildRotateDegrees(),
+                        state -> state.quickBuild.building.buildRotationDegrees = this.shapeController.getBuildRotateDegrees(),
                         state -> this.shapeController.setBuildRotateDegrees(
-                                Math.floorMod(state.quickBuild.buildRotationDegrees, 360))
+                                Math.floorMod(state.quickBuild.building.buildRotationDegrees, 360))
                 ),
                 // ---- BUILD 直线连接 ----
                 new CtrlBind(
-                        state -> state.quickBuild.buildLineConnected = this.shapeController.isBuildLineConnected(),
-                        state -> this.shapeController.setBuildLineConnected(state.quickBuild.buildLineConnected)
+                        state -> state.quickBuild.building.buildLineConnected = this.shapeController.isBuildLineConnected(),
+                        state -> this.shapeController.setBuildLineConnected(state.quickBuild.building.buildLineConnected)
                 ),
                 // ---- 范围破坏填充模式 ----
                 new CtrlBind(
-                        state -> state.mining.destroyFillMode = this.shapeController.getDestroyShapeFillMode().name(),
-                        state -> parseAndSetDestroyFillMode(state.mining.destroyFillMode)
+                        state -> state.quickBuild.mining.destroyFillMode = this.shapeController.getDestroyShapeFillMode().name(),
+                        state -> parseAndSetDestroyFillMode(state.quickBuild.mining.destroyFillMode)
                 ),
                 // ---- 范围破坏旋转角度 ----
                 new CtrlBind(
-                        state -> state.mining.destroyRotationDegrees = this.shapeController.getDestroyRotateDegrees(),
+                        state -> state.quickBuild.mining.destroyRotationDegrees = this.shapeController.getDestroyRotateDegrees(),
                         state -> this.shapeController.setDestroyRotateDegrees(
-                                Math.floorMod(state.mining.destroyRotationDegrees, 360))
+                                Math.floorMod(state.quickBuild.mining.destroyRotationDegrees, 360))
                 ),
                 // ---- 范围破坏直线连接 ----
                 new CtrlBind(
-                        state -> state.mining.destroyLineConnected = this.shapeController.isDestroyLineConnected(),
-                        state -> this.shapeController.setDestroyLineConnected(state.mining.destroyLineConnected)
+                        state -> state.quickBuild.mining.destroyLineConnected = this.shapeController.isDestroyLineConnected(),
+                        state -> this.shapeController.setDestroyLineConnected(state.quickBuild.mining.destroyLineConnected)
                 ),
                 // ---- GUI 缩放（带 sanitize 兜底） ----
                 // camera

@@ -162,14 +162,14 @@ public final class QuickBuildPanel extends RtsWindowPanel {
                     QuickBuildMode.class),
             PersistableProperty.intField(
                     "chain_destroy_limit",
-                    state -> state.mining.ultimineLimit,
-                    (state, v) -> state.mining.ultimineLimit = v,
+                    state -> state.quickBuild.mining.ultimineLimit,
+                    (state, v) -> state.quickBuild.mining.ultimineLimit = v,
                     () -> this.chainDestroyLimit,
                     v -> this.chainDestroyLimit = v),
             PersistableProperty.enumField(
                     "area_mine_shape",
-                    state -> state.mining.areaMineShape,
-                    (state, v) -> state.mining.areaMineShape = v,
+                    state -> state.quickBuild.mining.areaMineShape,
+                    (state, v) -> state.quickBuild.mining.areaMineShape = v,
                     () -> this.rangeDestroyShape,
                     v -> this.rangeDestroyShape = v,
                     AreaMineShape.CHAIN,
@@ -246,7 +246,12 @@ public final class QuickBuildPanel extends RtsWindowPanel {
             int idx = i;
             fillModeButtons[i] = new WindowButton(0, 0, 84, 20,
                     Component.literal(screen.fillModeLabel(modes.get(i))), btn -> {
-                screen.setShapeFillMode(modes.get(idx));
+                // 直接读写模式对应的独立字段，避免经过 syncActiveToModeFields 中转
+                if (isDestroyModeActive()) {
+                    screen.getShapeController().setDestroyShapeFillMode(modes.get(idx));
+                } else {
+                    screen.getShapeController().setBuildShapeFillMode(modes.get(idx));
+                }
                 screen.persistUiState();
             });
         }
@@ -520,7 +525,9 @@ public final class QuickBuildPanel extends RtsWindowPanel {
             fillModeButtons[i].setY(rowY);
             fillModeButtons[i].render(g, mouseX, mouseY, partialTick);
 
-            boolean selected = screen.getShapeFillMode() == modes.get(i);
+            boolean selected = (isDestroyModeActive()
+                    ? screen.getShapeController().getDestroyShapeFillMode()
+                    : screen.getShapeController().getBuildShapeFillMode()) == modes.get(i);
             boolean hovered = fillModeButtons[i].isHoveredOrFocused();
             int vOffset = selected ? MODE_BUTTON_STATE_H * 2 : (hovered ? MODE_BUTTON_STATE_H : 0);
             RtsTextureRenderer.drawTextureHighPrecision(

@@ -1,6 +1,8 @@
 package com.rtsbuilding.rtsbuilding.common.persist;
 
 
+import com.google.gson.ExclusionStrategy;
+import com.google.gson.FieldAttributes;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.rtsbuilding.rtsbuilding.client.state.RtsScreenUiStateManager;
@@ -9,8 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.io.Reader;
-import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -19,8 +19,11 @@ import java.util.*;
 /**
  * 客户端 UI 状态的持久化存储层。
  *
- * <p>负责将 {@link UiState} 以 JSON 格式读写到
- * {@code config/rts_building/rtsbuilding-client-ui.json} 文件。
+ * <p>负责将 {@link UiState} 以"编译后"的二进制格式读写到
+ * {@code config/rts_building/rtsbuilding-client-ui.rtsd} 文件。
+ *
+ * <p>二进制格式通过 GZip + XOR 混淆处理，并附加 HMAC-SHA256 完整性校验，
+ * 防止玩家直接编辑文件篡改配置。文件被篡改时自动忽略并恢复默认值。
  *
  * <p>此层只做 I/O 和数据校验，不含业务逻辑。
  * 批量的加载/保存协调由 {@link RtsScreenUiStateManager} 负责。
@@ -28,26 +31,46 @@ import java.util.*;
  *
  * <h3>架构</h3>
  * <ul>
- *   <li><b>I/O 层</b> — 纯 I/O + 反序列化，见 {@link #readFromFile()} / {@link #writeToFile(UiState)}</li>
- *   <li><b>便捷方法</b> — 通过内部缓存代理，供不需要 Manager 的调用方使用</li>
+ *   <li><b>I/O 层</b> — 二进制 I/O + 编解码，见 {@link #readFromFile()} / {@link #writeToFile(UiState)}</li>
+ *   <li><b>Codec</b> — {@link UiStateCodec} 负责二进制编译/反编译及 HMAC 校验</li>
+ *   <li><b>便捷方法</b> — 通过缓存代理，供不需要 Manager 的调用方使用</li>
  *   <li><b>校验</b> — {@link UiState#sanitized()} 在每次写入前清理非法值</li>
  * </ul>
  *
  * @see RtsScreenUiStateManager
  * @see UiStateCache
  * @see UiState
+ * @see UiStateCodec
  */
 public final class RtsClientUiStateStore {
     private static final Logger LOG = LoggerFactory.getLogger("RtsClientUiState");
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Gson GSON = new GsonBuilder()
+            .setPrettyPrinting()
+            .addSerializationExclusionStrategy(new ExclusionStrategy() {
+                @Override
+                public boolean shouldSkipField(FieldAttributes f) {
+                    // v1→v2 过渡字段：@Deprecated 字段不写入 JSON
+                    return f.getAnnotation(Deprecated.class) != null;
+                }
+                @Override
+                public boolean shouldSkipClass(Class<?> clazz) {
+                    return false;
+                }
+            })
+            .create();
+
+    /** 返回 Gson 实例（供同包下的 {@link UiStateCodec} 使用）。 */
+    static Gson gson() {
+        return GSON;
+    }
 
     /** 当前数据版本，用于未来兼容性迁移 */
-    static final int CURRENT_STORE_VERSION = 1;
+    static final int CURRENT_STORE_VERSION = 2;
 
-    /** 持久化配置文件路径：config/rts_building/rtsbuilding-client-ui.json */
+    /** 持久化配置文件路径：config/rts_building/rtsbuilding-client-ui.rtsd（二进制编译格式） */
     private static final Path CONFIG_PATH = FMLPaths.CONFIGDIR.get()
             .resolve("rts_building")
-            .resolve("rtsbuilding-client-ui.json");
+            .resolve("rtsbuilding-client-ui.rtsd");
 
     /** 共享的 UI 状态内存缓存实例 */
     private static final UiStateCache CACHE = new UiStateCache();
@@ -66,29 +89,30 @@ public final class RtsClientUiStateStore {
     // ======================== 纯 I/O 方法（包级私有） ========================
 
     /**
-     * 从持久化配置文件读取 UI 状态。
-     * <p>文件缺失或损坏时返回 null。
+     * 从持久化配置文件读取 UI 状态（二进制 .rtsd 格式）。
+     * <p>文件缺失或反编译失败时返回 null。
      */
     static UiState readFromFile() {
         if (!Files.isRegularFile(CONFIG_PATH)) {
             return null;
         }
-        try (Reader reader = Files.newBufferedReader(CONFIG_PATH)) {
-            UiState state = GSON.fromJson(reader, UiState.class);
+        try {
+            byte[] data = Files.readAllBytes(CONFIG_PATH);
+            UiState state = UiStateCodec.decode(data);
             if (state == null) {
                 return null;
             }
             return migrate(state);
-        } catch (IOException | RuntimeException e) {
-            LOG.warn("读取 UI 状态文件失败，将使用默认值: {}", CONFIG_PATH, e);
+        } catch (IOException e) {
+            LOG.warn("读取二进制 UI 状态文件失败，将使用默认值: {}", CONFIG_PATH, e);
             return null;
         }
     }
 
     /**
-     * 将 UI 状态写入持久化配置文件。
+     * 将 UI 状态"编译"为二进制格式写入持久化配置文件。
      * <p>使用临时文件 + 原子移动方式写入，防止写入中途崩溃导致文件损坏。
-     * <p>调用前请确保状态已通过 {@link UiState#sanitized()} 校验。
+     * <p>写入前先经过 {@link UiState#sanitized()} 校验 + {@link UiStateCodec#encode} 编译。
      */
     static void writeToFile(UiState state) {
         if (state == null) {
@@ -97,9 +121,8 @@ public final class RtsClientUiStateStore {
         Path tempPath = CONFIG_PATH.resolveSibling(CONFIG_PATH.getFileName() + ".tmp");
         try {
             Files.createDirectories(CONFIG_PATH.getParent());
-            try (Writer writer = Files.newBufferedWriter(tempPath)) {
-                GSON.toJson(state, writer);
-            }
+            byte[] encoded = UiStateCodec.encode(state);
+            Files.write(tempPath, encoded);
             try {
                 Files.move(tempPath, CONFIG_PATH, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (IOException e) {
@@ -107,7 +130,7 @@ public final class RtsClientUiStateStore {
                 Files.move(tempPath, CONFIG_PATH, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException e) {
-            LOG.warn("写入 UI 状态文件失败，旧文件将保留: {}", CONFIG_PATH, e);
+            LOG.warn("写入二进制 UI 状态文件失败，旧文件将保留: {}", CONFIG_PATH, e);
             try {
                 Files.deleteIfExists(tempPath);
             } catch (IOException ignored) {
@@ -123,9 +146,27 @@ public final class RtsClientUiStateStore {
      */
     private static UiState migrate(UiState state) {
         int version = state._storeVersion;
-        // 未来在此添加逐版本迁移逻辑：
-        // if (version < 1) { /* v0 → v1 */ version = 1; }
-        // if (version < 2) { /* v1 → v2 */ version = 2; }
+        if (version < 2) {
+            // v1 → v2: 将旧顶层 mining 迁移到 quickBuild.mining
+            if (state.mining != null) {
+                state.quickBuild.mining.ultimineLimit = state.mining.ultimineLimit;
+                state.quickBuild.mining.areaMineShape = state.mining.areaMineShape;
+                state.quickBuild.mining.destroyFillMode = state.mining.destroyFillMode;
+                state.quickBuild.mining.destroyRotationDegrees = state.mining.destroyRotationDegrees;
+                state.quickBuild.mining.destroyLineConnected = state.mining.destroyLineConnected;
+                state.mining = null; // 清除旧引用
+            }
+            // 将旧 quickBuild 扁平字段迁移到 quickBuild.building
+            if (state.quickBuild.buildShape != null) {
+                state.quickBuild.building.buildShape = state.quickBuild.buildShape;
+            }
+            if (state.quickBuild.buildFillMode != null) {
+                state.quickBuild.building.buildFillMode = state.quickBuild.buildFillMode;
+            }
+            state.quickBuild.building.buildRotationDegrees = state.quickBuild.buildRotationDegrees;
+            state.quickBuild.building.buildLineConnected = state.quickBuild.buildLineConnected;
+            version = 2;
+        }
         if (version < CURRENT_STORE_VERSION) {
             state._storeVersion = CURRENT_STORE_VERSION;
         }
@@ -230,10 +271,11 @@ public final class RtsClientUiStateStore {
 
         // ===== 面板分组状态 =====
 
-        /** 快速建造面板 */
+        /** 快速建造面板（含 building 和 mining 子状态） */
         public QuickBuildState quickBuild = new QuickBuildState();
-        /** 连锁挖掘 / 范围破坏面板 */
-        public MiningState mining = new MiningState();
+        /** v1→v2 迁移用：旧顶层 mining，v2 后不再使用 */
+        @Deprecated
+        public MiningState mining;
         /** 相机 / 视觉面板 */
         public CameraState camera = new CameraState();
         /** 覆盖层面板 */
@@ -259,19 +301,43 @@ public final class RtsClientUiStateStore {
         //  面板分组内嵌状态类
         // ================================================================
 
-        /** 快速建造面板状态。 */
+        /** 快速建造面板状态（含 building 和 mining 子状态）。
+         * <p>quickBuildOpen / quickBuildMode 为面板公共状态，
+         * building 存放 BUILD 模式独立字段，mining 存放 DESTROY 模式独立字段。 */
         public static final class QuickBuildState {
-            public String buildShape = "BLOCK";
             public boolean quickBuildOpen = true;
             public String quickBuildMode = "BUILD";
 
-            // ===== BUILD 模式独立状态 =====
-            public String buildFillMode = "FILL";
-            public int buildRotationDegrees = 0;
-            public boolean buildLineConnected = false;
+            /** BUILD 模式独立状态 */
+            public BuildingState building = new BuildingState();
+            /** 范围破坏模式独立状态 */
+            public MiningState mining = new MiningState();
+
+            // ===== v1→v2 迁移过渡字段（仅用于读取旧格式文件） =====
+            /** @deprecated v1 格式，已迁移至 building.buildShape */
+            @Deprecated
+            public String buildShape;
+            /** @deprecated v1 格式，已迁移至 building.buildFillMode */
+            @Deprecated
+            public String buildFillMode;
+            /** @deprecated v1 格式，已迁移至 building.buildRotationDegrees */
+            @Deprecated
+            public int buildRotationDegrees;
+            /** @deprecated v1 格式，已迁移至 building.buildLineConnected */
+            @Deprecated
+            public boolean buildLineConnected;
+
+            /** BUILD 模式独立状态。 */
+            public static final class BuildingState {
+                public String buildShape = "BLOCK";
+                public String buildFillMode = "FILL";
+                public int buildRotationDegrees = 0;
+                public boolean buildLineConnected = false;
+            }
         }
 
-        /** 连锁挖掘 / 范围破坏状态。 */
+        /** 连锁挖掘 / 范围破坏状态。
+         * <p>同时用于 UiState 顶层（v1 格式）和 QuickBuildState.mining（v2 格式）。 */
         public static final class MiningState {
             public int ultimineLimit = 64;
             public String areaMineShape = "CHAIN";
@@ -362,19 +428,19 @@ public final class RtsClientUiStateStore {
         UiState sanitized() {
             UiState clean = new UiState();
             clean._storeVersion = CURRENT_STORE_VERSION;
-            // quickBuild
-            clean.quickBuild.buildShape = sanitizeEnum(this.quickBuild.buildShape, "BLOCK");
+            // quickBuild — building
             clean.quickBuild.quickBuildOpen = this.quickBuild.quickBuildOpen;
             clean.quickBuild.quickBuildMode = sanitizeEnum(this.quickBuild.quickBuildMode, "BUILD");
-            clean.quickBuild.buildFillMode = sanitizeEnum(this.quickBuild.buildFillMode, "FILL");
-            clean.quickBuild.buildRotationDegrees = Math.floorMod(this.quickBuild.buildRotationDegrees, 360);
-            clean.quickBuild.buildLineConnected = this.quickBuild.buildLineConnected;
-            // mining
-            clean.mining.ultimineLimit = Math.max(1, Math.min(256, this.mining.ultimineLimit));
-            clean.mining.areaMineShape = sanitizeEnum(this.mining.areaMineShape, "CHAIN");
-            clean.mining.destroyFillMode = sanitizeEnum(this.mining.destroyFillMode, "FILL");
-            clean.mining.destroyRotationDegrees = Math.floorMod(this.mining.destroyRotationDegrees, 360);
-            clean.mining.destroyLineConnected = this.mining.destroyLineConnected;
+            clean.quickBuild.building.buildShape = sanitizeEnum(this.quickBuild.building.buildShape, "BLOCK");
+            clean.quickBuild.building.buildFillMode = sanitizeEnum(this.quickBuild.building.buildFillMode, "FILL");
+            clean.quickBuild.building.buildRotationDegrees = Math.floorMod(this.quickBuild.building.buildRotationDegrees, 360);
+            clean.quickBuild.building.buildLineConnected = this.quickBuild.building.buildLineConnected;
+            // quickBuild — mining
+            clean.quickBuild.mining.ultimineLimit = Math.max(1, Math.min(256, this.quickBuild.mining.ultimineLimit));
+            clean.quickBuild.mining.areaMineShape = sanitizeEnum(this.quickBuild.mining.areaMineShape, "CHAIN");
+            clean.quickBuild.mining.destroyFillMode = sanitizeEnum(this.quickBuild.mining.destroyFillMode, "FILL");
+            clean.quickBuild.mining.destroyRotationDegrees = Math.floorMod(this.quickBuild.mining.destroyRotationDegrees, 360);
+            clean.quickBuild.mining.destroyLineConnected = this.quickBuild.mining.destroyLineConnected;
             // camera
             clean.camera.rtsGuiScale = sanitizeScale(this.camera.rtsGuiScale);
             clean.camera.inputSensitivityIndex = Math.max(0, Math.min(32, this.camera.inputSensitivityIndex));
