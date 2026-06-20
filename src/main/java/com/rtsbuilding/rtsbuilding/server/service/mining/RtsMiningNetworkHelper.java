@@ -1,8 +1,8 @@
 package com.rtsbuilding.rtsbuilding.server.service.mining;
 
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsBreakAnimationPayload;
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsMineProgressPayload;
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsUltimineProgressPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsBreakAnimationPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsMineProgressPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsUltimineProgressPayload;
 import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;

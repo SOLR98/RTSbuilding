@@ -4,6 +4,10 @@ import com.rtsbuilding.rtsbuilding.network.ClientPayloadDispatcher;
 import com.rtsbuilding.rtsbuilding.network.storage.handler.RtsBindingHandlers;
 import com.rtsbuilding.rtsbuilding.network.storage.handler.RtsPageHandlers;
 import com.rtsbuilding.rtsbuilding.network.storage.handler.RtsTransferHandlers;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStorageDeltaPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStorageDirtyPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStoragePagePayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsRemoteMenuHintPayload;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**
@@ -114,6 +118,11 @@ public final class RtsStoragePackets {
         registrar.playToClient(
                 S2CRtsStorageDirtyPayload.TYPE,
                 S2CRtsStorageDirtyPayload.STREAM_CODEC,
+                ClientPayloadDispatcher::dispatchStorage);
+
+        registrar.playToClient(
+                S2CRtsStorageDeltaPayload.TYPE,
+                S2CRtsStorageDeltaPayload.STREAM_CODEC,
                 ClientPayloadDispatcher::dispatchStorage);
 
         registrar.playToClient(

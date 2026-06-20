@@ -2,12 +2,13 @@ package com.rtsbuilding.rtsbuilding.client.controller;
 
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
 import com.rtsbuilding.rtsbuilding.client.record.*;
-import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftFeedbackPayload;
-import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftablesPayload;
+import com.rtsbuilding.rtsbuilding.network.craft.s2c.S2CRtsCraftFeedbackPayload;
+import com.rtsbuilding.rtsbuilding.network.craft.s2c.S2CRtsCraftablesPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.C2SRtsLinkStoragePayload;
 import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStorageDirtyPayload;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStorageDeltaPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStorageDirtyPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStoragePagePayload;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -679,6 +680,27 @@ public final class StorageStateManager {
             this.storageViewDirtySinceMs = System.currentTimeMillis();
         }
         this.storageViewDirty = true;
+    }
+
+    public void applyStorageDelta(S2CRtsStorageDeltaPayload payload) {
+        if (payload == null) return;
+        int updatedSize = Math.min(payload.updatedItemIds().size(), payload.updatedCounts().size());
+        for (int i = 0; i < updatedSize; i++) {
+            String id = payload.updatedItemIds().get(i);
+            long newCount = payload.updatedCounts().get(i);
+            this.storageTotalCounts.put(id, newCount);
+            for (int j = 0; j < this.storageEntries.size(); j++) {
+                StorageEntry entry = this.storageEntries.get(j);
+                if (id.equals(entry.itemId()) && entry.count() != newCount) {
+                    this.storageEntries.set(j, new StorageEntry(entry.stack(), id, newCount, entry.mod(), entry.name()));
+                }
+            }
+        }
+        for (String id : payload.removedItemIds()) {
+            this.storageTotalCounts.remove(id);
+            this.storageEntries.removeIf(e -> id.equals(e.itemId()));
+        }
+        this.storageRevision++;
     }
 
     /**

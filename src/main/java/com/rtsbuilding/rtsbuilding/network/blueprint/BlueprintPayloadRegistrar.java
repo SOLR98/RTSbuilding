@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.network.blueprint;
 
 import com.rtsbuilding.rtsbuilding.network.ClientPayloadDispatcher;
+import com.rtsbuilding.rtsbuilding.network.blueprint.s2c.S2CBlueprintStatusPayload;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 public final class BlueprintPayloadRegistrar {

@@ -4,7 +4,7 @@ import com.rtsbuilding.rtsbuilding.common.blueprint.model.BlueprintFormat;
 import com.rtsbuilding.rtsbuilding.common.blueprint.model.RtsBlueprint;
 import com.rtsbuilding.rtsbuilding.common.blueprint.model.RtsBlueprintBlock;
 import com.rtsbuilding.rtsbuilding.common.blueprint.io.BlueprintWriters;
-import com.rtsbuilding.rtsbuilding.network.blueprint.S2CBlueprintStatusPayload;
+import com.rtsbuilding.rtsbuilding.network.blueprint.s2c.S2CBlueprintStatusPayload;
 import net.minecraft.Util;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;

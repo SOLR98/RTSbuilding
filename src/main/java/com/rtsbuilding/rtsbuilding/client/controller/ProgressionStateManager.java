@@ -1,7 +1,7 @@
 package com.rtsbuilding.rtsbuilding.client.controller;
 
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
-import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsProgressionStatePayload;
+import com.rtsbuilding.rtsbuilding.network.progression.s2c.S2CRtsProgressionStatePayload;
 import com.rtsbuilding.rtsbuilding.progression.RtsProgressionNodes;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;

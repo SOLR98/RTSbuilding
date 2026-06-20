@@ -7,7 +7,7 @@ import com.rtsbuilding.rtsbuilding.common.blueprint.model.RtsBlueprintBlock;
 import com.rtsbuilding.rtsbuilding.common.blueprint.io.BlueprintReaders;
 import com.rtsbuilding.rtsbuilding.common.blueprint.io.BlueprintWriters;
 import com.rtsbuilding.rtsbuilding.network.blueprint.C2SBlueprintPlacePayload;
-import com.rtsbuilding.rtsbuilding.network.blueprint.S2CBlueprintStatusPayload;
+import com.rtsbuilding.rtsbuilding.network.blueprint.s2c.S2CBlueprintStatusPayload;
 import com.rtsbuilding.rtsbuilding.client.bootstrap.ClientKeyMappings;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import net.minecraft.Util;

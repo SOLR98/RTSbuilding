@@ -1,6 +1,6 @@
 package com.rtsbuilding.rtsbuilding.server.service.page;
 
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStoragePagePayload;
 
 /**
  * 储存浏览器页面构建结果。

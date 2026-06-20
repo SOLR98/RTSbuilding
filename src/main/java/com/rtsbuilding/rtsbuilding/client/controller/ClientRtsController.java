@@ -19,18 +19,20 @@ import com.rtsbuilding.rtsbuilding.common.build.BuilderMode;
 import com.rtsbuilding.rtsbuilding.common.shape.model.ShapeFillMode;
 import com.rtsbuilding.rtsbuilding.compat.remote.RtsRemoteMenuCompat;
 import com.rtsbuilding.rtsbuilding.network.builder.*;
-import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraAnchorPayload;
-import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraStatePayload;
-import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftFeedbackPayload;
-import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftablesPayload;
-import com.rtsbuilding.rtsbuilding.network.feedback.S2CRtsDamageFeedbackPayload;
-import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsProgressionStatePayload;
-import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsQuestDetectStatusPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.*;
+import com.rtsbuilding.rtsbuilding.network.camera.s2c.S2CRtsCameraAnchorPayload;
+import com.rtsbuilding.rtsbuilding.network.camera.s2c.S2CRtsCameraStatePayload;
+import com.rtsbuilding.rtsbuilding.network.craft.s2c.S2CRtsCraftFeedbackPayload;
+import com.rtsbuilding.rtsbuilding.network.craft.s2c.S2CRtsCraftablesPayload;
+import com.rtsbuilding.rtsbuilding.network.feedback.s2c.S2CRtsDamageFeedbackPayload;
+import com.rtsbuilding.rtsbuilding.network.progression.s2c.S2CRtsProgressionStatePayload;
+import com.rtsbuilding.rtsbuilding.network.progression.s2c.S2CRtsQuestDetectStatusPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsRemoteMenuHintPayload;
-import com.rtsbuilding.rtsbuilding.network.plugin.S2CRtsPluginStatePayload;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStorageDirtyPayload;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsRemoteMenuHintPayload;
+import com.rtsbuilding.rtsbuilding.network.plugin.s2c.S2CRtsPluginStatePayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStorageDeltaPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStorageDirtyPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStoragePagePayload;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowPriority;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowType;
@@ -1378,6 +1380,10 @@ public final class ClientRtsController {
 
     public void applyStorageDirty(S2CRtsStorageDirtyPayload payload) {
         this.storageStateManager.applyStorageDirty(payload);
+    }
+
+    public void applyStorageDelta(S2CRtsStorageDeltaPayload payload) {
+        this.storageStateManager.applyStorageDelta(payload);
     }
 
 

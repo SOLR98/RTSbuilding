@@ -1,7 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.progression;
 
 import com.rtsbuilding.rtsbuilding.Config;
-import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsProgressionStatePayload;
+import com.rtsbuilding.rtsbuilding.network.progression.s2c.S2CRtsProgressionStatePayload;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.progression.RtsIngredientCost;
 import com.rtsbuilding.rtsbuilding.progression.RtsProgressionNode;

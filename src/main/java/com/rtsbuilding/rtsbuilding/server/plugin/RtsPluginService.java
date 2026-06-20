@@ -1,7 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.plugin;
 
 import com.rtsbuilding.rtsbuilding.Config;
-import com.rtsbuilding.rtsbuilding.network.plugin.S2CRtsPluginStatePayload;
+import com.rtsbuilding.rtsbuilding.network.plugin.s2c.S2CRtsPluginStatePayload;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import net.minecraft.network.chat.Component;

@@ -4,6 +4,15 @@ import com.rtsbuilding.rtsbuilding.network.ClientPayloadDispatcher;
 import com.rtsbuilding.rtsbuilding.network.builder.handler.RtsInteractionHandlers;
 import com.rtsbuilding.rtsbuilding.network.builder.handler.RtsMiningHandlers;
 import com.rtsbuilding.rtsbuilding.network.builder.handler.RtsPlaceHandlers;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsBlueprintResumeScanPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsBreakAnimationPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsHistorySyncPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsMineProgressPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsPlaceAnimationPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsResumePlacementScanPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsUltimineProgressPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsWorkflowProgressBatchPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsWorkflowProgressPayload;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**

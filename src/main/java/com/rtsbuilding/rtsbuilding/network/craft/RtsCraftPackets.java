@@ -2,6 +2,8 @@ package com.rtsbuilding.rtsbuilding.network.craft;
 
 import com.rtsbuilding.rtsbuilding.network.ClientPayloadDispatcher;
 import com.rtsbuilding.rtsbuilding.network.craft.handler.RtsCraftNetworkHandlers;
+import com.rtsbuilding.rtsbuilding.network.craft.s2c.S2CRtsCraftFeedbackPayload;
+import com.rtsbuilding.rtsbuilding.network.craft.s2c.S2CRtsCraftablesPayload;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**

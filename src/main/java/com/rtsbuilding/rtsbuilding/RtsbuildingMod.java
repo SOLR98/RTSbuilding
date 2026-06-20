@@ -8,7 +8,6 @@ import com.rtsbuilding.rtsbuilding.common.RtsEntities;
 import com.rtsbuilding.rtsbuilding.common.RtsItems;
 import com.rtsbuilding.rtsbuilding.server.api.impl.RtsAPIImpl;
 import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
-import com.rtsbuilding.rtsbuilding.server.data.SaveScheduler;
 import com.rtsbuilding.rtsbuilding.server.feedback.RtsDamageFeedbackManager;
 import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import com.rtsbuilding.rtsbuilding.server.pipeline.core.RtsPipelineRegistration;
@@ -85,13 +84,11 @@ public class RtsbuildingMod {
         static void onServerStarted(ServerStartedEvent event) {
             ServerTickOrchestrator.getInstance().warmCreativeTabCaches(event.getServer());
             RtsCameraManager.cleanupOrphanCameras(event.getServer());
-            SaveScheduler.INSTANCE.cleanupLegacyFiles(event.getServer());
         }
 
         @SubscribeEvent
         static void onServerStopped(ServerStoppedEvent event) {
             RtsWorkflowEngine.getInstance().saveAll(event.getServer());
-            SaveScheduler.INSTANCE.onServerStopped();
             RtsWorkflowEngine.getInstance().clearAllData();
         }
 
@@ -106,7 +103,6 @@ public class RtsbuildingMod {
                 RtsProgressRefresher.clearPlayerCache(serverPlayer.getUUID());
                 RtsPluginService.syncRelatedPlayers(serverPlayer);
                 ServerHistoryManager.clear(serverPlayer.getUUID());
-                SaveScheduler.INSTANCE.onPlayerLogout(serverPlayer);
             }
         }
 
@@ -129,7 +125,6 @@ public class RtsbuildingMod {
 
         @SubscribeEvent
         static void onServerTick(ServerTickEvent.Post event) {
-            SaveScheduler.INSTANCE.onTick(event.getServer());
             ServerTickOrchestrator.getInstance().tickMining(event.getServer());
         }
     }

@@ -2,6 +2,7 @@ package com.rtsbuilding.rtsbuilding.network.plugin;
 
 import com.rtsbuilding.rtsbuilding.network.ClientPayloadDispatcher;
 import com.rtsbuilding.rtsbuilding.network.plugin.handler.RtsPluginNetworkHandlers;
+import com.rtsbuilding.rtsbuilding.network.plugin.s2c.S2CRtsPluginStatePayload;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**

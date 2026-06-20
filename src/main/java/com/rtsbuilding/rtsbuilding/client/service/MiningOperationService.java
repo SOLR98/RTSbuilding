@@ -391,7 +391,7 @@ public final class MiningOperationService {
 
     /**
      * Applies an ultimine progress update from the server.
-     * See {@link com.rtsbuilding.rtsbuilding.network.builder.S2CRtsUltimineProgressPayload}.
+     * See {@link com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsUltimineProgressPayload}.
      */
     public void applyUltimineProgress(int processed, int total) {
         this.ultimineProgressProcessed = processed;

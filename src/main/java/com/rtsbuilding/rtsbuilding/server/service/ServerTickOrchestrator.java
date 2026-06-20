@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.service;
 
 import com.rtsbuilding.rtsbuilding.compat.remote.RtsRemoteMenuCompat;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStorageDeltaPayload;
 import com.rtsbuilding.rtsbuilding.server.pipeline.core.TickablePipelineRegistry;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
@@ -8,10 +9,15 @@ import com.rtsbuilding.rtsbuilding.server.service.destruction.RtsDestructionBatc
 import com.rtsbuilding.rtsbuilding.server.service.mining.RtsMiningStateMachine;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder;
+import com.rtsbuilding.rtsbuilding.server.storage.cache.RtsAggregateStorage;
 import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.neoforged.neoforge.network.PacketDistributor;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public final class ServerTickOrchestrator {
 
@@ -58,7 +64,29 @@ public final class ServerTickOrchestrator {
                 if (session == null) continue;
                 session.transfer.pageDataVersion.incrementAndGet();
                 if (!RtsProgressionManager.canUse(player, RtsFeature.STORAGE_BROWSER)) continue;
-                serviceOp.refreshPage(player, session);
+
+                RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+                if (aggregate != null) {
+                    List<String> updatedIds = new ArrayList<>();
+                    List<Long> updatedCounts = new ArrayList<>();
+                    List<String> removedIds = new ArrayList<>();
+
+                    for (String itemId : entry.getValue()) {
+                        long count = aggregate.getTotalCountById(itemId);
+                        if (count > 0) {
+                            updatedIds.add(itemId);
+                            updatedCounts.add(count);
+                        } else {
+                            removedIds.add(itemId);
+                        }
+                    }
+
+                    if (!updatedIds.isEmpty() || !removedIds.isEmpty()) {
+                        PacketDistributor.sendToPlayer(player,
+                                new S2CRtsStorageDeltaPayload(updatedIds, updatedCounts, removedIds));
+                    }
+                }
+
                 RtsPendingPlacementService.tryResumeAfterStorageChange(player);
                 RtsDestructionBatch.tryResumePendingDestroyJobs(player, session);
             }

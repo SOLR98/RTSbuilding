@@ -1,5 +1,7 @@
 package com.rtsbuilding.rtsbuilding.network.blueprint;
 
+import com.rtsbuilding.rtsbuilding.network.blueprint.s2c.S2CBlueprintStatusPayload;
+
 import com.rtsbuilding.rtsbuilding.common.blueprint.model.BlueprintParseException;
 import com.rtsbuilding.rtsbuilding.common.blueprint.model.RtsBlueprint;
 import com.rtsbuilding.rtsbuilding.common.blueprint.io.BlueprintReaders;

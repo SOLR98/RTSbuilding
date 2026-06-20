@@ -1,7 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.storage;
 
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsStoreFluidPayload;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStoragePagePayload;
 import com.rtsbuilding.rtsbuilding.server.service.fluids.RtsFluidBufferService;
 import com.rtsbuilding.rtsbuilding.server.service.fluids.RtsFluidNetworkOperator;
 import com.rtsbuilding.rtsbuilding.server.service.fluids.RtsFluidWorldPlacer;

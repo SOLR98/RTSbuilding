@@ -2,6 +2,8 @@ package com.rtsbuilding.rtsbuilding.network.progression;
 
 import com.rtsbuilding.rtsbuilding.network.ClientPayloadDispatcher;
 import com.rtsbuilding.rtsbuilding.network.progression.handler.RtsProgressionNetworkHandlers;
+import com.rtsbuilding.rtsbuilding.network.progression.s2c.S2CRtsProgressionStatePayload;
+import com.rtsbuilding.rtsbuilding.network.progression.s2c.S2CRtsQuestDetectStatusPayload;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**

@@ -62,7 +62,7 @@ public final class PlacementHistoryManager {
      * Receives a history state sync from the server.
      * <p>
      * Called by {@link com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers#handleHistorySync}
-     * when a {@link com.rtsbuilding.rtsbuilding.network.builder.S2CRtsHistorySyncPayload} is received.
+     * when a {@link com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsHistorySyncPayload} is received.
      *
      * @param newUndoSize the server's current undoable step count
      */

@@ -127,7 +127,7 @@ public final class ServerHistoryManager {
         if (player == null) return;
         int undoSize = getUndoSize(player.getUUID());
         PacketDistributor.sendToPlayer(player,
-                new com.rtsbuilding.rtsbuilding.network.builder.S2CRtsHistorySyncPayload(undoSize));
+                new com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsHistorySyncPayload(undoSize));
     }
 
     // ======================================================================

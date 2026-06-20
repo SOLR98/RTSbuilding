@@ -1,7 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.workflow.service;
 
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsWorkflowProgressBatchPayload;
-import com.rtsbuilding.rtsbuilding.network.builder.S2CRtsWorkflowProgressPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsWorkflowProgressBatchPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.S2CRtsWorkflowProgressPayload;
 import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEntry;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
 import net.minecraft.server.level.ServerPlayer;

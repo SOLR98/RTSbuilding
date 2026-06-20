@@ -1,6 +1,6 @@
 package com.rtsbuilding.rtsbuilding.client.controller;
 
-import com.rtsbuilding.rtsbuilding.network.plugin.S2CRtsPluginStatePayload;
+import com.rtsbuilding.rtsbuilding.network.plugin.s2c.S2CRtsPluginStatePayload;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;

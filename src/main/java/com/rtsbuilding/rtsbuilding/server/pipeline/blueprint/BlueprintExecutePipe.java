@@ -4,7 +4,7 @@ import com.rtsbuilding.rtsbuilding.Config;
 import com.rtsbuilding.rtsbuilding.common.blueprint.transform.BlueprintTransform;
 import com.rtsbuilding.rtsbuilding.common.blueprint.model.RtsBlueprint;
 import com.rtsbuilding.rtsbuilding.network.blueprint.BlueprintNetworkHandlers;
-import com.rtsbuilding.rtsbuilding.network.blueprint.S2CBlueprintStatusPayload;
+import com.rtsbuilding.rtsbuilding.network.blueprint.s2c.S2CBlueprintStatusPayload;
 import com.rtsbuilding.rtsbuilding.server.pipeline.blueprint.BlockPlacementPlanner.PlacementPlan;
 import com.rtsbuilding.rtsbuilding.server.pipeline.context.BlueprintContext;
 import com.rtsbuilding.rtsbuilding.server.pipeline.core.PipelineContext;

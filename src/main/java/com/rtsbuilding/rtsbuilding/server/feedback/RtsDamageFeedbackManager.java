@@ -1,6 +1,6 @@
 package com.rtsbuilding.rtsbuilding.server.feedback;
 
-import com.rtsbuilding.rtsbuilding.network.feedback.S2CRtsDamageFeedbackPayload;
+import com.rtsbuilding.rtsbuilding.network.feedback.s2c.S2CRtsDamageFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;

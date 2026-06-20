@@ -771,6 +771,14 @@ public final class RtsAggregateStorage {
         return total;
     }
 
+    public long getTotalCountById(String itemId) {
+        long total = 0L;
+        for (CachedHandlerSlot cs : this.flatOrdered) {
+            total += cs.cache.getCount(itemId);
+        }
+        return total;
+    }
+
     public ItemStack getPrototype(String itemId) {
         for (CachedHandlerSlot cs : this.flatOrdered) {
             ItemStack proto = cs.cache.getPrototype(itemId);

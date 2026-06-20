@@ -1,8 +1,8 @@
 package com.rtsbuilding.rtsbuilding.server.camera;
 
 import com.rtsbuilding.rtsbuilding.common.entity.RtsCameraEntity;
-import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraAnchorPayload;
-import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraStatePayload;
+import com.rtsbuilding.rtsbuilding.network.camera.s2c.S2CRtsCameraAnchorPayload;
+import com.rtsbuilding.rtsbuilding.network.camera.s2c.S2CRtsCameraStatePayload;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.service.ServiceRegistry;

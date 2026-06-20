@@ -2,6 +2,8 @@ package com.rtsbuilding.rtsbuilding.network.camera;
 
 import com.rtsbuilding.rtsbuilding.network.ClientPayloadDispatcher;
 import com.rtsbuilding.rtsbuilding.network.camera.handler.RtsCameraNetworkHandlers;
+import com.rtsbuilding.rtsbuilding.network.camera.s2c.S2CRtsCameraAnchorPayload;
+import com.rtsbuilding.rtsbuilding.network.camera.s2c.S2CRtsCameraStatePayload;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 /**

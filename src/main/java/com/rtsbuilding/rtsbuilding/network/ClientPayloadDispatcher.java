@@ -1,19 +1,21 @@
 package com.rtsbuilding.rtsbuilding.network;
 
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers;
-import com.rtsbuilding.rtsbuilding.network.blueprint.S2CBlueprintStatusPayload;
+import com.rtsbuilding.rtsbuilding.network.blueprint.s2c.S2CBlueprintStatusPayload;
 import com.rtsbuilding.rtsbuilding.network.builder.*;
-import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraAnchorPayload;
-import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraStatePayload;
-import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftFeedbackPayload;
-import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftablesPayload;
-import com.rtsbuilding.rtsbuilding.network.feedback.S2CRtsDamageFeedbackPayload;
-import com.rtsbuilding.rtsbuilding.network.plugin.S2CRtsPluginStatePayload;
-import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsProgressionStatePayload;
-import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsQuestDetectStatusPayload;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsRemoteMenuHintPayload;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStorageDirtyPayload;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
+import com.rtsbuilding.rtsbuilding.network.builder.s2c.*;
+import com.rtsbuilding.rtsbuilding.network.camera.s2c.S2CRtsCameraAnchorPayload;
+import com.rtsbuilding.rtsbuilding.network.camera.s2c.S2CRtsCameraStatePayload;
+import com.rtsbuilding.rtsbuilding.network.craft.s2c.S2CRtsCraftFeedbackPayload;
+import com.rtsbuilding.rtsbuilding.network.craft.s2c.S2CRtsCraftablesPayload;
+import com.rtsbuilding.rtsbuilding.network.feedback.s2c.S2CRtsDamageFeedbackPayload;
+import com.rtsbuilding.rtsbuilding.network.plugin.s2c.S2CRtsPluginStatePayload;
+import com.rtsbuilding.rtsbuilding.network.progression.s2c.S2CRtsProgressionStatePayload;
+import com.rtsbuilding.rtsbuilding.network.progression.s2c.S2CRtsQuestDetectStatusPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsRemoteMenuHintPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStorageDeltaPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStorageDirtyPayload;
+import com.rtsbuilding.rtsbuilding.network.storage.s2c.S2CRtsStoragePagePayload;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -59,6 +61,8 @@ public final class ClientPayloadDispatcher {
                     RtsClientNetworkHandlers.handleStoragePage(p, ctx);
             case S2CRtsStorageDirtyPayload p ->
                     RtsClientNetworkHandlers.handleStorageDirty(p, ctx);
+            case S2CRtsStorageDeltaPayload p ->
+                    RtsClientNetworkHandlers.handleStorageDelta(p, ctx);
             case S2CRtsRemoteMenuHintPayload p ->
                     RtsClientNetworkHandlers.handleRemoteMenuHint(p, ctx);
             default -> {}
