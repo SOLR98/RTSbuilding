@@ -4,7 +4,13 @@ import com.rtsbuilding.rtsbuilding.compat.ae2.RtsAe2Compat;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
 import com.rtsbuilding.rtsbuilding.server.RtsStorageUiPayloads;
 import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
-import com.rtsbuilding.rtsbuilding.server.storage.*;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageBindings;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageFluids;
+import com.rtsbuilding.rtsbuilding.server.storage.cache.RtsAggregateStorage;
+import com.rtsbuilding.rtsbuilding.server.storage.model.LinkedFluidHandler;
+import com.rtsbuilding.rtsbuilding.server.storage.model.LinkedHandler;
+import com.rtsbuilding.rtsbuilding.server.storage.resolver.RtsLinkedStorageResolver;
+import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import com.rtsbuilding.rtsbuilding.util.RtsCountUtil;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
@@ -17,10 +23,21 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.*;
 
 /**
- * Builds the read-only storage browser page from a session and linked storage snapshot.
+ * 储存浏览器页面构建器核心，从会话和链接存储快照构建只读的储存浏览器页面。
  *
- * <p>Page caching is delegated to {@link RtsPageCache} (LRU eviction) and
- * payload construction is delegated to {@link RtsPagePayloadFactory}.
+ * <p>这是页面系统的核心编排器，负责：
+ * <ul>
+ *   <li><b>页面构建</b>（{@link #build}）— 从链接处理器、聚合缓存、玩家背包中收集物品计数，
+ *   构建精确条目、流体条目、类别列表，执行搜索过滤和排序，组装完整的
+ *   {@link com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload}</li>
+ *   <li><b>缓存集成</b>— 先检查 LRU 缓存（{@link RtsPageCache}），命中时直接返回缓存结果；
+ *   缓存未命中或 dataVersion 过期时执行完全重建并更新缓存</li>
+ *   <li><b>快速路径</b>— 优先使用 {@link com.rtsbuilding.rtsbuilding.server.storage.cache.RtsAggregateStorage}
+ *   聚合缓存加速大量物品的统计，回退到逐处理器、逐槽位扫描</li>
+ * </ul>
+ *
+ * <p>数据包组装委托给 {@link RtsPagePayloadFactory}，
+ * 搜索/排序/类别逻辑委托给 {@link RtsPageSharedHelpers}。
  */
 public final class RtsPageCore {
 
@@ -28,8 +45,7 @@ public final class RtsPageCore {
     }
 
     /**
-     * Removes a player's cached page data so the GC can reclaim memory
-     * when they disable RTS or log out.
+     * 移除玩家的缓存页面数据，以便在禁用 RTS 或退出时 GC 可以回收内存。
      */
     public static void clearCache(UUID playerUuid) {
         RtsPageCache.INSTANCE.remove(playerUuid);
@@ -47,7 +63,7 @@ public final class RtsPageCore {
         boolean includePlayerMainInventory = RtsPageSharedHelpers.shouldIncludePlayerMainInventoryInStorageView(player, session);
         LinkedRefPayload linkedRefs = RtsPagePayloadFactory.buildLinkedRefPayload(player, session);
         List<Long> linkedPackedPositions = linkedRefs.positions();
-        if (session.linkedStorages.isEmpty()
+        if (session.linkedStorageInfo.isEmpty()
                 && itemHandlers.isEmpty()
                 && fluidHandlers.isEmpty()
                 && !hasPositiveInternalFluid(session)
@@ -68,9 +84,9 @@ public final class RtsPageCore {
         final List<FluidEntry> sortedFluidEntries;
         final int totalEntries;
 
-        boolean cacheHit = cached != null
-                && cached.key().equals(cacheKey)
-                && cached.dataVersion() == session.transfer.pageDataVersion.get();
+        // 缓存命中：版本号递增时 RtsPageCache.invalidate() 已清除旧缓存，
+        // 此处仅需键匹配——无需版本号比较，彻底消除伪竞态。
+        boolean cacheHit = cached != null && cached.key().equals(cacheKey);
 
         if (cacheHit) {
             counts = cached.counts();
@@ -131,7 +147,7 @@ public final class RtsPageCore {
             // Build fluid entries
             Map<String, Long> fluidAmounts = new HashMap<>();
             Map<String, Long> fluidCapacities = new HashMap<>();
-            for (var entry : session.internalFluidMb.entrySet()) {
+            for (var entry : session.sessionFlags.internalFluidMb.entrySet()) {
                 if (entry.getValue() == null || entry.getValue() <= 0L) continue;
                 mergeCount(fluidAmounts, entry.getKey(), entry.getValue());
             }
@@ -234,7 +250,7 @@ public final class RtsPageCore {
 
             // Update page cache
             RtsPageCache.INSTANCE.put(player.getUUID(), new RtsPageCache.CachedPage(
-                    cacheKey, session.transfer.pageDataVersion.get(),
+                    cacheKey, 0,
                     sortedEntries, sortedFluidEntries,
                     counts, namespaceTotals, categories));
         }
@@ -272,11 +288,12 @@ public final class RtsPageCore {
         int qSlotCount = RtsStorageBindings.QUICK_SLOT_COUNT;
         int gbSlotCount = RtsStorageBindings.GUI_BINDING_SLOT_COUNT;
 
-        List<String> recentIds = new ArrayList<>(session.recentEntries.size());
-        List<Long> recentAmounts = new ArrayList<>(session.recentEntries.size());
-        List<Long> recentCapacities = new ArrayList<>(session.recentEntries.size());
-        List<Byte> recentKinds = new ArrayList<>(session.recentEntries.size());
-        for (var recent : session.recentEntries) {
+        var recentEntries = session.uiMemory.getRecentEntries();
+        List<String> recentIds = new ArrayList<>(recentEntries.size());
+        List<Long> recentAmounts = new ArrayList<>(recentEntries.size());
+        List<Long> recentCapacities = new ArrayList<>(recentEntries.size());
+        List<Byte> recentKinds = new ArrayList<>(recentEntries.size());
+        for (var recent : recentEntries) {
             recentIds.add(recent.id());
             recentAmounts.add(recent.amount());
             recentCapacities.add(recent.capacity());
@@ -300,7 +317,7 @@ public final class RtsPageCore {
                 safePage, totalPages, totalEntries,
                 session.browser.search, session.browser.category,
                 (byte) session.browser.sort.ordinal(), session.browser.ascending,
-                session.autoStoreMinedDrops, session.useBdNetwork,
+                session.sessionFlags.autoStoreMinedDrops, session.sessionFlags.useBdNetwork,
                 categories,
                 itemStacks, itemCounts,
                 totalItemIds, totalItemCounts,
@@ -407,7 +424,7 @@ public final class RtsPageCore {
         if (session == null) {
             return false;
         }
-        for (Long amount : session.internalFluidMb.values()) {
+        for (Long amount : session.sessionFlags.internalFluidMb.values()) {
             if (amount != null && amount > 0L) {
                 return true;
             }

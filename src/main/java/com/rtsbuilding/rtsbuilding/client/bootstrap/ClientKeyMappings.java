@@ -7,10 +7,21 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
+import net.neoforged.neoforge.client.settings.KeyConflictContext;
+import net.neoforged.neoforge.client.settings.KeyModifier;
 import org.lwjgl.glfw.GLFW;
 
 @EventBusSubscriber(modid = RtsbuildingMod.MODID, value = Dist.CLIENT)
 public final class ClientKeyMappings {
+    private static final InputConstants.Key LEGACY_ROTATE_DRAG_DEFAULT =
+            InputConstants.Type.MOUSE.getOrCreate(GLFW.GLFW_MOUSE_BUTTON_MIDDLE);
+    private static final InputConstants.Key LEGACY_PAN_DRAG_DEFAULT =
+            InputConstants.Type.MOUSE.getOrCreate(GLFW.GLFW_MOUSE_BUTTON_RIGHT);
+    private static final InputConstants.Key DEFAULT_ROTATE_DRAG =
+            InputConstants.Type.MOUSE.getOrCreate(GLFW.GLFW_MOUSE_BUTTON_RIGHT);
+    private static final InputConstants.Key DEFAULT_PAN_DRAG =
+            InputConstants.Type.MOUSE.getOrCreate(GLFW.GLFW_MOUSE_BUTTON_MIDDLE);
+
     public static final KeyMapping TOGGLE_RTS = new KeyMapping(
             "key.rtsbuilding.toggle_rts",
             GLFW.GLFW_KEY_G,
@@ -68,6 +79,13 @@ public final class ClientKeyMappings {
             InputConstants.Type.MOUSE,
             GLFW.GLFW_MOUSE_BUTTON_RIGHT,
             "key.categories.rtsbuilding");
+    public static final KeyMapping MOVE_PLAYER = new KeyMapping(
+            "key.rtsbuilding.move_player",
+            KeyConflictContext.GUI,
+            KeyModifier.CONTROL,
+            InputConstants.Type.MOUSE,
+            GLFW.GLFW_MOUSE_BUTTON_RIGHT,
+            "key.categories.rtsbuilding");
     public static final KeyMapping ACTION_BREAK = new KeyMapping(
             "key.rtsbuilding.action_break",
             InputConstants.Type.MOUSE,
@@ -76,12 +94,12 @@ public final class ClientKeyMappings {
     public static final KeyMapping CAMERA_ROTATE_DRAG = new KeyMapping(
             "key.rtsbuilding.camera_rotate_drag",
             InputConstants.Type.MOUSE,
-            GLFW.GLFW_MOUSE_BUTTON_MIDDLE,
+            GLFW.GLFW_MOUSE_BUTTON_RIGHT,
             "key.categories.rtsbuilding");
     public static final KeyMapping CAMERA_PAN_DRAG = new KeyMapping(
             "key.rtsbuilding.camera_pan_drag",
             InputConstants.Type.MOUSE,
-            GLFW.GLFW_MOUSE_BUTTON_RIGHT,
+            GLFW.GLFW_MOUSE_BUTTON_MIDDLE,
             "key.categories.rtsbuilding");
     public static final KeyMapping PICK_BLOCK = new KeyMapping(
             "key.rtsbuilding.pick_block",
@@ -120,6 +138,7 @@ public final class ClientKeyMappings {
         event.register(MODE_ROTATE);
         event.register(MODE_FUNNEL);
         event.register(ACTION_PRIMARY);
+        event.register(MOVE_PLAYER);
         event.register(ACTION_BREAK);
         event.register(CAMERA_ROTATE_DRAG);
         event.register(CAMERA_PAN_DRAG);
@@ -127,5 +146,15 @@ public final class ClientKeyMappings {
         event.register(CAMERA_UP);
         event.register(CAMERA_UP_SECONDARY);
         event.register(CAMERA_DOWN);
+        migrateLegacyDragDefaults();
+    }
+
+    private static void migrateLegacyDragDefaults() {
+        if (CAMERA_ROTATE_DRAG.getKey().equals(LEGACY_ROTATE_DRAG_DEFAULT)
+                && CAMERA_PAN_DRAG.getKey().equals(LEGACY_PAN_DRAG_DEFAULT)) {
+            CAMERA_ROTATE_DRAG.setKey(DEFAULT_ROTATE_DRAG);
+            CAMERA_PAN_DRAG.setKey(DEFAULT_PAN_DRAG);
+            KeyMapping.resetMapping();
+        }
     }
 }

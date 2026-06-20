@@ -1,16 +1,16 @@
 package com.rtsbuilding.rtsbuilding.network;
 
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientNetworkHandlers;
+import com.rtsbuilding.rtsbuilding.network.blueprint.S2CBlueprintStatusPayload;
 import com.rtsbuilding.rtsbuilding.network.builder.*;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraAnchorPayload;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraStatePayload;
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftablesPayload;
 import com.rtsbuilding.rtsbuilding.network.feedback.S2CRtsDamageFeedbackPayload;
+import com.rtsbuilding.rtsbuilding.network.plugin.S2CRtsPluginStatePayload;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsProgressionStatePayload;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsQuestDetectStatusPayload;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsInventoryDeltaPayload;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsInventoryFullPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsRemoteMenuHintPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStorageDirtyPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
@@ -61,10 +61,6 @@ public final class ClientPayloadDispatcher {
                     RtsClientNetworkHandlers.handleStorageDirty(p, ctx);
             case S2CRtsRemoteMenuHintPayload p ->
                     RtsClientNetworkHandlers.handleRemoteMenuHint(p, ctx);
-            case S2CRtsInventoryDeltaPayload p ->
-                    RtsClientNetworkHandlers.handleInventoryDelta(p, ctx);
-            case S2CRtsInventoryFullPayload p ->
-                    RtsClientNetworkHandlers.handleInventoryFull(p, ctx);
             default -> {}
         }
     }
@@ -78,14 +74,22 @@ public final class ClientPayloadDispatcher {
         switch (payload) {
             case S2CRtsMineProgressPayload p ->
                     RtsClientNetworkHandlers.handleMineProgress(p, ctx);
+            case S2CRtsUltimineProgressPayload p ->
+                    RtsClientNetworkHandlers.handleUltimineProgress(p, ctx);
             case S2CRtsPlaceAnimationPayload p ->
                     RtsClientNetworkHandlers.handlePlaceAnimation(p, ctx);
             case S2CRtsBreakAnimationPayload p ->
                     RtsClientNetworkHandlers.handleBreakAnimation(p, ctx);
-            case S2CRtsUltimineProgressPayload p ->
-                    RtsClientNetworkHandlers.handleUltimineProgress(p, ctx);
             case S2CRtsHistorySyncPayload p ->
                     RtsClientNetworkHandlers.handleHistorySync(p, ctx);
+            case S2CRtsWorkflowProgressPayload p ->
+                    RtsClientNetworkHandlers.handleWorkflowProgress(p, ctx);
+            case S2CRtsWorkflowProgressBatchPayload p ->
+                    RtsClientNetworkHandlers.handleWorkflowProgressBatch(p, ctx);
+            case S2CRtsResumePlacementScanPayload p ->
+                    RtsClientNetworkHandlers.handleResumePlacementScan(p, ctx);
+            case S2CRtsBlueprintResumeScanPayload p ->
+                    RtsClientNetworkHandlers.handleBlueprintResumeScan(p, ctx);
             default -> {}
         }
     }
@@ -129,6 +133,32 @@ public final class ClientPayloadDispatcher {
         switch (payload) {
             case S2CRtsDamageFeedbackPayload p ->
                     RtsClientNetworkHandlers.handleDamageFeedback(p, ctx);
+            default -> {}
+        }
+    }
+
+    // ======================================================================
+    //  Blueprint domain
+    // ======================================================================
+
+    public static void dispatchBlueprintStatus(Object payload, IPayloadContext ctx) {
+        if (!IS_CLIENT) return;
+        switch (payload) {
+            case S2CBlueprintStatusPayload p ->
+                    RtsClientNetworkHandlers.handleBlueprintStatus(p, ctx);
+            default -> {}
+        }
+    }
+
+    // ======================================================================
+    //  Plugin domain
+    // ======================================================================
+
+    public static void dispatchPlugin(Object payload, IPayloadContext ctx) {
+        if (!IS_CLIENT) return;
+        switch (payload) {
+            case S2CRtsPluginStatePayload p ->
+                    RtsClientNetworkHandlers.handlePluginState(p, ctx);
             default -> {}
         }
     }

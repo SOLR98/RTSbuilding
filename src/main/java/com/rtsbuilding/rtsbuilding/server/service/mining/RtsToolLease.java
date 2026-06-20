@@ -5,27 +5,28 @@ import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.items.IItemHandler;
 
 /**
- * Tracks a real borrowed mining tool and the exact destination it should be
- * returned to after remote mining or ultimine completes.
+ * 挖掘工具租赁记录，追踪借用的工具及其归还目标。
  *
- * <p>The lease keeps a copy of the original stack only for the existing safety
- * fallback when non-damageable single-stack tools unexpectedly come back empty.
- * The live {@link #stack()} field is the mutable borrowed stack that block
- * breaking has modified, so callers must update it from the temporary main-hand
- * remainder via {@link #withStack(ItemStack)} and return that exact remainder
- * to source via {@link #returnToSource(ServerPlayer)}.
+ * <p>当系统从玩家背包或链接存储中借用一个挖掘工具时，创建一个 {@link RtsToolLease} 实例
+ * 来记录工具的来源位置和当前状态。挖掘完成后，剩余物（可能已损坏）被归还到原始位置。
  *
- * <p>A lease is either:
+ * <p><b>租赁类型：</b>
  * <ul>
- *   <li><b>Empty</b> ({@link #empty()}) — no tool is currently borrowed.</li>
- *   <li><b>Player-slot</b> — borrowed from a specific player inventory slot.</li>
- *   <li><b>Linked-storage</b> — borrowed from an {@link IItemHandler}
- *       (linked chest/barrel/etc.).</li>
+ *   <li>{@link #empty()} — 空租赁标记，表示当前没有借用工具</li>
+ *   <li>{@link #playerSlot(int, ItemStack)} — 从特定玩家背包槽位借用</li>
+ *   <li>{@link #linkedSlot(IItemHandler, int, ItemStack)} — 从 {@link IItemHandler} 借用</li>
+ * </ul>
+ *
+ * <p><b>关键字段：</b>
+ * <ul>
+ *   <li>{@link #stack()} — 可变的借用工具堆叠，被方块破坏修改</li>
+ *   <li>{@link #original()} — 借用时原始堆叠的不可变副本，用于安全回退</li>
+ *   <li>{@link #returnToSource(ServerPlayer)} — 将当前堆叠归还到原始来源</li>
  * </ul>
  */
 public final class RtsToolLease {
 
-    /** Singleton sentinel for "no active lease". */
+    /** 空活跃租赁的单例标记。 */
     private static final RtsToolLease EMPTY = new RtsToolLease(
             ItemStack.EMPTY,
             ItemStack.EMPTY,
@@ -35,29 +36,29 @@ public final class RtsToolLease {
             "none");
 
     // ─────────────────────────────────────────────────────────────────
-    //  Fields
+    //  字段
     // ─────────────────────────────────────────────────────────────────
 
-    /** Immutable copy of the original stack before any durability loss. */
+    /** 任何耐久度损失前的原始堆叠的不可变副本。 */
     private final ItemStack original;
 
-    /** Mutable borrowed stack, possibly modified by block destruction. */
+    /** 可变的借用堆叠，可能被方块破坏修改。 */
     private final ItemStack stack;
 
-    /** Linked handler this tool was borrowed from, or {@code null}. */
+    /** 工具来源的链接处理器，或 {@code null}。 */
     private final IItemHandler linkedHandler;
 
-    /** Slot index within {@link #linkedHandler}, or -1. */
+    /** {@link #linkedHandler} 内的槽位索引，或 -1。 */
     private final int linkedSlot;
 
-    /** Player inventory slot index, or -1. */
+    /** 玩家背包槽位索引，或 -1。 */
     private final int playerSlot;
 
-    /** Human-readable description of the origin, for logging. */
+    /** 来源的人类可读描述，用于日志。 */
     private final String sourceDescription;
 
     // ─────────────────────────────────────────────────────────────────
-    //  Construction
+    //  构造
     // ─────────────────────────────────────────────────────────────────
 
     private RtsToolLease(ItemStack original, ItemStack stack,
@@ -75,19 +76,19 @@ public final class RtsToolLease {
     }
 
     // ─────────────────────────────────────────────────────────────────
-    //  Factory methods
+    //  工厂方法
     // ─────────────────────────────────────────────────────────────────
 
-    /** Returns the shared empty-lease sentinel. */
+    /** 返回共享的空租赁标记。 */
     public static RtsToolLease empty() {
         return EMPTY;
     }
 
     /**
-     * Creates a lease that originated from the given player inventory slot.
+     * 创建一个从给定玩家背包槽位来源的租赁。
      *
-     * @param slot  inventory slot index
-     * @param stack the borrowed tool stack (mutable copy)
+     * @param slot  背包槽位索引
+     * @param stack 借用的工具堆叠（可变副本）
      */
     public static RtsToolLease playerSlot(int slot, ItemStack stack) {
         return new RtsToolLease(stack, stack, null, -1, slot,
@@ -95,11 +96,11 @@ public final class RtsToolLease {
     }
 
     /**
-     * Creates a lease that originated from the given linked-storage slot.
+     * 创建一个从给定链接储存槽位来源的租赁。
      *
-     * @param handler the {@link IItemHandler} the tool came from
-     * @param slot    slot index within the handler
-     * @param stack   the borrowed tool stack (mutable copy)
+     * @param handler 工具来源的 {@link IItemHandler}
+     * @param slot    处理器内的槽位索引
+     * @param stack   借用的工具堆叠（可变副本）
      */
     public static RtsToolLease linkedSlot(IItemHandler handler, int slot,
                                     ItemStack stack) {
@@ -108,39 +109,36 @@ public final class RtsToolLease {
     }
 
     // ─────────────────────────────────────────────────────────────────
-    //  Query methods
+    //  查询方法
     // ─────────────────────────────────────────────────────────────────
 
-    /** Whether this lease holds an actual tool (non-empty stack). */
+    /** 此租赁是否持有实际工具（非空堆叠）。 */
     public boolean isEmpty() {
         return this.stack.isEmpty();
     }
 
-    /** Returns the mutable borrowed tool stack. */
+    /** 返回可变的借用工具堆叠。 */
     public ItemStack stack() {
         return this.stack;
     }
 
     /**
-     * Returns an immutable copy of the original stack as it was at borrow
-     * time. Used only for the safety-fallback check in
-     * {@link RtsMiningStateMachine}.
+     * 返回借用时原始堆叠的不可变副本。
+     * 仅用于 {@link RtsMiningStateMachine} 中的安全回退检查。
      */
     public ItemStack original() {
         return this.original;
     }
 
     // ─────────────────────────────────────────────────────────────────
-    //  Mutation
+    //  变更
     // ─────────────────────────────────────────────────────────────────
 
     /**
-     * Produces a new lease with an updated stack, preserving all other
-     * metadata (source handler/slot, original copy, description).
+     * 生成一个具有更新堆叠的新租赁，保留所有其他元数据（源处理器/槽位、原始副本、描述）。
      *
-     * @param updatedStack the stack after block destruction (may be empty)
-     * @return a new lease, or a lease carrying {@link ItemStack#EMPTY} if the
-     *         updated stack is null/empty
+     * @param updatedStack 方块破坏后的堆叠（可能为空）
+     * @return 一个新的租赁，如果更新的堆叠为 null 或空则返回带有 {@link ItemStack#EMPTY} 的租赁
      */
     public RtsToolLease withStack(ItemStack updatedStack) {
         if (this == EMPTY || updatedStack == null || updatedStack.isEmpty()) {
@@ -154,16 +152,14 @@ public final class RtsToolLease {
     }
 
     // ─────────────────────────────────────────────────────────────────
-    //  Return-to-source
+    //  归还到源
     // ─────────────────────────────────────────────────────────────────
 
     /**
-     * Attempts to return the current tool stack to the original source
-     * (player inventory slot or linked-storage slot).
+     * 尝试将当前工具堆叠归还到原始来源（玩家背包槽位或链接储存槽位）。
      *
-     * @param player the server player (needed for inventory access)
-     * @return any remainder that could not be returned; {@link
-     *         ItemStack#EMPTY} if successful
+     * @param player 服务端玩家（用于背包访问）
+     * @return 无法归还的任何剩余物；成功时返回 {@link ItemStack#EMPTY}
      */
     public ItemStack returnToSource(ServerPlayer player) {
         if (this.isEmpty()) {
@@ -178,20 +174,20 @@ public final class RtsToolLease {
         return remain;
     }
 
-    /** Human-readable description for log messages. */
+    /** 用于日志消息的人类可读描述。 */
     public String describeSource() {
         return this.sourceDescription;
     }
 
     // ─────────────────────────────────────────────────────────────────
-    //  Internal helpers
+    //  内部辅助
     // ─────────────────────────────────────────────────────────────────
 
     /**
-     * Tries to insert {@code stack} back into the given player inventory slot,
-     * merging with an existing stack if they match.
+     * 尝试将 {@code stack} 插回到给定的玩家背包槽位，
+     * 如果匹配则与现有堆叠合并。
      *
-     * @return any leftover items; {@link ItemStack#EMPTY} on full success
+     * @return 任何剩余物品；完全成功时返回 {@link ItemStack#EMPTY}
      */
     private static ItemStack returnToPlayerSlot(
             ServerPlayer player, int slot, ItemStack stack) {

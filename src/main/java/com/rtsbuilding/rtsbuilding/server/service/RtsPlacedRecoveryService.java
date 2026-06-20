@@ -6,10 +6,13 @@ import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementSound;
 import com.rtsbuilding.rtsbuilding.server.service.resolver.RtsLinkedHandlerResolutionService;
-import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsBatchInsertService;
 import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
-import com.rtsbuilding.rtsbuilding.server.storage.*;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsPlacementState.PlacedRecoveryJob;
+import com.rtsbuilding.rtsbuilding.server.storage.model.LinkedHandler;
+import com.rtsbuilding.rtsbuilding.server.storage.model.LinkedStorageRef;
+import com.rtsbuilding.rtsbuilding.server.storage.model.OverflowOutcome;
+import com.rtsbuilding.rtsbuilding.server.storage.resolver.RtsLinkedStorageResolver;
+import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
+import com.rtsbuilding.rtsbuilding.server.storage.state.RtsPlacementState.PlacedRecoveryJob;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
@@ -27,14 +30,35 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.*;
 
 /**
- * 已放置方块恢复服务——管理远程破坏后掉落物回收。
+ * 已放置方块恢复服务——管理 RTS 远程放置方块的破坏和掉落物回收。
  *
- * <p>职责范围：
+ * <p>此服务处理已放置方块（由 {@code PlacedBlockTrackerData} 追踪）的
+ * 远程破坏流程，包括模拟精准采集、掉落物收集、入队回收和自动存储。
+ * 所有方法均为 {@code static}，类本身为不可实例化的工具类。
+ *
+ * <p><b>核心流程：</b>
  * <ul>
- *   <li>已放置方块的远程破坏</li>
- *   <li>掉落物回收队列管理</li>
- *   <li>自动回收到链接存储</li>
+ *   <li>{@link #breakPlaced(ServerPlayer, BlockPos, Direction, boolean)} —
+ *       远程破坏已放置方块：检查权限和追踪状态、模拟下界合金镐+精准采集破坏、
+ *       收集新增掉落物入队、从链接存储引用中移除已破坏方块、刷新工作流进度</li>
+ *   <li>{@link #tick(ServerPlayer, RtsStorageSession)} —
+ *       每 tick 处理恢复作业队列，将掉落物栈依次存入链接存储；
+ *       每 tick 最多处理 {@code PLACED_RECOVERY_MAX_JOBS_PER_TICK} 个作业
+ *       和 {@code PLACED_RECOVERY_MAX_STACKS_PER_TICK} 个栈</li>
  * </ul>
+ *
+ * <p><b>内部方法：</b>
+ * <ul>
+ *   <li>{@link #snapshotNearbyDropIds(ServerLevel, BlockPos)} — 破坏前快照附近掉落物 UUID 集合</li>
+ *   <li>{@link #collectNewNearbyDrops(ServerLevel, BlockPos, Set)} — 破坏后收集新增掉落物</li>
+ *   <li>{@link #breakWithSimulatedSilkTouch(ServerPlayer, ServerLevel, BlockPos)} —
+ *       使用模拟精准采集工具破坏方块</li>
+ *   <li>{@link #recoveryHandlersExcluding(List, BlockPos)} — 获取恢复用的处理器列表，排除刚破坏的方块自身</li>
+ * </ul>
+ *
+ * <p><b>存储策略：</b>掉落物优先存入链接存储的同类型堆叠，
+ * 溢出时存入玩家背包，再溢出则丢弃并提示玩家。
+ * 使用 {@link RtsLinkedHandlerResolutionService#orderHandlersForInsert} 获取有序的插入处理器。
  */
 public final class RtsPlacedRecoveryService {
 
@@ -52,7 +76,7 @@ public final class RtsPlacedRecoveryService {
         if (undoRecovery && !RtsProgressionManager.canUse(player, RtsFeature.REMOTE_PLACE)) {
             return;
         }
-        RtsStorageSession session = RtsSessionService.getIfPresent(player);
+        RtsStorageSession session = ServiceRegistry.getInstance().session().getIfPresent(player);
         if (session == null || !RtsLinkedStorageResolver.canAccessWorldTarget(player, pos)) {
             return;
         }
@@ -97,13 +121,10 @@ public final class RtsPlacedRecoveryService {
         enqueueRecoveryJob(player, session, targetPos, droppedEntities);
 
         LinkedStorageRef targetRef = new LinkedStorageRef(player.serverLevel().dimension(), targetPos);
-        if (session.linkedStorages.remove(targetRef)) {
-            session.linkedNames.remove(targetRef);
-            session.linkedModes.remove(targetRef);
-            session.linkedPriorities.remove(targetRef);
-            RtsSessionService.saveToPlayerNbt(player, session);
+        if (session.linkedStorageInfo.remove(targetRef)) {
+            ServiceRegistry.getInstance().session().saveToPlayerNbt(player, session);
         }
-        RtsPageService.markStorageViewDirty(player, session);
+        ServiceRegistry.getInstance().page().markStorageViewDirty(player, session);
         // 破坏已放置方块后刷新放置工作流进度（更新进度条和重启所需方块数）
         RtsPendingPlacementService.refreshWorkflowProgress(player, session);
     }
@@ -120,13 +141,13 @@ public final class RtsPlacedRecoveryService {
             return;
         }
 
-        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+        List<LinkedHandler> orderedLinked = RtsLinkedHandlerResolutionService.orderHandlersForInsert(
+                RtsLinkedStorageResolver.resolveLinkedHandlers(player, session));
         OverflowOutcome overflow = OverflowOutcome.EMPTY;
+        boolean hasLinkedRecoveryTarget = false;
         boolean processedAny = false;
         int processedJobs = 0;
         int processedStacks = 0;
-
-        Map<String, ItemStack> recoveryMap = new HashMap<>();
 
         while (!jobs.isEmpty()
                 && processedJobs < RtsServiceConstants.PLACED_RECOVERY_MAX_JOBS_PER_TICK
@@ -138,16 +159,20 @@ public final class RtsPlacedRecoveryService {
                 continue;
             }
 
+            List<IItemHandler> handlers = recoveryHandlersExcluding(orderedLinked, job.targetPos());
+            hasLinkedRecoveryTarget |= !handlers.isEmpty();
+            var aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
             while (!job.stacks().isEmpty() && processedStacks < RtsServiceConstants.PLACED_RECOVERY_MAX_STACKS_PER_TICK) {
                 ItemStack droppedStack = job.stacks().removeFirst();
                 if (droppedStack == null || droppedStack.isEmpty()) {
                     continue;
                 }
-                String itemId = droppedStack.getItem().toString();
-                recoveryMap.merge(itemId, droppedStack.copy(), (existing, incoming) -> {
-                    existing.grow(incoming.getCount());
-                    return existing;
-                });
+                ItemStack remain = aggregate != null && !aggregate.isEmpty()
+                        ? aggregate.insert(droppedStack, false)
+                        : RtsTransferInserter.storeToLinkedOnlyPreferExisting(handlers, droppedStack);
+                if (!remain.isEmpty()) {
+                    overflow = overflow.merge(RtsTransferInserter.storeToLinkedWithFallback(handlers, player, remain));
+                }
                 processedStacks++;
                 processedAny = true;
             }
@@ -158,12 +183,17 @@ public final class RtsPlacedRecoveryService {
             }
         }
 
-        if (!recoveryMap.isEmpty() && aggregate != null && !aggregate.isEmpty()) {
-            RtsBatchInsertService.batchInsertWithFallback(player, aggregate, recoveryMap);
+        if (overflow.hasOverflow()) {
+            if (hasLinkedRecoveryTarget) {
+                RtsTransferInserter.sendStorageOverflowHint(player, "Absorb", overflow);
+            } else if (overflow.dropped() > 0) {
+                player.displayClientMessage(
+                        Component.literal("Inventory full, dropped " + overflow.dropped() + "."), true);
+            }
         }
-
-        if (overflow.hasOverflow() || processedAny) {
-            RtsStorageTickService.INSTANCE.alert(player.getUUID());
+        if (processedAny) {
+            ServiceRegistry.getInstance().page().markStorageViewDirty(player, session);
+            QuestService.runQuestDetect(player, session, false);
         }
     }
 

@@ -1,7 +1,7 @@
 package com.rtsbuilding.rtsbuilding.client.rendering.blueprint;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanel;
+import com.rtsbuilding.rtsbuilding.client.screen.blueprint.BlueprintPanel;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.GhostAlphaBufferSource;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LightTexture;

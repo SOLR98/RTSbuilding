@@ -9,13 +9,21 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.List;
 
 /**
- * Default {@link FluidTransferGate} implementation that delegates to
- * the real {@link RtsTransferExtractor} and {@link RtsTransferInserter}
- * static methods.
+ * 默认的 {@link FluidTransferGate} 接口实现，作为服务层到存储层的桥梁。
  *
- * <p>This class lives in the service layer so that the storage layer
- * only depends on the {@link FluidTransferGate} interface, not on the
- * concrete transfer implementation.
+ * <p>此类将 {@link FluidTransferGate} 接口的方法委托给真正的传输实现：
+ * <ul>
+ *   <li>{@link #extractOneFromNetwork(List, ServerPlayer, Item)} →
+ *       委托给 {@link RtsTransferExtractor#extractOneFromNetwork}</li>
+ *   <li>{@link #refundToLinked(List, ServerPlayer, ItemStack)} →
+ *       委托给 {@link RtsTransferInserter#refundToLinked}</li>
+ *   <li>{@link #moveToPlayerInventoryOnly(ServerPlayer, ItemStack)} →
+ *       委托给 {@link RtsTransferInserter#moveToPlayerInventoryOnly}</li>
+ * </ul>
+ *
+ * <p><b>设计目的：</b>此类位于服务层，使得存储层（如流体相关代码）
+ * 仅需依赖 {@link FluidTransferGate} 接口，而不必直接耦合到具体的
+ * 传输实现类。这遵循依赖倒置原则，保持层间边界清晰。
  */
 public final class RtsFluidTransferGateImpl implements FluidTransferGate {
 

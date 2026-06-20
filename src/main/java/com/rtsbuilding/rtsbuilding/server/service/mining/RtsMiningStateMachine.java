@@ -10,11 +10,11 @@ import com.rtsbuilding.rtsbuilding.server.pipeline.sync.HistoryRecordPipe;
 import com.rtsbuilding.rtsbuilding.server.pipeline.tool.ToolReturnPipe;
 import com.rtsbuilding.rtsbuilding.server.pipeline.validation.SessionValidatePipe;
 import com.rtsbuilding.rtsbuilding.server.pipeline.workflow.WorkflowCompletePipe;
-import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
-import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
+import com.rtsbuilding.rtsbuilding.server.service.ServiceRegistry;
+import com.rtsbuilding.rtsbuilding.server.service.ServiceOperationTemplate;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementSound;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
+import com.rtsbuilding.rtsbuilding.server.storage.resolver.RtsLinkedStorageResolver;
+import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -54,7 +54,7 @@ public final class RtsMiningStateMachine {
 
     /**
      * Per-player workflow entry ID tracking, decoupled from
-     * {@link com.rtsbuilding.rtsbuilding.server.storage.RtsMiningState}.
+     * {@link com.rtsbuilding.rtsbuilding.server.storage.state.RtsMiningState}.
      *
      * <p>Pipes write via {@link #setWorkflowEntryId(UUID, int)} during
      * pipeline execution; async mining completion reads via
@@ -123,6 +123,7 @@ public final class RtsMiningStateMachine {
         session.mining.ultimineProgressPos = job.targets().peekFirst();
         session.mining.ultimineProcessedTargets = 0;
         session.mining.ultimineBrokenTargets = 0;
+        session.mining.ultimineNotifyAccumulator = 0;
         session.mining.ultimineProcessedPositions.clear();
         session.mining.ultimineAbsorbedDrops = false;
         // Point the active workflow tracking to this job's entry
@@ -239,10 +240,7 @@ public final class RtsMiningStateMachine {
                 RtsDropAbsorber.absorbMinedDropsImmediately(player, session, pos);
             }
             // 连锁挖掘中途进度：触发储存页面刷新以保证GUI实时更新
-            RtsStorageTickService.INSTANCE.forceRefresh(player);
-            session.transfer.pageDataVersion.incrementAndGet();
-            RtsPageService.requestPage(player, session.browser.page, session.browser.search,
-                    session.browser.category, session.browser.sort, session.browser.ascending);
+            ServiceRegistry.getInstance().serviceOp().afterModification(player, session);
             session.mining.miningPos = null;
             session.mining.miningProgress = 0.0F;
             session.mining.miningStage = -1;
@@ -327,11 +325,8 @@ public final class RtsMiningStateMachine {
         session.mining.ultimineJobQueue.clear();
 
         RtsToolLeaseManager.returnMiningTool(player, session, session.mining.miningToolLease);
-        if (!session.mining.miningPreviousHand.isEmpty()) {
-            player.setItemInHand(InteractionHand.MAIN_HAND, session.mining.miningPreviousHand);
-        }
         if (hadMiningState) {
-            RtsPageService.markStorageViewDirty(player, session);
+            ServiceRegistry.getInstance().page().markStorageViewDirty(player, session);
         }
         resetMiningState(session);
     }
@@ -378,10 +373,6 @@ public final class RtsMiningStateMachine {
 
         // Return the borrowed tool (if any) — player gets their item back
         RtsToolLeaseManager.returnMiningTool(player, session, session.mining.miningToolLease);
-        if (!session.mining.miningPreviousHand.isEmpty()) {
-            player.setItemInHand(InteractionHand.MAIN_HAND, session.mining.miningPreviousHand);
-            session.mining.miningPreviousHand = ItemStack.EMPTY;
-        }
 
         // Keep the mining state intact — do NOT reset miningPos, ultimineTargets,
         // ultimineJobQueue, or workflow entry IDs. The workflow entry is paused
@@ -404,10 +395,6 @@ public final class RtsMiningStateMachine {
             int toolSlot) {
         if (session.mining.miningPos != null && !session.mining.miningPos.equals(pos)) {
             RtsMiningNetworkHelper.clearMineProgress(player, session.mining.miningPos);
-        }
-        session.mining.miningPreviousHand = player.getMainHandItem().copy();
-        if (session.mining.miningToolLease != null && !session.mining.miningToolLease.isEmpty()) {
-            player.setItemInHand(InteractionHand.MAIN_HAND, session.mining.miningToolLease.stack());
         }
         session.mining.miningPos = pos.immutable();
         session.mining.miningFace = face == null ? Direction.DOWN : face;
@@ -440,12 +427,10 @@ public final class RtsMiningStateMachine {
         ItemStack remainder;
         if (session != null && session.mining.miningToolLease != null && !session.mining.miningToolLease.isEmpty()) {
             RtsToolLease lease = session.mining.miningToolLease;
-            // Tool is already on the player's main hand from beginRemoteMining.
-            // No temporary swap needed — destroyBlock reads the tool directly.
-            broken = player.gameMode.destroyBlock(pos);
-            remainder = player.getMainHandItem().copy();
-            remainder = RtsToolLeaseManager.protectBorrowedToolRemainder(player, lease, remainder);
+            MiningBreakResult outcome = destroyBlockWithTemporaryMainHand(player, pos, lease.stack());
+            remainder = RtsToolLeaseManager.protectBorrowedToolRemainder(player, lease, outcome.remainder());
             session.mining.miningToolLease = lease.withStack(remainder);
+            broken = outcome.broken();
         } else if (session != null && session.mining.miningSelectedToolRequested) {
             broken = false;
             remainder = ItemStack.EMPTY;
@@ -485,6 +470,29 @@ public final class RtsMiningStateMachine {
                 player,
                 toolSlot,
                 () -> removeMiningSpeedPenalty(player, state.getDestroyProgress(player, player.serverLevel(), pos))));
+    }
+
+    // =========================================================================
+    //  MiningDestroyOutcome (temporary swapper)
+    // =========================================================================
+
+    /**
+     * Swaps the player's main hand to the given tool stack, destroys the
+     * block, reads back the (possibly damaged) remainder, and restores the
+     * original main-hand item.
+     */
+    static MiningBreakResult destroyBlockWithTemporaryMainHand(ServerPlayer player, BlockPos pos, ItemStack tool) {
+        ItemStack previousMainHand = player.getMainHandItem();
+        player.setItemInHand(InteractionHand.MAIN_HAND, tool);
+        boolean broken;
+        ItemStack remainder;
+        try {
+            broken = player.gameMode.destroyBlock(pos);
+        } finally {
+            remainder = player.getMainHandItem().copy();
+            player.setItemInHand(InteractionHand.MAIN_HAND, previousMainHand);
+        }
+        return new MiningBreakResult(broken, remainder);
     }
 
     // =========================================================================
@@ -673,11 +681,9 @@ public final class RtsMiningStateMachine {
         cleanupPipes.add(new HistoryRecordPipe());
         WorkflowPipeline.runCleanupSequence(ctx, cleanupPipes);
 
+        // 只在没有后续排队挖掘时重建存储页，避免连续作业之间被页面刷新卡住。
         // 触发储存页面刷新以保证GUI实时更新
-        RtsStorageTickService.INSTANCE.forceRefresh(player);
-        session.transfer.pageDataVersion.incrementAndGet();
-        RtsPageService.requestPage(player, session.browser.page, session.browser.search,
-                session.browser.category, session.browser.sort, session.browser.ascending);
+        ServiceRegistry.getInstance().serviceOp().afterModification(player, session);
         resetMiningState(session, hasQueuedJobs);
     }
 
@@ -703,6 +709,7 @@ public final class RtsMiningStateMachine {
         session.mining.ultimineTotalTargets = 0;
         session.mining.ultimineProcessedTargets = 0;
         session.mining.ultimineBrokenTargets = 0;
+        session.mining.ultimineNotifyAccumulator = 0;
         session.mining.ultimineAbsorbedDrops = false;
         session.mining.miningFace = Direction.DOWN;
         session.mining.miningProgress = 0.0F;
@@ -711,7 +718,6 @@ public final class RtsMiningStateMachine {
             session.mining.miningToolLease = RtsToolLease.empty();
             session.mining.miningSelectedToolRequested = false;
             session.mining.miningToolProtectionEnabled = true;
-            session.mining.miningPreviousHand = ItemStack.EMPTY;
         }
         // workflowEntryId no longer lives here — see WORKFLOW_ENTRY_IDS in RtsMiningStateMachine
     }

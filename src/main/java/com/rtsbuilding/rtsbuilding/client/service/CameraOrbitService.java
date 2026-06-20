@@ -5,7 +5,8 @@ import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.client.bootstrap.ClientKeyMappings;
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
 import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
-import com.rtsbuilding.rtsbuilding.entity.RtsCameraEntity;
+import com.rtsbuilding.rtsbuilding.common.entity.RtsCameraEntity;
+import com.rtsbuilding.rtsbuilding.common.RtsEntities;
 import net.minecraft.client.CameraType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.Mth;
@@ -642,7 +643,7 @@ public final class CameraOrbitService {
         if (this.localMirrorCamera != null && this.localMirrorCamera.level() == minecraft.level) {
             return;
         }
-        this.localMirrorCamera = new RtsCameraEntity(RtsbuildingMod.RTS_CAMERA_ENTITY.get(), minecraft.level);
+        this.localMirrorCamera = new RtsCameraEntity(RtsEntities.RTS_CAMERA_ENTITY.get(), minecraft.level);
         this.localMirrorCamera.snapTo(this.localX, this.localY, this.localZ, this.localYawDeg, this.localPitchDeg);
     }
 

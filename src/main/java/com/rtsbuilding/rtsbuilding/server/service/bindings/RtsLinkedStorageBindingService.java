@@ -1,7 +1,11 @@
 package com.rtsbuilding.rtsbuilding.server.service.bindings;
 
 import com.rtsbuilding.rtsbuilding.compat.sophisticatedbackpacks.RtsBackpackCompat;
-import com.rtsbuilding.rtsbuilding.server.storage.*;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageBindings;
+import com.rtsbuilding.rtsbuilding.server.storage.handler.RtsLinkedCapabilities;
+import com.rtsbuilding.rtsbuilding.server.storage.model.LinkedStorageRef;
+import com.rtsbuilding.rtsbuilding.server.storage.resolver.RtsLinkedStorageResolver;
+import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -14,16 +18,20 @@ import net.minecraft.world.level.block.state.properties.ChestType;
 import java.util.UUID;
 
 /**
- * Manages linked storage ref lifecycle (add, toggle, update settings, remove).
+ * 管理链接存储引用的生命周期（添加、切换、更新设置、移除）。
  *
- * <p>Extracted from {@link RtsStorageBindings} to isolate linked-storage binding
- * logic from quick-slot and GUI-binding concerns. This class handles the session
- * mutation side of linking, including ref creation, double-chest detection,
- * backpack metadata tracking, and extract-only mode toggles.
+ * <p>该服务处理链接存储引用的会话变更方面：
+ * <ul>
+ *   <li>添加新的链接存储引用（支持双箱子检测）</li>
+ *   <li>切换（点击已链接的存储 = 解绑，再次点击 = 切换模式后重新链接）</li>
+ *   <li>更新已有引用的设置（链接模式、优先级）</li>
+ *   <li>管理精制背包的 UUID 和物品 ID 元数据</li>
+ * </ul>
  *
- * <p>Only the pure binding logic lives here; capability probing for chunk/block
- * existence and progression gates still come from {@link RtsLinkedCapabilities}
- * and {@link RtsLinkedStorageResolver}.
+ * <p>从 {@link RtsStorageBindings} 提取，将链接存储绑定逻辑与快速槽
+ * 和 GUI 绑定关注点分离。方块/区块存在性的能力探测和进度门控
+ * 仍来自 {@link RtsLinkedCapabilities} 和 {@link RtsLinkedStorageResolver}。
+ * 属于 Phase 2 服务解耦的一部分。
  */
 public final class RtsLinkedStorageBindingService {
 
@@ -35,9 +43,8 @@ public final class RtsLinkedStorageBindingService {
     // ======================================================================
 
     /**
-     * Toggles or retargets a linked storage ref while preserving the existing
-     * extract-only mode behavior. A target with no item or fluid endpoint still
-     * asks the UI to return to page zero without saving session data.
+     * 切换或重定向链接存储引用，同时保留现有的仅提取模式行为。
+     * 没有物品或流体端点的目标会要求 UI 返回第零页而不保存会话数据。
      */
     public static RtsStorageBindings.UpdateResult linkStorage(ServerPlayer player, RtsStorageSession session,
             BlockPos pos, byte linkMode) {
@@ -58,46 +65,40 @@ public final class RtsLinkedStorageBindingService {
         String backpackItemId = readBackpackItemId(player.serverLevel(), pos);
         byte normalizedMode = RtsLinkedStorageResolver.sanitizeLinkMode(linkMode);
 
-        if (session.linkedStorages.contains(ref)) {
-            byte existingMode = session.linkedModes.getOrDefault(ref, RtsLinkedStorageResolver.LINK_MODE_BIDIRECTIONAL);
+        if (session.linkedStorageInfo.contains(ref)) {
+            byte existingMode = session.linkedStorageInfo.getMode(ref);
             if (existingMode == normalizedMode) {
-                removeLinkedRef(session, ref);
+                session.linkedStorageInfo.remove(ref);
             } else {
-                session.linkedModes.put(ref, normalizedMode);
-                session.linkedNames.put(ref, RtsLinkedStorageResolver.resolveDisplayName(player.serverLevel(), ref.pos()));
+                session.linkedStorageInfo.setMode(ref, normalizedMode);
+                session.linkedStorageInfo.setName(ref, RtsLinkedStorageResolver.resolveDisplayName(player.serverLevel(), ref.pos()));
                 applyBackpackMetadata(session, ref, backpackUuid, backpackItemId);
             }
         } else {
             // 大箱子检查：如果点击的是双箱子中未链接的一半，且另一半已链接，则执行解绑
             LinkedStorageRef existingRef = findDoubleChestLinkedRef(player, session, pos);
             if (existingRef != null) {
-                removeLinkedRef(session, existingRef);
+                session.linkedStorageInfo.remove(existingRef);
             } else {
-                if (session.linkedStorages.size() >= RtsStorageBindings.MAX_LINKED_STORAGES) {
-                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
-                            "容器绑定已达上限: " + RtsStorageBindings.MAX_LINKED_STORAGES));
+                if (session.linkedStorageInfo.size() >= RtsStorageBindings.MAX_LINKED_STORAGES) {
                     return RtsStorageBindings.UpdateResult.none();
                 }
-                session.linkedStorages.add(ref);
-                session.linkedNames.put(ref, RtsLinkedStorageResolver.resolveDisplayName(player.serverLevel(), ref.pos()));
-                session.linkedModes.put(ref, normalizedMode);
-                session.linkedPriorities.put(ref, 0);
-                applyBackpackMetadata(session, ref, backpackUuid, backpackItemId);
+                session.linkedStorageInfo.add(ref, normalizedMode, 0, backpackUuid, backpackItemId);
+                session.linkedStorageInfo.setName(ref, RtsLinkedStorageResolver.resolveDisplayName(player.serverLevel(), ref.pos()));
             }
         }
         // Mark BD network caches as stale so the resolver re-resolves them
         // instead of using the old cached handler (which may reference blocks
         // that were unlinked or changed).
-        session.bdHandlerStale = true;
-        session.bdFluidHandlerStale = true;
+        session.bdCache.handlerStale = true;
+        session.bdCache.fluidHandlerStale = true;
         return RtsStorageBindings.UpdateResult.refreshFirst(true);
     }
 
     /**
-     * Updates settings for an existing linked storage row. This is intentionally
-     * not a link/create operation: the detail panel can edit mode and AE-style
-     * priority, but the server still requires the ref to already belong to the
-     * player's session.
+     * 更新已有链接存储行的设置。这有意不作为链接/创建操作：
+     * 详情面板可以编辑模式和 AE 式优先级，但服务器仍然要求
+     * 引用已经属于玩家的会话。
      */
     public static RtsStorageBindings.UpdateResult updateSettings(ServerPlayer player, RtsStorageSession session,
             BlockPos pos, byte linkMode, int priority) {
@@ -106,19 +107,19 @@ public final class RtsLinkedStorageBindingService {
         }
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
         LinkedStorageRef ref = new LinkedStorageRef(player.serverLevel().dimension(), pos.immutable());
-        if (!session.linkedStorages.contains(ref)) {
+        if (!session.linkedStorageInfo.contains(ref)) {
             return RtsStorageBindings.UpdateResult.none();
         }
         byte normalizedMode = RtsLinkedStorageResolver.sanitizeLinkMode(linkMode);
         int normalizedPriority = RtsLinkedStorageResolver.sanitizeLinkedStoragePriority(priority);
-        byte oldMode = session.linkedModes.getOrDefault(ref, RtsLinkedStorageResolver.LINK_MODE_BIDIRECTIONAL);
-        int oldPriority = session.linkedPriorities.getOrDefault(ref, 0);
+        byte oldMode = session.linkedStorageInfo.getMode(ref);
+        int oldPriority = session.linkedStorageInfo.getPriority(ref);
         if (oldMode == normalizedMode && oldPriority == normalizedPriority) {
             return RtsStorageBindings.UpdateResult.none();
         }
-        session.linkedModes.put(ref, normalizedMode);
-        session.linkedPriorities.put(ref, normalizedPriority);
-        session.linkedNames.put(ref, RtsLinkedStorageResolver.resolveDisplayName(player.serverLevel(), ref.pos()));
+        session.linkedStorageInfo.setMode(ref, normalizedMode);
+        session.linkedStorageInfo.setPriority(ref, normalizedPriority);
+        session.linkedStorageInfo.setName(ref, RtsLinkedStorageResolver.resolveDisplayName(player.serverLevel(), ref.pos()));
         return RtsStorageBindings.UpdateResult.refreshCurrent(session, true);
     }
 
@@ -127,30 +128,20 @@ public final class RtsLinkedStorageBindingService {
     // ======================================================================
 
     private static void removeLinkedRef(RtsStorageSession session, LinkedStorageRef ref) {
-        session.linkedStorages.remove(ref);
-        session.linkedNames.remove(ref);
-        session.linkedModes.remove(ref);
-        session.linkedPriorities.remove(ref);
-        session.linkedBackpackUuids.remove(ref);
-        session.linkedBackpackItemIds.remove(ref);
-        session.detachedBackpackRefs.remove(ref);
+        session.linkedStorageInfo.remove(ref);
     }
 
     private static void applyBackpackMetadata(RtsStorageSession session, LinkedStorageRef ref,
             UUID backpackUuid, String backpackItemId) {
         if (backpackUuid == null) {
-            session.linkedBackpackUuids.remove(ref);
-            session.linkedBackpackItemIds.remove(ref);
-            session.detachedBackpackRefs.remove(ref);
+            session.linkedStorageInfo.setBackpackUuid(ref, null);
+            session.linkedStorageInfo.setBackpackItemId(ref, null);
+            session.linkedStorageInfo.removeDetached(ref);
             return;
         }
-        session.linkedBackpackUuids.put(ref, backpackUuid);
-        if (backpackItemId == null || backpackItemId.isBlank()) {
-            session.linkedBackpackItemIds.remove(ref);
-        } else {
-            session.linkedBackpackItemIds.put(ref, backpackItemId);
-        }
-        session.detachedBackpackRefs.remove(ref);
+        session.linkedStorageInfo.setBackpackUuid(ref, backpackUuid);
+        session.linkedStorageInfo.setBackpackItemId(ref, backpackItemId);
+        session.linkedStorageInfo.removeDetached(ref);
     }
 
     private static UUID readBackpackUuid(ServerLevel level, BlockPos pos) {
@@ -170,8 +161,7 @@ public final class RtsLinkedStorageBindingService {
     }
 
     /**
-     * Checks whether the given block position belongs to a double chest whose
-     * other half is already linked in the session.
+     * 检查给定的方块位置是否属于双箱子，且其另一半已在会话中链接。
      */
     private static boolean isDoubleChestHalfAlreadyLinked(ServerPlayer player, RtsStorageSession session, BlockPos pos) {
         if (player == null || session == null || pos == null) {
@@ -192,12 +182,12 @@ public final class RtsLinkedStorageBindingService {
         Direction connectedDirection = ChestBlock.getConnectedDirection(state);
         BlockPos connectedPos = pos.relative(connectedDirection);
         LinkedStorageRef connectedRef = new LinkedStorageRef(level.dimension(), connectedPos);
-        return session.linkedStorages.contains(connectedRef);
+        return session.linkedStorageInfo.contains(connectedRef);
     }
 
     /**
-     * Finds the already-linked ref of the connected chest half, or null if
-     * the target is not part of a double chest or the other half is not linked.
+     * 查找已链接的相邻箱子半边的引用，如果目标不是双箱子的一部分
+     * 或另一半未链接，则返回 null。
      */
     private static LinkedStorageRef findDoubleChestLinkedRef(ServerPlayer player, RtsStorageSession session, BlockPos pos) {
         if (player == null || session == null || pos == null) {
@@ -218,7 +208,7 @@ public final class RtsLinkedStorageBindingService {
         Direction connectedDirection = ChestBlock.getConnectedDirection(state);
         BlockPos connectedPos = pos.relative(connectedDirection);
         LinkedStorageRef connectedRef = new LinkedStorageRef(level.dimension(), connectedPos);
-        if (session.linkedStorages.contains(connectedRef)) {
+        if (session.linkedStorageInfo.contains(connectedRef)) {
             return connectedRef;
         }
         return null;

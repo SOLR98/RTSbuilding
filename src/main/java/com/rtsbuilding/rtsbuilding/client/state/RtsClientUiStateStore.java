@@ -152,6 +152,26 @@ public final class RtsClientUiStateStore {
         save(state);
     }
 
+    public static synchronized boolean isShowStorageReadyPopupEnabled() {
+        return load().showStorageReadyPopup;
+    }
+
+    public static synchronized void setShowStorageReadyPopupEnabled(boolean enabled) {
+        UiState state = load();
+        state.showStorageReadyPopup = enabled;
+        save(state);
+    }
+
+    public static synchronized boolean isShowWorkflowPanelEnabled() {
+        return load().showWorkflowPanel;
+    }
+
+    public static synchronized void setShowWorkflowPanelEnabled(boolean enabled) {
+        UiState state = load();
+        state.showWorkflowPanel = enabled;
+        save(state);
+    }
+
     // ======================== UiState data class ========================
 
     /**
@@ -189,6 +209,8 @@ public final class RtsClientUiStateStore {
         public boolean overlayShiftImportEnabled = false;
         public boolean storageRefreshQuietEnabled = false;
         public boolean storageAutoRefreshEnabled = true;
+        public boolean showStorageReadyPopup = false;
+        public boolean showWorkflowPanel = true;
         /** List of dismissed intro reminder keys */
         public List<String> dismissedIntroReminderKeys = new ArrayList<>();
         /** Persistent mapping of window panel bounds (key → bounds) */
@@ -251,6 +273,8 @@ public final class RtsClientUiStateStore {
             clean.overlayShiftImportEnabled = this.overlayShiftImportEnabled;
             clean.storageRefreshQuietEnabled = this.storageRefreshQuietEnabled;
             clean.storageAutoRefreshEnabled = this.storageAutoRefreshEnabled;
+            clean.showStorageReadyPopup = this.showStorageReadyPopup;
+            clean.showWorkflowPanel = this.showWorkflowPanel;
             clean.dismissedIntroReminderKeys = sanitizeKeys(this.dismissedIntroReminderKeys);
             if (this.windowPanelBounds != null) {
                 clean.windowPanelBounds.putAll(this.windowPanelBounds);

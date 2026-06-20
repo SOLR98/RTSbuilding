@@ -3,7 +3,7 @@ package com.rtsbuilding.rtsbuilding.client.service;
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
 import com.rtsbuilding.rtsbuilding.client.record.AreaMineBounds;
 import com.rtsbuilding.rtsbuilding.client.screen.ultimine.AreaMineShape;
-import com.rtsbuilding.rtsbuilding.common.shape.ShapeFillMode;
+import com.rtsbuilding.rtsbuilding.common.shape.model.ShapeFillMode;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -53,10 +53,10 @@ public final class MiningOperationService {
     /** System timestamp of the most recent mine progress completion */
     private long mineProgressCompletedAtMs;
 
-    /** Ultimine overall progress: processed blocks. Negative means inactive. */
+    /** Ultimine progress: how many targets have been processed */
     private int ultimineProgressProcessed = -1;
-    /** Ultimine overall progress: total target blocks. */
-    private int ultimineProgressTotal = 0;
+    /** Ultimine progress: total number of targets */
+    private int ultimineProgressTotal;
 
     // =========================================================================
     //  Area mine state
@@ -107,17 +107,6 @@ public final class MiningOperationService {
         this.mineRenderStage = Math.min(9, stage);
     }
 
-    /**
-     * Applies an ultimine overall progress update from the server.
-     */
-    public void applyUltimineProgress(int processed, int total) {
-        if (total > 0 && processed >= total && this.mineRenderPos != null) {
-            rememberMineProgressCompleted(this.mineRenderPos);
-        }
-        this.ultimineProgressProcessed = processed;
-        this.ultimineProgressTotal = total;
-    }
-
     private void rememberMineProgressCompleted(BlockPos pos) {
         this.mineProgressCompletedPos = pos == null ? null : pos.immutable();
         this.mineProgressCompletedAtMs = System.currentTimeMillis();
@@ -141,10 +130,6 @@ public final class MiningOperationService {
         this.activeMineToolSlot = Mth.clamp(toolSlot, 0, 8);
         this.mineRenderPos = this.activeMinePos;
         this.mineRenderStage = 0;
-        RtsClientItemManager.INSTANCE.prepareForMining(
-                selectedMiningToolItemId(selectedItemId, selectedItemPreview),
-                selectedMiningToolPrototype(selectedItemId, selectedItemPreview),
-                this.activeMineToolSlot);
         RtsClientPacketGateway.sendMineStart(
                 this.activeMinePos,
                 face,
@@ -169,10 +154,6 @@ public final class MiningOperationService {
         this.activeMineToolSlot = Mth.clamp(toolSlot, 0, 8);
         this.mineRenderPos = this.activeMinePos;
         this.mineRenderStage = 0;
-        RtsClientItemManager.INSTANCE.prepareForMining(
-                selectedMiningToolItemId(selectedItemId, selectedItemPreview),
-                selectedMiningToolPrototype(selectedItemId, selectedItemPreview),
-                this.activeMineToolSlot);
         RtsClientPacketGateway.sendUltimineStart(
                 this.activeMinePos,
                 face,
@@ -321,11 +302,6 @@ public final class MiningOperationService {
         this.mineRenderPos = this.activeMinePos;
         this.mineRenderStage = 0;
 
-        RtsClientItemManager.INSTANCE.prepareForMining(
-                selectedMiningToolItemId(selectedItemId, selectedItemPreview),
-                selectedMiningToolPrototype(selectedItemId, selectedItemPreview),
-                this.activeMineToolSlot);
-
         RtsClientPacketGateway.sendAreaMine(
                 bounds.minX(), bounds.maxX(), bounds.minY(), bounds.maxY(),
                 bounds.minZ(), bounds.maxZ(),
@@ -351,10 +327,6 @@ public final class MiningOperationService {
         this.activeMineToolSlot = Mth.clamp(toolSlot, 0, 8);
         this.mineRenderPos = first;
         this.mineRenderStage = 0;
-        RtsClientItemManager.INSTANCE.prepareForMining(
-                selectedMiningToolItemId(selectedItemId, selectedItemPreview),
-                selectedMiningToolPrototype(selectedItemId, selectedItemPreview),
-                this.activeMineToolSlot);
         RtsClientPacketGateway.sendAreaDestroy(
                 targets,
                 this.activeMineToolSlot,
@@ -397,14 +369,6 @@ public final class MiningOperationService {
         return this.mineRenderStage;
     }
 
-    public int getUltimineProgressProcessed() {
-        return this.ultimineProgressProcessed;
-    }
-
-    public int getUltimineProgressTotal() {
-        return this.ultimineProgressTotal;
-    }
-
     public BlockPos getMineProgressPos() {
         return this.mineRenderPos;
     }
@@ -415,6 +379,23 @@ public final class MiningOperationService {
 
     public long getMineProgressCompletedAtMs() {
         return this.mineProgressCompletedAtMs;
+    }
+
+    public int getUltimineProgressProcessed() {
+        return this.ultimineProgressProcessed;
+    }
+
+    public int getUltimineProgressTotal() {
+        return this.ultimineProgressTotal;
+    }
+
+    /**
+     * Applies an ultimine progress update from the server.
+     * See {@link com.rtsbuilding.rtsbuilding.network.builder.S2CRtsUltimineProgressPayload}.
+     */
+    public void applyUltimineProgress(int processed, int total) {
+        this.ultimineProgressProcessed = processed;
+        this.ultimineProgressTotal = total;
     }
 
     // =========================================================================

@@ -14,7 +14,21 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * Manages the creative-mode-tab index used to populate storage-browser category chips.
+ * 创造模式标签页索引器，管理用于填充储存浏览器类别芯片的标签页索引。
+ *
+ * <p>扫描所有已注册的 {@link CreativeModeTab}，为每个物品建立"物品 ID → 所属标签页列表"的映射关系。
+ * 使得储存浏览器可以按创造模式标签页（如"建筑方块"、"红石"）来过滤显示物品。
+ *
+ * <p><b>核心功能：</b>
+ * <ul>
+ *   <li>{@link #warmCreativeTabCacheMode} — 预热指定模式（普通/管理员）的标签页缓存</li>
+ *   <li>{@link #ensureCreativeTabContents} — 确保缓存已预热（双重检查锁定）</li>
+ *   <li>{@link #buildItemTabMapping} — 为给定物品计数映射构建物品→标签页和模组→标签页的映射</li>
+ *   <li>{@link #clearCreativeTabCacheState} — 清除所有缓存（世界重载时调用）</li>
+ * </ul>
+ *
+ * <p>使用两级缓存：{"normal/op|itemId" → Set<tabKey>} 的 {@link ConcurrentHashMap}，
+ * 以及记录构建失败的损坏标签页集合 {@code BROKEN_CREATIVE_TAB_CACHE}。
  */
 public final class RtsPageCreativeTabIndexer {
 

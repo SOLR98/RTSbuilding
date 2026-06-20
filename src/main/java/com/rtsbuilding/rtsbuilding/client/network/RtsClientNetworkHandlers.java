@@ -1,25 +1,29 @@
 package com.rtsbuilding.rtsbuilding.client.network;
 
 
-import com.rtsbuilding.rtsbuilding.client.cache.RtsClientInventoryCache;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.rendering.animation.ClientFakeAirBlocks;
 import com.rtsbuilding.rtsbuilding.client.rendering.animation.PlacementAnimationRenderer;
 import com.rtsbuilding.rtsbuilding.client.rendering.builder.ShapeGhostRenderer;
+import com.rtsbuilding.rtsbuilding.client.screen.blueprint.BlueprintPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.handler.PlacementHistoryManager;
+import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
+import com.rtsbuilding.rtsbuilding.client.screen.workflow.RtsBlueprintResumePanel;
+import com.rtsbuilding.rtsbuilding.client.screen.workflow.RtsResumePlacementPanel;
+import com.rtsbuilding.rtsbuilding.network.blueprint.S2CBlueprintStatusPayload;
 import com.rtsbuilding.rtsbuilding.network.builder.*;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraAnchorPayload;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraStatePayload;
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftFeedbackPayload;
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftablesPayload;
 import com.rtsbuilding.rtsbuilding.network.feedback.S2CRtsDamageFeedbackPayload;
+import com.rtsbuilding.rtsbuilding.network.plugin.S2CRtsPluginStatePayload;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsProgressionStatePayload;
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsQuestDetectStatusPayload;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsInventoryDeltaPayload;
-import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsInventoryFullPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsRemoteMenuHintPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStorageDirtyPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
+import net.minecraft.client.Minecraft;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 public final class RtsClientNetworkHandlers {
@@ -66,6 +70,10 @@ public final class RtsClientNetworkHandlers {
         context.enqueueWork(() -> ClientRtsController.get().applyMineProgress(payload));
     }
 
+    public static void handleUltimineProgress(S2CRtsUltimineProgressPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> ClientRtsController.get().applyUltimineProgress(payload));
+    }
+
     public static void handlePlaceAnimation(S2CRtsPlaceAnimationPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             PlacementAnimationRenderer.confirmPlacement(payload.pos(), payload.state());
@@ -80,23 +88,48 @@ public final class RtsClientNetworkHandlers {
         });
     }
 
-    public static void handleUltimineProgress(S2CRtsUltimineProgressPayload payload, IPayloadContext context) {
-        context.enqueueWork(() -> ClientRtsController.get().applyUltimineProgress(payload));
-    }
-
     public static void handleProgressionState(S2CRtsProgressionStatePayload payload, IPayloadContext context) {
         context.enqueueWork(() -> ClientRtsController.get().applyProgressionState(payload));
+    }
+
+    public static void handlePluginState(S2CRtsPluginStatePayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> ClientRtsController.get().applyPluginState(payload));
     }
 
     public static void handleHistorySync(S2CRtsHistorySyncPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> PlacementHistoryManager.syncHistoryState(payload.undoSize()));
     }
 
-    public static void handleInventoryDelta(S2CRtsInventoryDeltaPayload payload, IPayloadContext context) {
-        context.enqueueWork(() -> RtsClientInventoryCache.INSTANCE.applyDelta(payload));
+    public static void handleWorkflowProgress(S2CRtsWorkflowProgressPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> ClientRtsController.get().applyWorkflowProgress(payload));
     }
 
-    public static void handleInventoryFull(S2CRtsInventoryFullPayload payload, IPayloadContext context) {
-        context.enqueueWork(() -> RtsClientInventoryCache.INSTANCE.applyFull(payload));
+    public static void handleWorkflowProgressBatch(S2CRtsWorkflowProgressBatchPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> ClientRtsController.get().applyWorkflowProgressBatch(payload));
+    }
+
+    public static void handleResumePlacementScan(S2CRtsResumePlacementScanPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            ClientRtsController controller = ClientRtsController.get();
+            controller.applyResumePlacementScan(payload);
+            // 打开重启面板
+            if (Minecraft.getInstance().screen instanceof BuilderScreen bs) {
+                RtsResumePlacementPanel panel = bs.getResumePlacementPanel();
+                panel.openWithData(payload);
+            }
+        });
+    }
+
+    public static void handleBlueprintResumeScan(S2CRtsBlueprintResumeScanPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (Minecraft.getInstance().screen instanceof BuilderScreen bs) {
+                RtsBlueprintResumePanel panel = bs.getBlueprintResumePanel();
+                panel.openWithData(payload);
+            }
+        });
+    }
+
+    public static void handleBlueprintStatus(S2CBlueprintStatusPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> BlueprintPanel.setStatus(payload.status(), payload.messageKey(), payload.detail()));
     }
 }

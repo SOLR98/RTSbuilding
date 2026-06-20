@@ -4,14 +4,14 @@ import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.camera.RtsCameraManager;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
-import com.rtsbuilding.rtsbuilding.server.service.RtsCraftingService;
-import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
-import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import com.rtsbuilding.rtsbuilding.server.service.QuestService;
-import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
-import com.rtsbuilding.rtsbuilding.server.storage.OverflowOutcome;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
+import com.rtsbuilding.rtsbuilding.server.service.ServiceOperationTemplate;
+import com.rtsbuilding.rtsbuilding.server.service.ServiceRegistry;
+import com.rtsbuilding.rtsbuilding.server.util.RtsPerformanceMonitor;
+import com.rtsbuilding.rtsbuilding.server.storage.model.LinkedHandler;
+import com.rtsbuilding.rtsbuilding.server.storage.model.OverflowOutcome;
+import com.rtsbuilding.rtsbuilding.server.storage.resolver.RtsLinkedStorageResolver;
+import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -29,43 +29,89 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.List;
 
 /**
- * High-level player-facing transfer operations.
+ * 面向玩家的高级传输操作，封装完整的传输业务流程。
+ *
+ * <p>此类提供玩家可触发的传输操作，每个方法都是完整业务流程的编排，
+ * 综合调用 {@link RtsTransferExtractor}（提取）、{@link RtsTransferInserter}（插入）、
+ * 权限检查（{@code RtsProgressionManager}）、维度同步（{@code RtsLinkedStorageResolver}）
+ * 和后续处理（任务检测、页面刷新）。所有方法均为 {@code static}，
+ * 类本身为不可实例化的工具类。
+ *
+ * <p><b>核心操作：</b>
+ * <ul>
+ *   <li>{@link #returnCarriedToLinked(ServerPlayer, RtsStorageSession, String, int)} —
+ *       将玩家光标携带的物品归还到链接存储（从容器菜单的 carried 槽中提取指定数量）</li>
+ *   <li>{@link #quickDropLinkedItem(ServerPlayer, RtsStorageSession, String, byte, double, double, double)} —
+ *       从链接存储中提取物品并在指定位置生成掉落物实体（含范围/权限验证）</li>
+ *   <li>{@link #importMenuSlotToLinked(ServerPlayer, RtsStorageSession, int)} —
+ *       将当前菜单中指定槽位的物品导入链接存储；对于合成菜单的 0 号输出槽，
+ *       支持自动补料多次合成直至达到 {@code SHIFT_IMPORT_MAX_CRAFT_ITERATIONS} 次上限</li>
+ *   <li>{@link #pickupLinkedToCarried(ServerPlayer, RtsStorageSession, ItemStack, int)} —
+ *       从链接存储提取物品到玩家的光标携带槽</li>
+ *   <li>{@link #quickMoveLinkedItem(ServerPlayer, RtsStorageSession, ItemStack)} —
+ *       从链接存储快速移动物品到玩家背包或当前菜单（智能判断目标）</li>
+ *   <li>{@link #fillPlayerInventoryFromLinked(ServerPlayer, RtsStorageSession)} —
+ *       批量从链接存储填充玩家背包直至满</li>
+ * </ul>
+ *
+ * <p><b>设计特点：</b>
+ * <ul>
+ *   <li>所有操作都先检查 {@code RtsProgressionManager.canUse} 权限</li>
+ *   <li>操作完成后调用 {@code this.registry.serviceOp().afterModification()}
+ *       触发后续处理（页面刷新、任务检测）</li>
+ *   <li>操作完成后调用 {@code QuestService.runQuestDetect()} 触发任务进度检测</li>
+ *   <li>溢出时通过 {@link RtsTransferInserter#sendStorageOverflowHint} 提示玩家</li>
+ * </ul>
  */
 public final class RtsTransferPlayerIntegration {
 
-    private RtsTransferPlayerIntegration() {
+    private final ServiceRegistry registry;
+
+    /**
+     * 包私有构造器——由 {@link ServiceRegistry} 初始化时注入。
+     */
+    public RtsTransferPlayerIntegration(ServiceRegistry registry) {
+        this.registry = registry;
     }
 
-    public static void returnCarriedToLinked(ServerPlayer player, RtsStorageSession session, String itemId, int amount) {
+    public void returnCarriedToLinked(ServerPlayer player, RtsStorageSession session, String itemId, int amount) {
         if (!RtsProgressionManager.canUse(player, RtsFeature.STORAGE_BROWSER)) {
             return;
         }
+        var _t = RtsPerformanceMonitor.start("RtsTransferPlayerIntegration.returnCarriedToLinked", itemId);
         if (session == null) {
+            _t.end();
             return;
         }
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
         if (itemId == null || itemId.isBlank() || amount <= 0) {
+            _t.end();
             return;
         }
         List<LinkedHandler> activeLinked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
         if (activeLinked.isEmpty()) {
+            _t.end();
             return;
         }
         List<IItemHandler> insertHandlers = RtsLinkedStorageResolver.itemHandlersForInsert(activeLinked);
         ResourceLocation id = ResourceLocation.tryParse(itemId);
         if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
+            _t.end();
             return;
         }
         ItemStack carried = player.containerMenu.getCarried();
         if (carried.isEmpty()) {
+            _t.end();
             return;
         }
         ResourceLocation carriedId = BuiltInRegistries.ITEM.getKey(carried.getItem());
         if (carriedId == null || !itemId.equals(carriedId.toString())) {
+            _t.end();
             return;
         }
         int returned = Math.min(amount, carried.getCount());
         if (returned <= 0) {
+            _t.end();
             return;
         }
         ItemStack toStore = carried.split(returned);
@@ -75,12 +121,12 @@ public final class RtsTransferPlayerIntegration {
             RtsTransferInserter.sendStorageOverflowHint(player, "Import", overflow);
         }
         player.containerMenu.broadcastChanges();
-        RtsStorageTickService.INSTANCE.forceRefresh(player);
-        session.transfer.pageDataVersion.incrementAndGet();
-        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
+        this.registry.serviceOp().afterModification(player, session);
+        QuestService.runQuestDetect(player, session, false);
+        _t.end();
     }
 
-    public static void quickDropLinkedItem(ServerPlayer player, RtsStorageSession session, String itemId,
+    public void quickDropLinkedItem(ServerPlayer player, RtsStorageSession session, String itemId,
             byte amount, double dropX, double dropY, double dropZ) {
         if (!RtsProgressionManager.canUse(player, RtsFeature.STORAGE_BROWSER)) {
             return;
@@ -112,25 +158,20 @@ public final class RtsTransferPlayerIntegration {
         Vec3 dropPos = new Vec3(dropX, dropY, dropZ);
         BlockPos dropBlock = BlockPos.containing(dropPos);
         if (!player.serverLevel().hasChunkAt(dropBlock)
-                || !RtsCameraManager.isWithinActionRadius(player, dropBlock)
+                || !RtsCameraManager.isWithinActionRange(player, dropBlock)
                 || !RtsProgressionManager.canAccessHomeRadius(player, dropBlock)) {
             RtsTransferInserter.refundToLinked(insertHandlers, player, extracted);
-            RtsStorageTickService.INSTANCE.forceRefresh(player);
-            session.transfer.pageDataVersion.incrementAndGet();
-            RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
+            this.registry.serviceOp().afterModification(player, session);
             return;
         }
         ItemEntity dropped = new ItemEntity(player.serverLevel(), dropPos.x, dropPos.y, dropPos.z, extracted);
         dropped.setDeltaMovement(Vec3.ZERO);
         dropped.setPickUpDelay(10);
         player.serverLevel().addFreshEntity(dropped);
-        RtsStorageTickService.INSTANCE.forceRefresh(player);
-        session.transfer.pageDataVersion.incrementAndGet();
-        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
-        QuestService.runQuestDetect(player, session, false);
+        this.registry.serviceOp().afterModification(player, session);
     }
 
-    public static void importMenuSlotToLinked(ServerPlayer player, RtsStorageSession session, int menuSlot) {
+    public void importMenuSlotToLinked(ServerPlayer player, RtsStorageSession session, int menuSlot) {
         if (!RtsProgressionManager.canUse(player, RtsFeature.CRAFT_TERMINAL)) {
             return;
         }
@@ -138,7 +179,7 @@ public final class RtsTransferPlayerIntegration {
             return;
         }
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
-        if (session.linkedStorages.isEmpty()) {
+        if (session.linkedStorageInfo.isEmpty()) {
             return;
         }
         AbstractContainerMenu menu = player.containerMenu;
@@ -157,7 +198,7 @@ public final class RtsTransferPlayerIntegration {
         }
         OverflowOutcome overflow = OverflowOutcome.EMPTY;
         if (menu instanceof CraftingMenu craftingMenu && menuSlot == 0) {
-            ItemStack[] craftBlueprint = RtsCraftingService.snapshotCraftGridBlueprint(craftingMenu);
+            ItemStack[] craftBlueprint = this.registry.crafting().snapshotCraftGridBlueprint(craftingMenu);
             ItemStack resultSnapshot = slot.getItem().copy();
             if (resultSnapshot.isEmpty()) {
                 return;
@@ -168,7 +209,7 @@ public final class RtsTransferPlayerIntegration {
                 Slot resultSlot = craftingMenu.getSlot(0);
                 ItemStack currentResult = resultSlot.getItem();
                 if (currentResult.isEmpty() || !ItemStack.isSameItemSameComponents(currentResult, resultPrototype)) {
-                    RtsCraftingService.refillCraftGridFromBlueprint(
+                    this.registry.crafting().refillCraftGridFromBlueprint(
                             craftingMenu, extractHandlers, player, craftBlueprint, false, true);
                     currentResult = resultSlot.getItem();
                     if (currentResult.isEmpty() || !ItemStack.isSameItemSameComponents(currentResult, resultPrototype)) {
@@ -186,20 +227,20 @@ public final class RtsTransferPlayerIntegration {
                 }
                 ResourceLocation gainedId = BuiltInRegistries.ITEM.getKey(gained.getItem());
                 if (gainedId != null) {
-                    RtsPageService.recordRecentItem(
+                    this.registry.page().recordRecentItem(
                             session, gainedId.toString(),
                             S2CRtsStoragePagePayload.RECENT_ITEM_CRAFTED, gained.getCount());
                 }
                 overflow = overflow.merge(RtsTransferInserter.storeToLinkedWithFallbackPreferExisting(
                         insertHandlers, player, gained));
                 craftedAny = true;
-                RtsCraftingService.refillCraftGridFromBlueprint(
+                this.registry.crafting().refillCraftGridFromBlueprint(
                         craftingMenu, extractHandlers, player, craftBlueprint, false, true);
             }
             if (!craftedAny) {
                 return;
             }
-            RtsCraftingService.refillCraftGridFromBlueprint(
+            this.registry.crafting().refillCraftGridFromBlueprint(
                     craftingMenu, extractHandlers, player, craftBlueprint, true, true);
         } else {
             ItemStack inSlot = slot.getItem();
@@ -210,7 +251,7 @@ public final class RtsTransferPlayerIntegration {
             if (menu instanceof CraftingMenu && menuSlot == 0) {
                 ResourceLocation craftedId = BuiltInRegistries.ITEM.getKey(moved.getItem());
                 if (craftedId != null) {
-                    RtsPageService.recordRecentItem(
+                    this.registry.page().recordRecentItem(
                             session, craftedId.toString(),
                             S2CRtsStoragePagePayload.RECENT_ITEM_CRAFTED, moved.getCount());
                 }
@@ -221,29 +262,32 @@ public final class RtsTransferPlayerIntegration {
             RtsTransferInserter.sendStorageOverflowHint(player, "Import", overflow);
         }
         menu.broadcastChanges();
-        RtsStorageTickService.INSTANCE.forceRefresh(player);
-        session.transfer.pageDataVersion.incrementAndGet();
-        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
+        this.registry.serviceOp().afterModification(player, session);
         QuestService.runQuestDetect(player, session, false);
     }
 
-    public static void pickupLinkedToCarried(ServerPlayer player, RtsStorageSession session, ItemStack prototype, int amount) {
+    public void pickupLinkedToCarried(ServerPlayer player, RtsStorageSession session, ItemStack prototype, int amount) {
         if (!RtsProgressionManager.canUse(player, RtsFeature.STORAGE_BROWSER)) {
             return;
         }
+        var _t = RtsPerformanceMonitor.start("RtsTransferPlayerIntegration.pickupLinkedToCarried", prototype);
         if (session == null) {
+            _t.end();
             return;
         }
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
         boolean includePlayerMainInventory = RtsTransferUtils.shouldIncludePlayerMainInventoryInStorageView(player, session);
         if (!RtsLinkedStorageResolver.hasAnyStorage(player, session) && !includePlayerMainInventory) {
+            _t.end();
             return;
         }
         if (prototype == null || prototype.isEmpty() || amount <= 0) {
+            _t.end();
             return;
         }
         List<LinkedHandler> activeLinked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
         if (activeLinked.isEmpty() && !includePlayerMainInventory) {
+            _t.end();
             return;
         }
         List<IItemHandler> extractHandlers = RtsLinkedStorageResolver.itemHandlersForExtract(activeLinked);
@@ -252,43 +296,49 @@ public final class RtsTransferPlayerIntegration {
         int wanted = Math.min(amount, maxStack);
         if (!carried.isEmpty()) {
             if (!ItemStack.isSameItemSameComponents(carried, prototype)) {
+                _t.end();
                 return;
             }
             wanted = Math.min(wanted, carried.getMaxStackSize() - carried.getCount());
             if (wanted <= 0) {
+                _t.end();
                 return;
             }
         }
         ItemStack extracted = RtsTransferExtractor.extractMatchingFromNetwork(
                 extractHandlers, player, prototype.getItem(), prototype, wanted);
         if (extracted.isEmpty()) {
+            _t.end();
             return;
         }
         if (carried.isEmpty()) {
-            player.getInventory().setItem(player.getInventory().selected, extracted);
+            player.containerMenu.setCarried(extracted);
         } else {
             carried.grow(extracted.getCount());
             player.containerMenu.setCarried(carried);
         }
         player.containerMenu.broadcastChanges();
-        RtsStorageTickService.INSTANCE.forceRefresh(player);
-        session.transfer.pageDataVersion.incrementAndGet();
-        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
+        this.registry.serviceOp().afterModification(player, session);
+        _t.end();
     }
 
-    public static void quickMoveLinkedItem(ServerPlayer player, RtsStorageSession session, ItemStack prototype) {
+    public void quickMoveLinkedItem(ServerPlayer player, RtsStorageSession session, ItemStack prototype) {
         if (!RtsProgressionManager.canUse(player, RtsFeature.STORAGE_BROWSER)) {
             return;
         }
+        var _t = RtsPerformanceMonitor.start("RtsTransferPlayerIntegration.quickMoveLinkedItem", prototype);
         if (session == null) {
+            _t.end();
             return;
         }
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
         if (!RtsLinkedStorageResolver.hasAnyStorage(player, session) || prototype == null || prototype.isEmpty()) {
+            _t.end();
             return;
         }
         List<LinkedHandler> activeLinked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
         if (activeLinked.isEmpty()) {
+            _t.end();
             return;
         }
         List<IItemHandler> extractHandlers = RtsLinkedStorageResolver.itemHandlersForExtract(activeLinked);
@@ -297,6 +347,7 @@ public final class RtsTransferPlayerIntegration {
         ItemStack extracted = RtsTransferExtractor.extractMatchingFromLinked(
                 extractHandlers, prototype.getItem(), prototype, maxStack);
         if (extracted.isEmpty()) {
+            _t.end();
             return;
         }
         ItemStack remain;
@@ -312,13 +363,12 @@ public final class RtsTransferPlayerIntegration {
             RtsTransferInserter.refundToLinked(insertHandlers, player, remain);
         }
         player.containerMenu.broadcastChanges();
-        RtsStorageTickService.INSTANCE.forceRefresh(player);
-        session.transfer.pageDataVersion.incrementAndGet();
-        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
+        this.registry.serviceOp().afterModification(player, session);
         QuestService.runQuestDetect(player, session, false);
+        _t.end();
     }
 
-    public static void fillPlayerInventoryFromLinked(ServerPlayer player, RtsStorageSession session) {
+    public void fillPlayerInventoryFromLinked(ServerPlayer player, RtsStorageSession session) {
         if (!RtsProgressionManager.canUse(player, RtsFeature.STORAGE_BROWSER)) {
             return;
         }
@@ -326,7 +376,7 @@ public final class RtsTransferPlayerIntegration {
             return;
         }
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
-        if (session.linkedStorages.isEmpty()) {
+        if (session.linkedStorageInfo.isEmpty()) {
             return;
         }
         List<LinkedHandler> activeLinked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
@@ -362,9 +412,7 @@ public final class RtsTransferPlayerIntegration {
         }
         if (movedCount > 0) {
             player.containerMenu.broadcastChanges();
-            RtsStorageTickService.INSTANCE.forceRefresh(player);
-            session.transfer.pageDataVersion.incrementAndGet();
-            RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
+            this.registry.serviceOp().afterModification(player, session);
             player.displayClientMessage(
                     Component.literal(inventoryFull
                             ? "Moved " + movedCount + " items to inventory. Inventory is full."

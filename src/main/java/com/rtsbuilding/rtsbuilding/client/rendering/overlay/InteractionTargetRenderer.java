@@ -55,14 +55,24 @@ public final class InteractionTargetRenderer {
     /** Small outward offset applied to block brackets to prevent z-fighting. */
     private static final double LINE_OFFSET = 0.01D;
 
-    /** Alpha (opacity) of the translucent fog layer on the hit block face. */
-    private static final float FACE_FOG_ALPHA = 0.5F;
+    /** Distance at which a targeted block should read fully as the old bright skeleton. */
+    private static final double NEAR_SKELETON_DISTANCE = 10.0D;
+
+    /** Distance at which a targeted block should keep the current face-cover clarity. */
+    private static final double FAR_COVER_DISTANCE = 20.0D;
+
+    /** Alpha (opacity) of the hit-face fog layer when the camera is close to the target. */
+    private static final float FACE_FOG_ALPHA_NEAR = 0.045F;
+
+    /** Alpha (opacity) of the hit-face fog layer when the camera is far from the target. */
+    private static final float FACE_FOG_ALPHA_FAR = 0.5F;
 
     /** Small outward offset applied to the hit-face quad to prevent z-fighting. */
     private static final double FACE_FOG_OFFSET = 0.005D;
 
     private static final float NO_DEPTH_BRACKET_ALPHA = 0.32F;
-    private static final float NO_DEPTH_FACE_FOG_ALPHA = 0.18F;
+    private static final float NO_DEPTH_FACE_FOG_ALPHA_NEAR = 0.025F;
+    private static final float NO_DEPTH_FACE_FOG_ALPHA_FAR = 0.18F;
 
     // ──────────────────────────────────────────────
     //  Constants – Animation
@@ -87,6 +97,11 @@ public final class InteractionTargetRenderer {
     private static final float BLOCK_COLOR_R = 0.965F;
     private static final float BLOCK_COLOR_G = 0.608F;
     private static final float BLOCK_COLOR_B = 0.192F;
+
+    /** Close-range block highlight colour: brighter yellow, matching the older skeleton read. */
+    private static final float NEAR_BLOCK_COLOR_R = 1.000F;
+    private static final float NEAR_BLOCK_COLOR_G = 0.900F;
+    private static final float NEAR_BLOCK_COLOR_B = 0.130F;
 
     /** Maximum ray-cast range for cursor-based hit-testing. */
     private static final double MAX_REACH = 128.0D;
@@ -307,25 +322,49 @@ public final class InteractionTargetRenderer {
         }
 
         double off = LINE_OFFSET;
-        float r = BLOCK_COLOR_R * breathFactor;
-        float g = BLOCK_COLOR_G * breathFactor;
-        float b = BLOCK_COLOR_B * breathFactor;
+        BlockHighlightVisual visual = blockHighlightVisual(distance, breathFactor);
 
         CornerBracketRenderer.renderCornerBrackets(
                 poseStack, lineBuffer,
                 bounds.minX - off, bounds.minY - off, bounds.minZ - off,
                 bounds.maxX + off, bounds.maxY + off, bounds.maxZ + off,
-                r, g, b, distance);
+                visual.r(), visual.g(), visual.b(), distance);
 
         // ── Transparent no-depth brackets (visible through terrain) ──
         renderCornerBracketsNoDepth(poseStack, noDepthBuffer,
                 bounds.minX - off, bounds.minY - off, bounds.minZ - off,
                 bounds.maxX + off, bounds.maxY + off, bounds.maxZ + off,
-                r, g, b, distance);
+                visual.r(), visual.g(), visual.b(), distance);
 
-        // Render a translucent fog layer on the hit face
-        renderHitFaceFog(lineBuffer, poseStack, bounds, hitFace, r, g, b, FACE_FOG_ALPHA);
-        renderHitFaceFog(noDepthBuffer, poseStack, bounds, hitFace, r, g, b, NO_DEPTH_FACE_FOG_ALPHA);
+        // Close targets already occupy a large portion of the screen, so the
+        // face cover fades out and leaves the old bright skeleton as the read.
+        renderHitFaceFog(lineBuffer, poseStack, bounds, hitFace, visual.r(), visual.g(), visual.b(), visual.faceAlpha());
+        renderHitFaceFog(noDepthBuffer, poseStack, bounds, hitFace,
+                visual.r(), visual.g(), visual.b(), visual.noDepthFaceAlpha());
+    }
+
+    /**
+     * Blends block target feedback by camera distance: far targets keep the
+     * current orange face cover, while close targets become bright yellow
+     * skeletons so the selected face does not flood the player's view.
+     */
+    private static BlockHighlightVisual blockHighlightVisual(double distance, float breathFactor) {
+        float nearWeight = 1.0F - smoothstep(NEAR_SKELETON_DISTANCE, FAR_COVER_DISTANCE, distance);
+        float farWeight = 1.0F - nearWeight;
+        float r = (NEAR_BLOCK_COLOR_R * nearWeight + BLOCK_COLOR_R * farWeight) * breathFactor;
+        float g = (NEAR_BLOCK_COLOR_G * nearWeight + BLOCK_COLOR_G * farWeight) * breathFactor;
+        float b = (NEAR_BLOCK_COLOR_B * nearWeight + BLOCK_COLOR_B * farWeight) * breathFactor;
+        float faceAlpha = FACE_FOG_ALPHA_NEAR * nearWeight + FACE_FOG_ALPHA_FAR * farWeight;
+        float noDepthFaceAlpha = NO_DEPTH_FACE_FOG_ALPHA_NEAR * nearWeight + NO_DEPTH_FACE_FOG_ALPHA_FAR * farWeight;
+        return new BlockHighlightVisual(r, g, b, faceAlpha, noDepthFaceAlpha);
+    }
+
+    private static float smoothstep(double edge0, double edge1, double value) {
+        double t = Math.max(0.0D, Math.min(1.0D, (value - edge0) / (edge1 - edge0)));
+        return (float) (t * t * (3.0D - 2.0D * t));
+    }
+
+    private record BlockHighlightVisual(float r, float g, float b, float faceAlpha, float noDepthFaceAlpha) {
     }
 
     // ══════════════════════════════════════════════

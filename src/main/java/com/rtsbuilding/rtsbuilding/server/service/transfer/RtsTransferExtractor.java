@@ -2,7 +2,8 @@ package com.rtsbuilding.rtsbuilding.server.service.transfer;
 
 import com.rtsbuilding.rtsbuilding.compat.bd.RtsBdCompat;
 import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsAggregateStorage;
+import com.rtsbuilding.rtsbuilding.server.storage.cache.RtsAggregateStorage;
+import com.rtsbuilding.rtsbuilding.server.util.RtsPerformanceMonitor;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -11,79 +12,91 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.List;
 
 /**
- * Handles extraction of items from linked storage handlers and player inventory.
+ * 物品提取工具类，处理从各种来源提取物品的核心逻辑。
+ *
+ * <p>此类提供从链接存储处理器、玩家背包、玩家快捷栏以及网络组合中
+ * 提取物品的全面方法集合。所有方法均为 {@code static}，
+ * 类本身为不可实例化的工具类。
+ *
+ * <p><b>提取层级（从低到高）：</b>
+ * <ul>
+ *   <li><b>单处理器提取：</b>{@link #extractOne(IItemHandler, Item)}、
+ *       {@link #extractMatching(IItemHandler, Item, int)} — 从单个 IItemHandler 提取</li>
+ *   <li><b>链接存储提取：</b>{@link #extractOneFromLinked(List, Item)}、
+ *       {@link #extractMatchingFromLinked(List, Item, int)} — 遍历多个处理器</li>
+ *   <li><b>玩家背包提取：</b>{@link #extractOneFromPlayerMainInventory(ServerPlayer, Item)}、
+ *       {@link #extractMatchingFromPlayerMainInventory(ServerPlayer, Item, int)} — 从主背包提取</li>
+ *   <li><b>玩家快捷栏提取：</b>{@link #extractMatchingFromPlayerHotbarForQuickDrop(ServerPlayer, Item, int)} —
+ *       优先选中槽，然后遍历其它快捷栏槽</li>
+ *   <li><b>网络组合提取：</b>{@link #extractOneFromNetwork(List, ServerPlayer, Item)}、
+ *       {@link #extractMatchingFromNetwork(List, ServerPlayer, Item, int)} —
+ *       先链接存储，再玩家背包</li>
+ *   <li><b>快速丢弃源：</b>{@link #extractMatchingFromQuickDropSources(List, ServerPlayer, Item, int)} —
+ *       先链接存储，再快捷栏，再主背包</li>
+ *   <li><b>原型匹配提取：</b>{@link #extractOneMatchingPrototypeFromLinked(List, ItemStack)}、
+ *       {@link #extractOneMatchingPrototypeCombined(List, ServerPlayer, ItemStack)} —
+ *       严格按 ItemStack 原型匹配组件，用于合成系统</li>
+ * </ul>
+ *
+ * <p><b>缓存集成（快速路径）：</b>
+ * <ul>
+ *   <li>{@link #extractOneCached(ServerPlayer, List, Item)} —
+ *       先尝试从 {@link RtsAggregateStorage} 缓存提取，失败则回退扫描处理器</li>
+ *   <li>{@link #extractMatchingCached(ServerPlayer, List, Item, ItemStack, int)} —
+ *       同上，但支持多数量提取</li>
+ *   <li>{@link #refreshCache(ServerPlayer)} — 强制刷新玩家的存储槽位缓存</li>
+ * </ul>
+ *
+ * <p><b>辅助方法：</b>
+ * <ul>
+ *   <li>{@link #mergeExtractedStacks(ItemStack, ItemStack)} — 合并两个同类型的提取堆叠</li>
+ *   <li>{@link #snapshotPlayerMatchingCounts(ServerPlayer, ItemStack)} —
+ *       快照玩家背包中各槽位匹配原型的数量</li>
+ *   <li>{@link #drainPlayerInventoryDelta(ServerPlayer, ItemStack, int[])} —
+ *       计算并提取玩家背包中匹配原型的增量变化</li>
+ * </ul>
+ *
+ * <p><b>设计特点：</b>
+ * <ul>
+ *   <li>与 {@link RtsBdCompat.DirectExtractHandler} 集成，支持 BD 仓库的直接提取优化</li>
+ *   <li>提取方法尽力保持组件一致性（通过 {@code ItemStack.isSameItemSameComponents} 检查）</li>
+ *   <li>不匹配的堆叠会通过 {@link RtsTransferInserter#insertToHandlerPreferExisting} 归还</li>
+ * </ul>
  */
 public final class RtsTransferExtractor {
 
     private RtsTransferExtractor() {
     }
 
-    // ---- route-based extraction (preferred: uses aggregate extraction cache) ----
-
-    /**
-     * 基于预计算提取路由单物品提取。只遍历预测持有该物品的handler。
-     */
-    public static ItemStack extractFromAggregate(ServerPlayer player, Item targetItem) {
-        if (player == null || targetItem == null)
-            return ItemStack.EMPTY;
-        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
-        if (aggregate != null && !aggregate.isEmpty()) {
-            ItemStack extracted = aggregate.executeExtractRoute(targetItem, null, 1);
-            if (!extracted.isEmpty()) {
-                RtsStorageTickService.INSTANCE.alert(player.getUUID());
-                return extracted;
-            }
-        }
-        return ItemStack.EMPTY;
-    }
-
-    /**
-     * 基于预计算提取路由多物品提取（支持NBT精确匹配）。
-     */
-    public static ItemStack extractMatchingFromAggregate(
-            ServerPlayer player, Item targetItem, ItemStack preferred, int limit) {
-        if (player == null || targetItem == null || limit <= 0)
-            return ItemStack.EMPTY;
-        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
-        if (aggregate != null && !aggregate.isEmpty()) {
-            ItemStack extracted = aggregate.executeExtractRoute(targetItem, preferred, limit);
-            if (!extracted.isEmpty()) {
-                RtsStorageTickService.INSTANCE.alert(player.getUUID());
-                return extracted;
-            }
-        }
-        return ItemStack.EMPTY;
-    }
-
-    /**
-     * 基于预计算提取路由的精确NBT原型提取。跳过全量O(handlers×slots)扫描。
-     */
-    public static ItemStack extractPrototypeFromAggregate(ServerPlayer player, ItemStack prototype, int limit) {
-        if (player == null || prototype == null || prototype.isEmpty())
-            return ItemStack.EMPTY;
-        RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
-        if (aggregate != null && !aggregate.isEmpty()) {
-            ItemStack extracted = aggregate.extractMatchingPrototype(prototype, limit);
-            if (!extracted.isEmpty()) {
-                RtsStorageTickService.INSTANCE.alert(player.getUUID());
-                return extracted;
-            }
-        }
-        return ItemStack.EMPTY;
-    }
-
     // ---- single-item extraction --------------------------------------------------
 
-    /** 委托给 {@link #extractMatching} 使用批量提取路径。 */
     public static ItemStack extractOne(IItemHandler handler, Item targetItem) {
-        return extractMatching(handler, targetItem, 1);
+        if (handler instanceof RtsBdCompat.DirectExtractHandler de) {
+            return de.tryExtractItem(targetItem, 1, false);
+        }
+        for (int slot = 0; slot < handler.getSlots(); slot++) {
+            ItemStack stack = handler.getStackInSlot(slot);
+            if (stack.isEmpty() || stack.getItem() != targetItem) {
+                continue;
+            }
+            ItemStack extracted = handler.extractItem(slot, 1, false);
+            if (!extracted.isEmpty()) {
+                return extracted;
+            }
+        }
+        return ItemStack.EMPTY;
     }
 
     public static ItemStack extractMatching(IItemHandler handler, Item targetItem, int limit) {
+        var _t = RtsPerformanceMonitor.start("RtsTransferExtractor.extractMatching", targetItem);
         if (handler instanceof RtsBdCompat.DirectExtractHandler de) {
-            return de.tryExtractItem(targetItem, limit, false);
+            ItemStack result = de.tryExtractItem(targetItem, limit, false);
+            _t.end(result);
+            return result;
         }
-        return extractMatching(handler, targetItem, ItemStack.EMPTY, limit);
+        ItemStack result = extractMatching(handler, targetItem, ItemStack.EMPTY, limit);
+        _t.end(result);
+        return result;
     }
 
     public static ItemStack extractMatching(IItemHandler handler, Item targetItem, ItemStack preferred, int limit) {
@@ -165,17 +178,24 @@ public final class RtsTransferExtractor {
     }
 
     public static ItemStack extractOneFromNetwork(List<IItemHandler> handlers, ServerPlayer player, Item targetItem) {
+        var _t = RtsPerformanceMonitor.start("RtsTransferExtractor.extractOneFromNetwork", targetItem);
         ItemStack extracted = extractOneFromLinked(handlers, targetItem);
         if (!extracted.isEmpty()) {
+            _t.end(extracted);
             return extracted;
         }
-        return extractOneFromPlayerMainInventory(player, targetItem);
+        ItemStack result = extractOneFromPlayerMainInventory(player, targetItem);
+        _t.end(result);
+        return result;
     }
 
     // ---- multi-item extraction --------------------------------------------------
 
     public static ItemStack extractMatchingFromLinked(List<IItemHandler> handlers, Item targetItem, int limit) {
-        return extractMatchingFromLinked(handlers, targetItem, ItemStack.EMPTY, limit);
+        var _t = RtsPerformanceMonitor.start("RtsTransferExtractor.extractMatchingFromLinked", targetItem);
+        ItemStack result = extractMatchingFromLinked(handlers, targetItem, ItemStack.EMPTY, limit);
+        _t.end(result);
+        return result;
     }
 
     public static ItemStack extractMatchingFromLinked(List<IItemHandler> handlers, Item targetItem, ItemStack preferred, int limit) {
@@ -316,7 +336,10 @@ public final class RtsTransferExtractor {
 
     public static ItemStack extractMatchingFromNetwork(
             List<IItemHandler> handlers, ServerPlayer player, Item targetItem, int limit) {
-        return extractMatchingFromNetwork(handlers, player, targetItem, ItemStack.EMPTY, limit);
+        var _t = RtsPerformanceMonitor.start("RtsTransferExtractor.extractMatchingFromNetwork", targetItem);
+        ItemStack result = extractMatchingFromNetwork(handlers, player, targetItem, ItemStack.EMPTY, limit);
+        _t.end(result);
+        return result;
     }
 
     public static ItemStack extractMatchingFromNetwork(
@@ -424,15 +447,13 @@ public final class RtsTransferExtractor {
     // ---- cache integration (fast path via aggregate storage) -------------------
 
     /**
-     * Attempts a fast extraction of a single item directly from the player's
-     * aggregate storage cache. Falls back to scanning the provided handlers
-     * if the cache is unavailable or empty.
+     * 尝试直接从玩家的聚合存储缓存中快速提取单个物品。
+     * 如果缓存不可用或为空，则回退到扫描提供的处理器。
      *
-     * <p>This is safe because {@code LinkedItemHandlerView.extractItem}
-     * delegates to the same raw handler that the cache operates on — no
-     * permission check is bypassed for extractions.
+     * <p>这样做是安全的，因为 {@code LinkedItemHandlerView.extractItem}
+     * 委托给缓存所操作的同一原始处理器——提取操作不会绕过权限检查。
      *
-     * @return the extracted stack, or {@link ItemStack#EMPTY}
+     * @return 提取的物品栈，或 {@link ItemStack#EMPTY}
      */
     public static ItemStack extractOneCached(ServerPlayer player, List<IItemHandler> fallbackHandlers, Item targetItem) {
         if (player == null || targetItem == null) return ItemStack.EMPTY;
@@ -448,30 +469,33 @@ public final class RtsTransferExtractor {
     }
 
     /**
-     * Attempts a fast multi-item extraction from the aggregate storage cache.
-     * Falls back to scanning the provided handlers if the cache is unavailable.
+     * 尝试从聚合存储缓存中快速提取多个物品。
+     * 如果缓存不可用，则回退到扫描提供的处理器。
      */
     public static ItemStack extractMatchingCached(
             ServerPlayer player, List<IItemHandler> fallbackHandlers,
             Item targetItem, ItemStack preferred, int limit) {
         if (player == null || targetItem == null || limit <= 0) return ItemStack.EMPTY;
+        var _t = RtsPerformanceMonitor.start("RtsTransferExtractor.extractMatchingCached", targetItem);
         RtsAggregateStorage aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
         if (aggregate != null && !aggregate.isEmpty()) {
             ItemStack extracted = aggregate.extractMatching(targetItem, preferred, limit);
             if (!extracted.isEmpty()) {
                 RtsStorageTickService.INSTANCE.alert(player.getUUID());
+                _t.end(extracted);
                 return extracted;
             }
         }
-        return fallbackHandlers == null
+        ItemStack result = fallbackHandlers == null
                 ? ItemStack.EMPTY
                 : extractMatchingFromLinked(fallbackHandlers, targetItem, preferred, limit);
+        _t.end(result);
+        return result;
     }
 
     /**
-     * Forces an immediate refresh of the player's storage slot cache so
-     * subsequent cached reads and fast-path extractions reflect the latest
-     * handler state.
+     * 强制立即刷新玩家的存储槽位缓存，以便后续的缓存读取
+     * 和快速路径提取反映最新的处理器状态。
      */
     public static void refreshCache(ServerPlayer player) {
         if (player != null) {

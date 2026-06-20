@@ -2,11 +2,9 @@ package com.rtsbuilding.rtsbuilding.compat.ae2;
 
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.compat.RefreshableSnapshotHandler;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsHandlerCache;
+import com.rtsbuilding.rtsbuilding.server.storage.cache.RtsHandlerCache;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
@@ -20,11 +18,8 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class RtsAe2Compat {
     public interface ReportedCountItemHandler extends com.rtsbuilding.rtsbuilding.compat.ReportedCountItemHandler {
@@ -80,9 +75,13 @@ public final class RtsAe2Compat {
         }
     }
 
+    public static String resolveGuiBindingIconItemId(Level level, BlockPos pos, Direction face, String labelHint) {
+        return RtsAe2IconResolver.resolveGuiBindingIconItemId(level, pos, face, labelHint);
+    }
+
     /**
-     * 直接读取 AE2 网络的 KeyCounter 快照，返回 itemId → count 映射。
-     * O(不同物品类型数), 不经过槽位遍历。
+     * Returns a snapshot of itemId → count from the AE2 KeyCounter.
+     * O(distinct item types), bypasses slot iteration entirely.
      */
     public static Map<String, Long> getCurrentItemCounts(IItemHandler handler) {
         if (REFLECTION == null || !(handler instanceof Ae2NetworkItemHandler ae2)) {
@@ -111,7 +110,7 @@ public final class RtsAe2Compat {
                 ItemStack stack = REFLECTION.toStack(key, 1);
                 if (stack.isEmpty()) continue;
 
-                String itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+                String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
                 result.put(itemId, count);
             }
             return result;
@@ -122,8 +121,8 @@ public final class RtsAe2Compat {
     }
 
     /**
-     * 从 AE2 KeyCounter 快照中一次性收集物品计数和原型。
-     * 单次遍历，O(不同物品类型数)。
+     * Collects both counts and prototypes from the AE2 KeyCounter in a single pass.
+     * O(distinct item types).
      */
     public static void collectCountsAndPrototypes(IItemHandler handler,
             Map<String, Long> counts, Map<String, ItemStack> protos) {
@@ -150,7 +149,7 @@ public final class RtsAe2Compat {
                 ItemStack stack = REFLECTION.toStack(key, 1);
                 if (stack.isEmpty()) continue;
 
-                String itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+                String itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
                 counts.put(itemId, count);
                 if (!protos.containsKey(itemId)) {
                     protos.put(itemId, stack);
@@ -162,7 +161,7 @@ public final class RtsAe2Compat {
     }
 
     /**
-     * 从 AE2 网络的 KeyCounter 快照中获取指定物品的原型 ItemStack。
+     * Gets the prototype ItemStack for a specific itemId from AE2's KeyCounter.
      */
     public static ItemStack getPrototypeFromHandler(IItemHandler handler, String itemId) {
         if (REFLECTION == null || !(handler instanceof Ae2NetworkItemHandler ae2)) {
@@ -171,8 +170,8 @@ public final class RtsAe2Compat {
         Object storageService = ae2.storageService;
         if (storageService == null) return ItemStack.EMPTY;
 
-        ResourceLocation rl = ResourceLocation.tryParse(itemId);
-        if (rl == null || !BuiltInRegistries.ITEM.containsKey(rl)) return ItemStack.EMPTY;
+        net.minecraft.resources.ResourceLocation rl = net.minecraft.resources.ResourceLocation.tryParse(itemId);
+        if (rl == null || !net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(rl)) return ItemStack.EMPTY;
 
         try {
             Object keyCounter = REFLECTION.storageServiceGetCachedInventory.invoke(storageService);
@@ -181,29 +180,22 @@ public final class RtsAe2Compat {
             Object iterator = REFLECTION.keyCounterIterator.invoke(keyCounter);
             if (iterator == null) return ItemStack.EMPTY;
 
-            Item targetItem = BuiltInRegistries.ITEM.get(rl);
+            Item targetItem = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(rl);
             while ((boolean) REFLECTION.keyCounterIterator.getReturnType()
                     .getMethod("hasNext").invoke(iterator)) {
                 Object entry = ((Iterator<?>) iterator).next();
                 Object key = REFLECTION.keyEntryGetKey.invoke(entry);
                 if (key == null || !REFLECTION.aeItemKeyClass.isInstance(key)) continue;
 
-                long count = ((Number) REFLECTION.keyEntryGetLongValue.invoke(entry)).longValue();
-                if (count <= 0L) continue;
-
                 ItemStack stack = REFLECTION.toStack(key, 1);
                 if (!stack.isEmpty() && stack.getItem() == targetItem) {
                     return stack;
                 }
             }
-            return ItemStack.EMPTY;
         } catch (Exception e) {
-            return ItemStack.EMPTY;
+            RtsbuildingMod.LOGGER.warn("AE2 getPrototypeFromHandler failed", e);
         }
-    }
-
-    public static String resolveGuiBindingIconItemId(Level level, BlockPos pos, Direction face, String labelHint) {
-        return RtsAe2IconResolver.resolveGuiBindingIconItemId(level, pos, face, labelHint);
+        return ItemStack.EMPTY;
     }
 
     private static final class Ae2NetworkItemHandler implements IItemHandler, ReportedCountItemHandler,

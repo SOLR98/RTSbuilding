@@ -22,9 +22,17 @@ public final class RtsUltimineCollector {
         if (level == null || seed == null || limit <= 0 || filter == null) {
             return List.of();
         }
+        return collect(seed, limit, maxRadius, level::getBlockState,
+                (candidatePos, state, seedState) -> filter.test(candidatePos, state, seedState));
+    }
 
+    public static <S> List<BlockPos> collect(BlockPos seed, int limit, int maxRadius, StateLookup<S> stateLookup,
+            GenericCandidateFilter<S> filter) {
+        if (seed == null || limit <= 0 || stateLookup == null || filter == null) {
+            return List.of();
+        }
         BlockPos seedPos = seed.immutable();
-        BlockState seedState = level.getBlockState(seedPos);
+        S seedState = stateLookup.get(seedPos);
 
         int clampedLimit = Math.max(1, limit);
         int clampedRadius = Math.max(1, maxRadius);
@@ -40,7 +48,7 @@ public final class RtsUltimineCollector {
                 continue;
             }
 
-            BlockState state = level.getBlockState(current);
+            S state = stateLookup.get(current);
             if (!filter.test(current, state, seedState)) {
                 continue;
             }
@@ -94,5 +102,15 @@ public final class RtsUltimineCollector {
     @FunctionalInterface
     public interface CandidateFilter {
         boolean test(BlockPos pos, BlockState state, BlockState seedState);
+    }
+
+    @FunctionalInterface
+    public interface StateLookup<S> {
+        S get(BlockPos pos);
+    }
+
+    @FunctionalInterface
+    public interface GenericCandidateFilter<S> {
+        boolean test(BlockPos pos, S state, S seedState);
     }
 }

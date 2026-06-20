@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.client.screen.handler;
 
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
 import com.rtsbuilding.rtsbuilding.client.rendering.animation.PlacementAnimationRenderer;
 import com.rtsbuilding.rtsbuilding.client.rendering.builder.BuildGhostBlockStateResolver;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.RenderingUtil;
@@ -10,7 +11,7 @@ import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeBuildTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeDataRecords;
 import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeGeometryUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
-import com.rtsbuilding.rtsbuilding.common.shape.ShapeFillMode;
+import com.rtsbuilding.rtsbuilding.common.shape.model.ShapeFillMode;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -174,9 +175,9 @@ public final class ScreenShapeController {
         BuildShape shape = this.controller.getBuildShape();
         if (shape == BuildShape.BLOCK) {
             clearShapeBuildSession();
-            RangeDestroyPreview preview = buildRangeDestroyPreview(List.of(hit.getBlockPos().immutable()));
-            if (!preview.breakableBlocks().isEmpty()) {
-                List<BlockPos> boundsFiltered = filterToBounds(preview.breakableBlocks());
+            List<BlockPos> breakable = collectBreakableTargets(List.of(hit.getBlockPos().immutable()));
+            if (!breakable.isEmpty()) {
+                List<BlockPos> boundsFiltered = filterToBounds(breakable);
                 if (!boundsFiltered.isEmpty()) {
                     rememberConfirmedRangeDestroyPreview(new RangeDestroyPreview(new ArrayList<>(boundsFiltered)));
                     this.controller.confirmShapeAreaDestroy(boundsFiltered, this.screen.getSelectedToolSlot());
@@ -322,65 +323,54 @@ public final class ScreenShapeController {
             return false;
         }
         ShapeBuildTypes.Input input = resolveCurrentShapeBuildInput(null, true);
-        if (input == null) {
-            return false;
-        }
-        RangeDestroyPreview preview = buildRangeDestroyPreview(input);
-        List<BlockPos> targets = preview.breakableBlocks();
-        clearShapeBuildSession();
-        if (targets.isEmpty()) {
-            return true;
-        }
-        List<BlockPos> boundsFiltered = filterToBounds(targets);
-        if (boundsFiltered.isEmpty()) {
-            return true;
-        }
-        rememberConfirmedRangeDestroyPreview(new RangeDestroyPreview(new ArrayList<>(boundsFiltered)));
-        this.controller.confirmShapeAreaDestroy(boundsFiltered, this.screen.getSelectedToolSlot());
-        return true;
+        if (input == null) return false;
+
+        return executeShapeOperation(
+                input,
+                (in, raw) -> collectBreakableTargets(raw),
+                bounded -> {
+                    rememberConfirmedRangeDestroyPreview(new RangeDestroyPreview(new ArrayList<>(bounded)));
+                    this.controller.confirmShapeAreaDestroy(bounded, this.screen.getSelectedToolSlot());
+                });
     }
 
     public boolean tryConfirmPendingShapeBuild(boolean forcePlace) {
-        if (this.controller.getBuildShape() == BuildShape.BLOCK) {
-            return false;
-        }
+        if (this.controller.getBuildShape() == BuildShape.BLOCK) return false;
         boolean useFluid = this.controller.hasSelectedFluid();
         boolean usePinnedItem = this.controller.hasSelectedItem();
-        if (!useFluid && !usePinnedItem && !this.screen.canUseToolSlotShapeSource()) {
-            return false;
-        }
+        if (!useFluid && !usePinnedItem && !this.screen.canUseToolSlotShapeSource()) return false;
+
         ShapeBuildTypes.Input input = resolveCurrentShapeBuildInput(null, true);
-        if (input == null) {
-            return false;
-        }
+        if (input == null) return false;
+
         Minecraft mc = this.screen.getMinecraft();
-        if (mc == null) {
-            return false;
-        }
+        if (mc == null) return false;
         Vec3 rayOrigin = mc.gameRenderer.getMainCamera().getPosition();
         Vec3 rayDir = this.screen.computeCursorRayDirection();
-        List<BlockHitResult> hits = buildShapePlacementHits(input, this.shapeFillMode);
         BlockHitResult templateHit = resolveShapeTemplateHit(input);
-        clearShapeBuildSession();
-        if (useFluid) {
-            for (BlockHitResult shapedHit : hits) {
-                this.controller.placeSelectedFluid(shapedHit, forcePlace, rayOrigin, rayDir);
-            }
-        } else {
-            this.controller.placeSelectedBatch(hits, templateHit, forcePlace, rayOrigin, rayDir, true);
-        }
-        if (!useFluid) {
-            List<BlockPos> positions = new ArrayList<>(hits.size());
-            for (BlockHitResult shapedHit : hits) {
-                positions.add(shapedHit.getBlockPos().immutable());
-            }
-            // 瑙ｆ瀽鏀剧疆鐨勬柟鍧楃被鍨?鈥?use first hit position for direction
-            BlockPos firstPlacePos = hits.isEmpty() ? null : hits.get(0).getBlockPos();
-            BlockState pendingState = resolvePendingGhostBlockState(firstPlacePos);
-            // Register pending ghosts for visual feedback while waiting for server confirmation
-            PlacementAnimationRenderer.addPendingBatch(positions, pendingState);
-        }
-        return true;
+
+        return executeShapeOperation(
+                input,
+                (in, raw) -> filterOccupiedReadyShapeTargets(in, raw),
+                bounded -> {
+                    List<BlockHitResult> hits = wrapPlacementHits(bounded, input.placementFace());
+                    if (useFluid) {
+                        for (BlockHitResult shapedHit : hits) {
+                            this.controller.placeSelectedFluid(shapedHit, forcePlace, rayOrigin, rayDir);
+                        }
+                    } else {
+                        this.controller.placeSelectedBatch(hits, templateHit, forcePlace, rayOrigin, rayDir, true);
+                    }
+                    if (!useFluid) {
+                        List<BlockPos> positions = hits.stream()
+                                .map(BlockHitResult::getBlockPos)
+                                .map(BlockPos::immutable)
+                                .toList();
+                        BlockPos firstPlacePos = positions.isEmpty() ? null : positions.get(0);
+                        BlockState pendingState = resolvePendingGhostBlockState(firstPlacePos);
+                        PlacementAnimationRenderer.addPendingBatch(positions, pendingState);
+                    }
+                });
     }
 
     // ===== Ghost preview =====
@@ -402,21 +392,21 @@ public final class ScreenShapeController {
                 if (hit == null) {
                     return ShapeDataRecords.GhostPreview.EMPTY;
                 }
-                RangeDestroyPreview preview = buildRangeDestroyPreview(List.of(hit.getBlockPos().immutable()));
-                return preview.isEmpty()
+                List<BlockPos> breakable = collectBreakableTargets(List.of(hit.getBlockPos().immutable()));
+                return breakable.isEmpty()
                         ? ShapeDataRecords.GhostPreview.EMPTY
-                        : new ShapeDataRecords.GhostPreview(preview.breakableBlocks(), true, true, List.of());
+                        : new ShapeDataRecords.GhostPreview(breakable, true, true, List.of());
             }
             ShapeBuildTypes.Input input = resolveCurrentShapeBuildInput(this.screen.pickBlockHit(), false);
             if (input == null) {
                 return ShapeDataRecords.GhostPreview.EMPTY;
             }
-            RangeDestroyPreview preview = buildRangeDestroyPreview(input);
-            if (preview.isEmpty()) {
+            List<BlockPos> breakable = collectBreakableTargets(generateShapePositions(input));
+            if (breakable.isEmpty()) {
                 return ShapeDataRecords.GhostPreview.EMPTY;
             }
             boolean ready = this.shapeBuildSession != null && this.shapeBuildSession.phase() == ShapeBuildTypes.Phase.READY_CONFIRM;
-            return new ShapeDataRecords.GhostPreview(preview.breakableBlocks(), ready, true, List.of());
+            return new ShapeDataRecords.GhostPreview(breakable, ready, true, List.of());
         }
         if (this.controller.getBuildShape() == BuildShape.BLOCK) {
             if (this.controller.isEmptyHandSelected()) {
@@ -487,7 +477,7 @@ public final class ScreenShapeController {
         if (input == null) {
             return ShapeDataRecords.GhostPreview.EMPTY;
         }
-        List<BlockPos> blocks = filterOccupiedReadyShapeTargets(input, ShapeGeometryUtil.buildShapePositions(input, this.shapeFillMode));
+        List<BlockPos> blocks = filterOccupiedReadyShapeTargets(input, generateShapePositions(input));
         if (blocks.isEmpty()) {
             return ShapeDataRecords.GhostPreview.EMPTY;
         }
@@ -666,7 +656,7 @@ public final class ScreenShapeController {
         if (input == null) {
             return "0*0*0";
         }
-        List<BlockPos> blocks = ShapeGeometryUtil.buildShapePositions(input, this.shapeFillMode);
+        List<BlockPos> blocks = generateShapePositions(input);
         if (blocks.isEmpty()) {
             return "0*0*0";
         }
@@ -704,9 +694,9 @@ public final class ScreenShapeController {
             return "0";
         }
         if (this.screen.isQuickBuildRangeDestroyMode()) {
-            return Integer.toString(buildRangeDestroyTargets(input).size());
+            return Integer.toString(collectBreakableTargets(generateShapePositions(input)).size());
         }
-        List<BlockPos> blocks = filterOccupiedReadyShapeTargets(input, ShapeGeometryUtil.buildShapePositions(input, this.shapeFillMode));
+        List<BlockPos> blocks = filterOccupiedReadyShapeTargets(input, generateShapePositions(input));
         return Integer.toString(blocks.size());
     }
 
@@ -956,13 +946,6 @@ public final class ScreenShapeController {
         return ShapeGeometryUtil.offsetPos(pointA, axisA, nextA, axisB, nextB);
     }
 
-    private List<BlockPos> buildRangeDestroyTargets(ShapeBuildTypes.Input input) {
-        if (input == null) {
-            return List.of();
-        }
-        return filterBreakableRangeDestroyTargets(ShapeGeometryUtil.buildShapePositions(input, this.shapeFillMode));
-    }
-
     private void rememberConfirmedRangeDestroyPreview(RangeDestroyPreview preview) {
         if (preview == null || preview.isEmpty()) {
             return;
@@ -996,9 +979,10 @@ public final class ScreenShapeController {
         BlockPos progressPos = this.controller.getMineProgressPos();
         boolean containsProgress = previewContains(preview, progressPos);
         boolean miningProgressBelongsHere = containsProgress && this.controller.getMineProgressStage() >= 0;
+        RtsWorkflowStatus workflow = this.controller.findActiveDestroyWorkflow();
         boolean batchProgressBelongsHere = containsProgress
-                && this.controller.getUltimineProgressProcessed() >= 0
-                && this.controller.getUltimineProgressTotal() > 0;
+                && workflow != null
+                && workflow.totalBlocks() > 0;
         if (miningProgressBelongsHere || batchProgressBelongsHere) {
             this.confirmedRangeDestroyPreviewUntilMs = now + 850L;
             return preview;
@@ -1032,9 +1016,10 @@ public final class ScreenShapeController {
             return ShapeDataRecords.GhostPreview.EMPTY;
         }
         boolean miningProgressBelongsHere = containsProgress && this.controller.getMineProgressStage() >= 0;
+        RtsWorkflowStatus workflow = this.controller.findActiveDestroyWorkflow();
         boolean batchProgressBelongsHere = containsProgress
-                && this.controller.getUltimineProgressProcessed() >= 0
-                && this.controller.getUltimineProgressTotal() > 0;
+                && workflow != null
+                && workflow.totalBlocks() > 0;
         if (miningProgressBelongsHere || batchProgressBelongsHere) {
             this.confirmedChainDestroyPreviewUntilMs = now + 850L;
             return preview;
@@ -1116,18 +1101,6 @@ public final class ScreenShapeController {
                 this.controller.getAnchorX(), this.controller.getAnchorZ(), this.controller.getMaxRadius());
     }
 
-    private RangeDestroyPreview buildRangeDestroyPreview(ShapeBuildTypes.Input input) {
-        if (input == null) {
-            return RangeDestroyPreview.EMPTY;
-        }
-        return buildRangeDestroyPreview(ShapeGeometryUtil.buildShapePositions(input, this.shapeFillMode));
-    }
-
-    private RangeDestroyPreview buildRangeDestroyPreview(List<BlockPos> targets) {
-        List<BlockPos> breakable = collectBreakableTargets(targets);
-        return breakable.isEmpty() ? RangeDestroyPreview.EMPTY : new RangeDestroyPreview(breakable);
-    }
-
     /**
      * Collects breakable (non-air, non-fluid, destructible) block positions from the given list.
      * <p>
@@ -1161,10 +1134,6 @@ public final class ScreenShapeController {
         return new ArrayList<>(breakable);
     }
 
-    private List<BlockPos> filterBreakableRangeDestroyTargets(List<BlockPos> targets) {
-        return collectBreakableTargets(targets);
-    }
-
     private record RangeDestroyPreview(List<BlockPos> breakableBlocks) {
         private static final RangeDestroyPreview EMPTY = new RangeDestroyPreview(List.of());
 
@@ -1173,13 +1142,76 @@ public final class ScreenShapeController {
         }
     }
 
-    private List<BlockHitResult> buildShapePlacementHits(ShapeBuildTypes.Input input, ShapeFillMode fillMode) {
-        List<BlockPos> positions = filterOccupiedReadyShapeTargets(input, ShapeGeometryUtil.buildShapePositions(input, fillMode));
+    /**
+     * Step 1 共享: 从当前形状输入和填充模式生成原始方块位置列表。
+     * <p>
+     * 范围放置和范围破坏共用此方法，确保两侧的形状生成逻辑一致。
+     */
+    private List<BlockPos> generateShapePositions(ShapeBuildTypes.Input input) {
+        if (input == null) return List.of();
+        return ShapeGeometryUtil.buildShapePositions(input, this.shapeFillMode);
+    }
+
+    /**
+     * 将过滤后的放置目标位置列表包装为 BlockHitResult 列表。
+     * <p>
+     * 范围放置的 Step 2→Step 3 之间的数据转换步骤，与范围破坏的原始 List<BlockPos> 发送形成对称。
+     */
+    private static List<BlockHitResult> wrapPlacementHits(List<BlockPos> positions, Direction face) {
+        if (positions == null || positions.isEmpty()) return List.of();
         List<BlockHitResult> hits = new ArrayList<>(positions.size());
         for (BlockPos pos : positions) {
-            hits.add(ShapeGeometryUtil.createShapePlacementHit(pos, input.placementFace()));
+            hits.add(ShapeGeometryUtil.createShapePlacementHit(pos, face));
         }
         return hits;
+    }
+
+    // ========================================================================
+    //  形状操作模板 — 生成→过滤→发送
+    // ========================================================================
+
+    /** 形状位置过滤策略。 */
+    @FunctionalInterface
+    private interface PositionFilter {
+        List<BlockPos> filter(ShapeBuildTypes.Input input, List<BlockPos> rawPositions);
+    }
+
+    /** 形状位置执行策略。 */
+    @FunctionalInterface
+    private interface PositionExecutor {
+        void execute(List<BlockPos> validPositions);
+    }
+
+    /**
+     * 形状操作通用执行模板：生成→过滤→发送。
+     * <p>
+     * 所有形状操作共享此方法的骨架，差异部分通过
+     * {@link PositionFilter} 和 {@link PositionExecutor} 注入。
+     * <ol>
+     *   <li><b>生成</b> — 调用 {@link #generateShapePositions} 生成原始位置</li>
+     *   <li><b>过滤</b> — 委托给 {@code filter} 进行操作特定的有效性校验</li>
+     *   <li><b>清理+空值检查</b> — 清空会话、检查列表是否为空、检查边界</li>
+     *   <li><b>发送</b> — 委托给 {@code executor} 执行最终的发送/执行逻辑</li>
+     * </ol>
+     */
+    private boolean executeShapeOperation(ShapeBuildTypes.Input input,
+                                          PositionFilter filter,
+                                          PositionExecutor executor) {
+        // Step 1: 生成 - Generate raw shape positions
+        List<BlockPos> rawPositions = generateShapePositions(input);
+
+        // Step 2: 过滤 - Apply operation-specific filtering
+        List<BlockPos> validPositions = filter.filter(input, rawPositions);
+
+        clearShapeBuildSession();
+        if (validPositions.isEmpty()) return true;
+
+        List<BlockPos> bounded = filterToBounds(validPositions);
+        if (bounded.isEmpty()) return true;
+
+        // Step 3: 发送 - Send result to server
+        executor.execute(bounded);
+        return true;
     }
 
     private BlockHitResult resolveShapeTemplateHit(ShapeBuildTypes.Input input) {

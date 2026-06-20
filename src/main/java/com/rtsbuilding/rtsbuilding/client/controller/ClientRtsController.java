@@ -15,8 +15,8 @@ import com.rtsbuilding.rtsbuilding.client.service.BuildPlacementService;
 import com.rtsbuilding.rtsbuilding.client.service.CameraOrbitService;
 import com.rtsbuilding.rtsbuilding.client.service.MiningOperationService;
 import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
-import com.rtsbuilding.rtsbuilding.common.BuilderMode;
-import com.rtsbuilding.rtsbuilding.common.shape.ShapeFillMode;
+import com.rtsbuilding.rtsbuilding.common.build.BuilderMode;
+import com.rtsbuilding.rtsbuilding.common.shape.model.ShapeFillMode;
 import com.rtsbuilding.rtsbuilding.compat.remote.RtsRemoteMenuCompat;
 import com.rtsbuilding.rtsbuilding.network.builder.*;
 import com.rtsbuilding.rtsbuilding.network.camera.S2CRtsCameraAnchorPayload;
@@ -28,6 +28,7 @@ import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsProgressionStatePay
 import com.rtsbuilding.rtsbuilding.network.progression.S2CRtsQuestDetectStatusPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.RtsStorageSort;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsRemoteMenuHintPayload;
+import com.rtsbuilding.rtsbuilding.network.plugin.S2CRtsPluginStatePayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStorageDirtyPayload;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowPriority;
@@ -50,11 +51,8 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import org.lwjgl.glfw.GLFW;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-
-import net.minecraft.world.level.block.entity.ChestBlockEntity;
 
 public final class ClientRtsController {
     private static final ClientRtsController INSTANCE = new ClientRtsController();
@@ -89,9 +87,6 @@ public final class ClientRtsController {
     private int questDetectTotalTasks;
     private int questDetectCompletedTasks;
     private boolean chunkCurtainVisible;
-
-    private boolean linkAreaSelectActive;
-    private BlockPos linkAreaCornerA;
 
     /** Maximum concurrent workflows tracked on client. */
     private static final int CLIENT_MAX_WORKFLOWS = 8;
@@ -572,8 +567,19 @@ public final class ClientRtsController {
     /**
      * Applies a batch of workflow progress updates received in a single packet.
      * Identical in effect to calling {@link #applyWorkflowProgress} for each entry.
+     *
+     * <p>清空所有旧数据后再填充，确保渲染器不会看到残留的过期 slot 数据，
+     * 消除工作流移除时旧 destroy entry 仍在 statuses 数组中存留导致的闪烁。
+     * 由于 {@code enqueueWork} 保证整批操作在同一主线程帧内原子完成，
+     * 渲染器只看到最终完整状态。</p>
      */
     public void applyWorkflowProgressBatch(S2CRtsWorkflowProgressBatchPayload payload) {
+        // 先铲平所有 slot，让 batch 从干净状态重新填充
+        for (int i = 0; i < CLIENT_MAX_WORKFLOWS; i++) {
+            this.workflowStatuses[i] = null;
+        }
+        this.workflowActiveCount = 0;
+
         for (S2CRtsWorkflowProgressPayload entry : payload.entries()) {
             applyWorkflowProgress(entry);
         }
@@ -631,6 +637,27 @@ public final class ClientRtsController {
      */
     public RtsWorkflowStatus[] getWorkflowStatuses() {
         return this.workflowStatuses;
+    }
+
+    /**
+     * 查找当前活跃的破坏类工作流（AREA_DESTROY / ULTIMINE / AREA_MINE），
+     * 用于 QuickBuildPanel 进度条和 ShapeGhostRenderer 渲染。
+     */
+    @javax.annotation.Nullable
+    public RtsWorkflowStatus findActiveDestroyWorkflow() {
+        for (RtsWorkflowStatus status : workflowStatuses) {
+            if (status != null && status.type() != null) {
+                switch (status.type()) {
+                    case AREA_DESTROY:
+                    case ULTIMINE:
+                    case AREA_MINE:
+                        return status;
+                    default:
+                        break;
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -1197,62 +1224,6 @@ public final class ClientRtsController {
         this.storageStateManager.linkStorage(pos, allowStore);
     }
 
-    public void startLinkStorageArea(BlockPos corner) {
-        this.linkAreaSelectActive = true;
-        this.linkAreaCornerA = corner.immutable();
-    }
-
-    public void completeLinkStorageArea(BlockPos cornerB) {
-        this.linkAreaSelectActive = false;
-        BlockPos a = this.linkAreaCornerA;
-        this.linkAreaCornerA = null;
-        if (a != null) {
-            scanAreaAndBatchLink(a, cornerB);
-        }
-    }
-
-    public void cancelLinkStorageArea() {
-        this.linkAreaSelectActive = false;
-        this.linkAreaCornerA = null;
-    }
-
-    public boolean isSelectingLinkStorageArea() {
-        return this.linkAreaSelectActive;
-    }
-
-    private void scanAreaAndBatchLink(BlockPos a, BlockPos b) {
-        Minecraft mc = Minecraft.getInstance();
-        LocalPlayer player = mc.player;
-        if (player == null) return;
-
-        int minX = Math.min(a.getX(), b.getX());
-        int maxX = Math.max(a.getX(), b.getX());
-        int minY = Math.min(a.getY(), b.getY());
-        int maxY = Math.max(a.getY(), b.getY());
-        int minZ = Math.min(a.getZ(), b.getZ());
-        int maxZ = Math.max(a.getZ(), b.getZ());
-
-        List<BlockPos> found = new ArrayList<>();
-        for (int x = minX; x <= maxX; x++) {
-            for (int y = minY; y <= maxY; y++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    BlockPos pos = new BlockPos(x, y, z);
-                    if (player.level().getBlockEntity(pos) instanceof ChestBlockEntity) {
-                        found.add(pos.immutable());
-                    }
-                }
-            }
-        }
-
-        if (found.isEmpty()) {
-            player.displayClientMessage(Component.literal("选区内没有找到容器"), false);
-            return;
-        }
-
-        RtsClientPacketGateway.sendBatchLinkStorage(found, true);
-        player.displayClientMessage(Component.literal("选区批量链接: " + found.size() + " 个容器"), false);
-    }
-
     public void requestStoragePage(int page) {
         this.storageStateManager.requestStoragePage(page);
     }
@@ -1499,10 +1470,6 @@ public final class ClientRtsController {
 
     public void applyMineProgress(S2CRtsMineProgressPayload payload) {
         this.miningOperationService.applyMineProgress(payload.pos(), payload.stage());
-    }
-
-    public void applyUltimineProgress(S2CRtsUltimineProgressPayload payload) {
-        this.miningOperationService.applyUltimineProgress(payload.processed(), payload.total());
     }
 
     public void applyProgressionState(S2CRtsProgressionStatePayload payload) {
@@ -1787,14 +1754,6 @@ public final class ClientRtsController {
         return this.miningOperationService.getMineProgressStage();
     }
 
-    public int getUltimineProgressProcessed() {
-        return this.miningOperationService.getUltimineProgressProcessed();
-    }
-
-    public int getUltimineProgressTotal() {
-        return this.miningOperationService.getUltimineProgressTotal();
-    }
-
     public BlockPos getMineProgressPos() {
         return this.miningOperationService.getMineProgressPos();
     }
@@ -1805,6 +1764,18 @@ public final class ClientRtsController {
 
     public long getMineProgressCompletedAtMs() {
         return this.miningOperationService.getMineProgressCompletedAtMs();
+    }
+
+    public int getUltimineProgressProcessed() {
+        return this.miningOperationService.getUltimineProgressProcessed();
+    }
+
+    public int getUltimineProgressTotal() {
+        return this.miningOperationService.getUltimineProgressTotal();
+    }
+
+    public void applyUltimineProgress(S2CRtsUltimineProgressPayload payload) {
+        this.miningOperationService.applyUltimineProgress(payload.processed(), payload.total());
     }
 
     private void beginRemoteMenuOpenGrace() {
@@ -1856,6 +1827,24 @@ public final class ClientRtsController {
     public void syncVisualCameraFrame() {
         Minecraft minecraft = Minecraft.getInstance();
         this.cameraOrbitService.syncVisualCameraFrame(minecraft, this.anchorX, this.anchorY, this.anchorZ, this.maxRadius, this.enabled);
+    }
+
+    // Plugin stubs (plugin system not yet integrated)
+
+    public void requestPluginState() {
+    }
+
+    public void installPluginFromInventorySlot(int inventorySlot) {
+    }
+
+    public void uninstallPlugin(String pluginId) {
+    }
+
+    public List<PluginStateManager.InstalledPluginView> getInstalledPlugins() {
+        return List.of();
+    }
+
+    public void applyPluginState(S2CRtsPluginStatePayload payload) {
     }
 
 }

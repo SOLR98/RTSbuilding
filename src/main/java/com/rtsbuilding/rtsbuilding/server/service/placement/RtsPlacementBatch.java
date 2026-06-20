@@ -4,17 +4,16 @@ import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsPlaceBatchPayload;
 import com.rtsbuilding.rtsbuilding.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
-import com.rtsbuilding.rtsbuilding.server.service.RtsPageService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsPendingPlacementService;
-import com.rtsbuilding.rtsbuilding.server.service.RtsSessionService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
+import com.rtsbuilding.rtsbuilding.server.service.ServiceRegistry;
+import com.rtsbuilding.rtsbuilding.server.storage.resolver.RtsLinkedStorageResolver;
+import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
+import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowToken;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
@@ -23,16 +22,25 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
- * Batch job queuing and tick processing for RTS remote block placement.
+ * 批处理放置作业管理器，负责远程方块放置的排队和每 tick 节流处理。
  *
- * <p>This helper owns the batch-job lifecycle: queueing placement requests,
- * throttling per-tick block-processing via {@link #tickPlaceBatchJobs}, and
- * the {@link PlaceBatchJob} data holder. It deliberately does not execute
- * individual placement logic, resolve quick-build state plans, play sounds,
- * or extract items — those responsibilities live in their dedicated helpers.
+ * <p>管理批处理作业的完整生命周期：将放置请求排队为 {@link PlaceBatchJob}，
+ * 通过 {@link #tickPlaceBatchJobs} 以每 tick 最多 {@value #BUILD_BATCH_MAX_BLOCKS_PER_TICK}
+ * 个方块的速度节流处理，以及作业的暂停/恢复/完成流程。
+ *
+ * <p>快速建造作业（形状建造）受 {@link #BUILD_BATCH_MAX_QUEUED_JOBS}=4 限制，
+ * 单个方块放置无限制。作业通过 NBT 序列化支持会话持久化。
+ *
+ * <p>不负责：单方块放置逻辑（{@link RtsPlacementExecutor}）、
+ * 状态计划预解析（{@link RtsPlacementQuickBuild}）、
+ * 物品提取（{@link RtsPlacementExtractor}）、声音（{@link RtsPlacementSound}）。
  */
 public final class RtsPlacementBatch {
     private static final int BUILD_BATCH_MAX_BLOCKS_PER_TICK = 64;
@@ -116,133 +124,198 @@ public final class RtsPlacementBatch {
     }
 
     /**
-     * Tick handler that processes up to {@link #BUILD_BATCH_MAX_BLOCKS_PER_TICK}
-     * blocks from queued batch jobs. Quick-build jobs use the pre-resolved
-     * state plan fast path; all others fall through to the interactive single
-     * placement path. Saves and refreshes the session when a full job
-     * completes.
+     * Tick 处理器，从排队的批处理作业中处理最多 {@link #BUILD_BATCH_MAX_BLOCKS_PER_TICK}
+     * 个方块。快速建造作业使用预解析的状态计划快速路径；
+     * 其他所有作业走交互式单放置路径。
+     * 当一个完整作业完成时保存并刷新会话。
      */
     public static void tickPlaceBatchJobs(ServerPlayer player, RtsStorageSession session) {
-        if (player == null || session == null) {
-            return;
-        }
+        if (player == null || session == null || session.placement.placeBatchJobs.isEmpty()) return;
+
+        int budget = BUILD_BATCH_MAX_BLOCKS_PER_TICK;
+        int pausedConsecutive = 0;
         int totalBlocks = 0;
-        int pausedJobsSkipped = 0; // 连续暂停计数，防止无限循环
-        for (PlaceBatchJob j : session.placement.placeBatchJobs) {
-            totalBlocks += j.totalCount();
-        }
-        int remaining = Math.min(BUILD_BATCH_MAX_BLOCKS_PER_TICK, Math.max(1, totalBlocks / 10));
-        // 记录此 tick 开始前每个 job 的已放置数，用于按 job 独立更新工作流进度
-        java.util.Map<Integer, Integer> placedBeforeTick = new java.util.HashMap<>();
-        // 收集此 tick 中完成的所有 job，确保每个 job 的工作流都被 complete
-        java.util.List<PlaceBatchJob> fullyCompletedJobs = new java.util.ArrayList<>();
-        // 先记录每个 job 的 tick 前已放置数
+        for (PlaceBatchJob j : session.placement.placeBatchJobs) totalBlocks += j.totalCount();
+        if (totalBlocks <= 0) return;
+        budget = Math.min(budget, Math.max(1, totalBlocks / 10));
+
+        Map<Integer, Integer> placedBeforeTick = new HashMap<>();
+        List<PlaceBatchJob> fullyCompletedJobs = new ArrayList<>();
         for (PlaceBatchJob j : session.placement.placeBatchJobs) {
             placedBeforeTick.put(j.workflowEntryId(), j.placedPositions.size());
         }
 
-        while (remaining > 0 && !session.placement.placeBatchJobs.isEmpty()) {
+        while (budget > 0 && !session.placement.placeBatchJobs.isEmpty()) {
             PlaceBatchJob job = session.placement.placeBatchJobs.peekFirst();
-            // Per-entry pause valve: 检查工作流是否存在或已暂停
-            var tokenOpt = RtsWorkflowEngine.getInstance().from(player, job.workflowEntryId());
-            if (tokenOpt.isEmpty()) {
-                // 工作流已被关闭（删除），从队列中移除该 job
+            boolean hasWorkflow = hasWorkflowEntry(job);
+            Optional<RtsWorkflowToken> tokenOpt = workflowToken(player, job);
+
+            if (hasWorkflow && tokenOpt.isEmpty()) {
                 session.placement.placeBatchJobs.removeFirst();
-                pausedJobsSkipped = 0;
+                pausedConsecutive = 0;
                 continue;
             }
-            if (tokenOpt.get().isPaused()) {
-                // 暂停：将 job 移到队尾，跳过此 tick
+            if (hasWorkflow && tokenOpt.get().isPaused()) {
                 session.placement.placeBatchJobs.removeFirst();
                 session.placement.placeBatchJobs.addLast(job);
-                pausedJobsSkipped++;
-                if (pausedJobsSkipped >= session.placement.placeBatchJobs.size()) {
-                    break; // 所有剩余 job 都已暂停
-                }
+                pausedConsecutive++;
+                if (pausedConsecutive >= session.placement.placeBatchJobs.size()) break;
                 continue;
             }
-            pausedJobsSkipped = 0;
-            boolean madeProgress = false;
-            while (remaining > 0 && job.hasNext()) {
-                BlockPos clickedPos = job.next();
-                RtsPlacementQuickBuild.StatePlacementPlan statePlan = job.quickBuild()
-                        ? job.statePlacementPlan(player) : null;
-                boolean keepGoing;
-                if (statePlan != null) {
-                    // 快速建造路径：记录放置前的状态，用于批撤回
-                    BlockPos trackedPos = clickedPos;
-                    BlockState beforeState = player.serverLevel().getBlockState(trackedPos);
-                    keepGoing = RtsPlacementQuickBuild.placeStateBatchEntry(player, session, clickedPos, statePlan);
-                    // 如果方块状态发生了变化（空气→方块），说明放置成功
-                    if (keepGoing && (beforeState.isAir() || beforeState.canBeReplaced())
-                            && !player.serverLevel().getBlockState(trackedPos).isAir()) {
-                        job.placedPositions.add(trackedPos);
-                    }
-                } else {
-                    Vec3 hitLocation = new Vec3(
-                            clickedPos.getX() + job.hitOffsetX(),
-                            clickedPos.getY() + job.hitOffsetY(),
-                            clickedPos.getZ() + job.hitOffsetZ());
-                    // 记录放置前状态，用于检测实际放置位置
-                    BlockPos adjPos = clickedPos.relative(job.face());
-                    BlockState beforeClicked = player.serverLevel().getBlockState(clickedPos);
-                    BlockState beforeAdjacent = player.serverLevel().hasChunkAt(adjPos)
-                            ? player.serverLevel().getBlockState(adjPos) : null;
-                    keepGoing = RtsPlacementExecutor.placeSelectedInternal(
-                            player,
-                            session,
-                            clickedPos,
-                            job.face(),
-                            hitLocation.x,
-                            hitLocation.y,
-                            hitLocation.z,
-                            job.rotateSteps(),
-                            job.forcePlace(),
-                            job.skipIfOccupied(),
-                            job.itemId(),
-                            job.itemPrototype(),
-                            job.rayOriginX(),
-                            job.rayOriginY(),
-                            job.rayOriginZ(),
-                            job.rayDirX(),
-                            job.rayDirY(),
-                            job.rayDirZ(),
-                            job.quickBuild(),
-                            job.forceEmptyHand(),
-                            false,
-                            job.sendRemoteHint());
-                    // 检测实际放置位置（可能是 clickedPos 或 adjacentPos）
-                    if (keepGoing) {
-                        BlockPos actualPos = RtsPlacementHelper.detectPlacedPos(
-                                player.serverLevel(), clickedPos, beforeClicked, adjPos, beforeAdjacent);
-                        if (actualPos != null) {
-                            job.placedPositions.add(actualPos);
+            pausedConsecutive = 0;
+
+            switch (job.phase) {
+                case MATERIAL_CALC -> {
+                    job.required.clear();
+                    job.prototypes.clear();
+                    job.missingItems.clear();
+                    int need = job.remainingCount();
+                    if (need > 0) {
+                        job.required.put(job.itemId(), need);
+                        if (job.itemPrototype() != null && !job.itemPrototype().isEmpty()) {
+                            job.prototypes.put(job.itemId(), job.itemPrototype());
+                        }
+                        // 预检存储可用量——提前跳过，不等到 BUFFER_FILLING 才失败
+                        var aggregate = RtsStorageTickService.INSTANCE.getStorage(player);
+                        if (aggregate != null && !aggregate.isEmpty()) {
+                            var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(
+                                    net.minecraft.resources.ResourceLocation.tryParse(job.itemId()));
+                            long available = item != null
+                                    ? (job.itemPrototype() != null && !job.itemPrototype().isEmpty()
+                                            ? aggregate.getTotalCount(job.itemPrototype().getItem())
+                                            : aggregate.getTotalCount(item))
+                                    : 0L;
+                            if (available <= 0) {
+                                job.missingItems.add(job.itemId());
+                                // 存储中没有此物品 → 直接跳过，后续提示玩家提交补充
+                                if (hasWorkflow) {
+                                    session.placement.placeBatchJobs.removeFirst();
+                                    session.placement.pendingJobs.addLast(job);
+                                    job.phase = BatchPhase.SUSPENDED;
+                                    tokenOpt.ifPresent(token -> token.suspend());
+                                    player.displayClientMessage(
+                                            net.minecraft.network.chat.Component.literal(
+                                                    "§e缺少材料: §f" + job.itemId() + " §7(未在存储中找到)"),
+                                            false);
+                                    break; // 跳出 switch
+                                }
+                            }
                         }
                     }
+                    job.buffer = new RtsPlaceBuffer();
+                    job.phase = BatchPhase.BUFFER_FILLING;
                 }
-                remaining--;
-                if (!keepGoing) {
-                    // 放置失败（物品不足），回退索引保留位置，将 job 挂起到 pendingJobs
-                    // 后续通过 resumePendingJob / submitPendingPlacement 唤醒
-                    job.unconsumeLast();
-                    remaining--;
+                case BUFFER_FILLING -> {
+                    session.placement.tickBuffer = job.buffer;
+                    int filled = job.buffer.fillFromStorage(player, session, job.required, job.prototypes, Math.min(budget, BUILD_BATCH_MAX_BLOCKS_PER_TICK));
+                    if (filled > 0) budget = Math.max(0, budget - filled);
+                    // 全部需求满足才允许进入建造阶段——禁止提取和建造在同一 tick 穿插
+                    if (job.required.isEmpty()) {
+                        job.phase = BatchPhase.BUILDING;
+                        // 填装完成触发了存储提取——此时刷新一次，建造阶段不再刷新
+                        ServiceRegistry.getInstance().serviceOp().markDirty(player, session);
+                        ServiceRegistry.getInstance().serviceOp().refreshPage(player, session);
+                    } else if (!job.buffer.isEmpty()) {
+                        // 有进度但不够，下一 tick 继续提取
+                    } else {
+                        // 存储完全没有需要的东西 → 搁置到 pendingJobs
+                        job.missingItems.addAll(job.required.keySet());
+                        session.placement.placeBatchJobs.removeFirst();
+                        session.placement.pendingJobs.addLast(job);
+                        job.phase = BatchPhase.SUSPENDED;
+                        tokenOpt.ifPresent(token -> token.suspend());
+                    }
+                }
+                case BUILDING -> {
+                    session.placement.tickBuffer = job.buffer;
+                    boolean madeProgress = false;
+                    while (budget > 0 && job.hasNext()) {
+                        BlockPos clickedPos = job.next();
+                        RtsPlacementQuickBuild.StatePlacementPlan statePlan = job.quickBuild()
+                                ? job.statePlacementPlan(player) : null;
+                        boolean keepGoing;
+                        if (statePlan != null) {
+                            BlockPos trackedPos = clickedPos;
+                            BlockState beforeState = player.serverLevel().getBlockState(trackedPos);
+                            keepGoing = RtsPlacementQuickBuild.placeStateBatchEntry(player, session, clickedPos, statePlan);
+                            if (keepGoing && (beforeState.isAir() || beforeState.canBeReplaced())
+                                    && !player.serverLevel().getBlockState(trackedPos).isAir()) {
+                                job.placedPositions.add(trackedPos);
+                            } else if (keepGoing) {
+                                job.skippedWhileProcessing++;
+                            }
+                        } else {
+                            Vec3 hitLocation = new Vec3(
+                                    clickedPos.getX() + job.hitOffsetX(),
+                                    clickedPos.getY() + job.hitOffsetY(),
+                                    clickedPos.getZ() + job.hitOffsetZ());
+                            BlockPos adjPos = clickedPos.relative(job.face());
+                            BlockState beforeClicked = player.serverLevel().getBlockState(clickedPos);
+                            BlockState beforeAdjacent = player.serverLevel().hasChunkAt(adjPos)
+                                    ? player.serverLevel().getBlockState(adjPos) : null;
+                            keepGoing = RtsPlacementExecutor.placeSelectedInternal(
+                                    player, session, clickedPos, job.face(),
+                                    hitLocation.x, hitLocation.y, hitLocation.z,
+                                    job.rotateSteps(), job.forcePlace(), job.skipIfOccupied(),
+                                    job.itemId(), job.itemPrototype(),
+                                    job.rayOriginX(), job.rayOriginY(), job.rayOriginZ(),
+                                    job.rayDirX(), job.rayDirY(), job.rayDirZ(),
+                                    job.quickBuild(), job.forceEmptyHand(), false, job.sendRemoteHint());
+                            if (keepGoing) {
+                                BlockPos actualPos = RtsPlacementHelper.detectPlacedPos(
+                                        player.serverLevel(), clickedPos, beforeClicked, adjPos, beforeAdjacent);
+                                if (actualPos != null) {
+                                    job.placedPositions.add(actualPos);
+                                } else {
+                                    job.skippedWhileProcessing++;
+                                }
+                            }
+                        }
+                        budget--;
+                        if (!keepGoing) {
+                            if (hasWorkflow) {
+                                job.unconsumeLast();
+                                budget--;
+                                session.placement.placeBatchJobs.removeFirst();
+                                session.placement.pendingJobs.addLast(job);
+                                tokenOpt.ifPresent(token -> token.suspend());
+                            } else {
+                                // 无工作流的作业：走完成路径
+                                job.phase = BatchPhase.COMPLETING;
+                            }
+                            break;
+                        }
+                        madeProgress = true;
+                    }
+                    if (!job.hasNext()) {
+                        job.phase = BatchPhase.COMPLETING;
+                    } else if (!madeProgress && !job.buffer.hasItems()) {
+                        // buffer 应为满的——耗尽说明存储被外部修改
+                        job.missingItems.add(job.itemId());
+                        session.placement.placeBatchJobs.removeFirst();
+                        session.placement.pendingJobs.addLast(job);
+                        job.phase = BatchPhase.SUSPENDED;
+                        tokenOpt.ifPresent(token -> token.suspend());
+                    }
+                }
+                case SUSPENDED -> {
+                    // 搁置的作业——移入 pendingJobs
                     session.placement.placeBatchJobs.removeFirst();
                     session.placement.pendingJobs.addLast(job);
-                    madeProgress = false;
-                    // 搁置当前工作流（通过 token 从 job 的 entryId 重建）
-                    RtsWorkflowEngine.getInstance().from(player, job.workflowEntryId()).ifPresent(token -> token.suspend());
-                    break;
                 }
-                madeProgress = true;
-            }
-            if (!session.placement.placeBatchJobs.isEmpty() && session.placement.placeBatchJobs.peekFirst() == job && !job.hasNext()) {
-                session.placement.placeBatchJobs.removeFirst();
-                // 立刻处理此 job 的完成：记录历史、更新进度、释放工作流槽位
-                fullyCompletedJobs.add(job);
+                case COMPLETING -> {
+                    // 结束阶段：flush 缓冲区余量，记录完成，从队列移除
+                    if (job.buffer != null && !job.buffer.isEmpty()) {
+                        job.buffer.flush(player, session);
+                    }
+                    job.buffer = null;
+                    session.placement.placeBatchJobs.removeFirst();
+                    fullyCompletedJobs.add(job);
+                }
             }
         }
 
-        // 处理所有此 tick 内完成的 job
+        // 处理完成的 job
         for (PlaceBatchJob completedJob : fullyCompletedJobs) {
             int before = placedBeforeTick.getOrDefault(completedJob.workflowEntryId(), 0);
             int delta = completedJob.placedPositions.size() - before;
@@ -250,43 +323,63 @@ public final class RtsPlacementBatch {
                 ServerHistoryManager.recordPlacement(player, completedJob.placedPositions, completedJob.face());
             }
             if (delta > 0) {
-                RtsWorkflowEngine.getInstance().from(player, completedJob.workflowEntryId()).ifPresent(token -> token.updateProgress(delta, null));
+                workflowToken(player, completedJob).ifPresent(token -> token.updateProgress(delta, null));
             }
-            // 每个job独立complete自己的workflow entry，避免已完成job的entry泄漏
-            RtsWorkflowEngine.getInstance().from(player, completedJob.workflowEntryId()).ifPresent(token -> token.complete());
+            int failed = completedJob.skippedWhileProcessing;
+            if (failed > 0) {
+                var token = RtsWorkflowEngine.getInstance().from(player, completedJob.workflowEntryId());
+                for (int i = 0; i < failed; i++) token.ifPresent(t -> t.recordFailure());
+            }
+            workflowToken(player, completedJob).ifPresent(token -> token.complete());
         }
-        // 只要此 tick 有 job 完成，就刷新一次储存页面（合并刷新）
         if (!fullyCompletedJobs.isEmpty()) {
-            RtsStorageTickService.INSTANCE.forceRefresh(player);
-            session.transfer.pageDataVersion.incrementAndGet();
-            RtsSessionService.saveToPlayerNbt(player, session);
-            RtsPageService.requestPage(player, session.browser.page, session.browser.search,
-                    session.browser.category, session.browser.sort, session.browser.ascending);
+            ServiceRegistry.getInstance().serviceOp().afterModification(player, session);
         }
 
-        // 更新仍在活跃队列中的 job 的中途进度（尚未完成但此 tick 有放置进展）
+        // 更新中途进度——建造阶段不再触发页面刷新（材料在缓冲区，存储未变）
         for (PlaceBatchJob j : session.placement.placeBatchJobs) {
             int before = placedBeforeTick.getOrDefault(j.workflowEntryId(), 0);
             int delta = j.placedPositions.size() - before;
             if (delta > 0) {
-                RtsWorkflowEngine.getInstance().from(player, j.workflowEntryId()).ifPresent(token -> token.updateProgress(delta, null));
-                // 中途进度：放置方块消耗了储存物品，触发页面刷新以保证GUI实时更新
-                RtsStorageTickService.INSTANCE.forceRefresh(player);
-                session.transfer.pageDataVersion.incrementAndGet();
-                RtsPageService.requestPage(player, session.browser.page, session.browser.search,
-                        session.browser.category, session.browser.sort, session.browser.ascending);
+                workflowToken(player, j).ifPresent(token -> token.updateProgress(delta, null));
             }
         }
-
-        // 放置完成后扫描世界实际状态，刷新所有工作流进度（不依赖事件触发）
         RtsPendingPlacementService.refreshWorkflowProgress(player, session);
+
+        // 清除 tick 级引用
+        session.placement.tickBuffer = null;
+    }
+
+    private static boolean hasWorkflowEntry(PlaceBatchJob job) {
+        return job.workflowEntryId() >= 0;
+    }
+
+    private static Optional<RtsWorkflowToken> workflowToken(ServerPlayer player, PlaceBatchJob job) {
+        return hasWorkflowEntry(job)
+                ? RtsWorkflowEngine.getInstance().from(player, job.workflowEntryId())
+                : Optional.empty();
     }
 
     /**
-     * A single batch placement job that holds the shared placement parameters
-     * and an ordered list of target positions. Each job is processed by
-     * {@link #tickPlaceBatchJobs} at a rate of up to
-     * {@link #BUILD_BATCH_MAX_BLOCKS_PER_TICK} blocks per tick.
+     * 批量放置作业的生命周期阶段。
+     */
+    public enum BatchPhase {
+        /** 初始：计算材料清单 */
+        MATERIAL_CALC,
+        /** 从存储渐进提取物品到缓冲区 */
+        BUFFER_FILLING,
+        /** 从缓冲区取料，放置方块 */
+        BUILDING,
+        /** 材料不足，搁置到 pendingJobs 等待玩家补充 */
+        SUSPENDED,
+        /** 完成：flush 缓冲区余量，清理 */
+        COMPLETING
+    }
+
+    /**
+     * 单个批处理放置作业，持有共享的放置参数和有序的目标位置列表。
+     * 每个作业由 {@link #tickPlaceBatchJobs} 以每 tick 最多
+     * {@link #BUILD_BATCH_MAX_BLOCKS_PER_TICK} 个方块的速度处理。
      */
     public static final class PlaceBatchJob {
         private final List<BlockPos> clickedPositions;
@@ -314,6 +407,18 @@ public final class RtsPlacementBatch {
         private boolean statePlanResolved;
         private RtsPlacementQuickBuild.StatePlacementPlan statePlan;
         final List<BlockPos> placedPositions = new ArrayList<>();
+        int skippedWhileProcessing;
+
+        /** 生命周期阶段 */
+        BatchPhase phase = BatchPhase.MATERIAL_CALC;
+        /** 剩余需求：itemId → 仍需要的总数 */
+        final Map<String, Integer> required = new LinkedHashMap<>();
+        /** 物品原型（保留 NBT） */
+        final Map<String, ItemStack> prototypes = new HashMap<>();
+        /** 跨 tick 缓冲（BUFFER_FILLING 填装，BUILDING 消耗，COMPLETING 清空） */
+        RtsPlaceBuffer buffer;
+        /** 存储中缺失的物品——suspend 时用于通知玩家 */
+        final List<String> missingItems = new ArrayList<>();
 
         private PlaceBatchJob(List<BlockPos> clickedPositions, Direction face, double hitOffsetX, double hitOffsetY,
                 double hitOffsetZ, byte rotateSteps, boolean forcePlace, boolean skipIfOccupied, String itemId,
@@ -359,7 +464,7 @@ public final class RtsPlacementBatch {
         }
 
         /**
-         * Returns an immutable list of remaining (unprocessed) positions.
+         * 返回剩余（未处理）位置的不可变列表。
          */
         public List<BlockPos> remainingPositions() {
             return this.clickedPositions.subList(this.index, this.clickedPositions.size());
@@ -396,13 +501,20 @@ public final class RtsPlacementBatch {
             return this.workflowEntryId;
         }
 
+        /** 重置生命周期阶段，用于 resume 时重新计算材料 */
+        public void resetPhase() {
+            this.phase = BatchPhase.MATERIAL_CALC;
+            this.required.clear();
+            this.missingItems.clear();
+        }
+
         /** 返回所有点击位置列表（不可修改） */
         public List<BlockPos> clickedPositions() {
             return java.util.Collections.unmodifiableList(this.clickedPositions);
         }
 
         // ──────────────────────────────────────────────────────────
-        //  NBT serialization — used for session persistence
+        //  NBT 序列化——用于会话持久化
         // ──────────────────────────────────────────────────────────
 
         private static final String NBT_POSITIONS = "positions";
@@ -428,7 +540,7 @@ public final class RtsPlacementBatch {
         private static final String NBT_INDEX = "index";
 
         /**
-         * Serialises this batch job to a {@link CompoundTag} for persistent storage.
+         * 将此批处理作业序列化为 {@link CompoundTag} 用于持久化存储。
          */
         public CompoundTag toNbt(net.minecraft.core.RegistryAccess registryAccess) {
             CompoundTag tag = new CompoundTag();
@@ -463,7 +575,7 @@ public final class RtsPlacementBatch {
         }
 
         /**
-         * Deserialises a {@link PlaceBatchJob} from a {@link CompoundTag}.
+         * 从 {@link CompoundTag} 反序列化 {@link PlaceBatchJob}。
          */
         public static PlaceBatchJob fromNbt(CompoundTag tag, net.minecraft.core.RegistryAccess registryAccess) {
             long[] posArray = tag.getLongArray(NBT_POSITIONS);

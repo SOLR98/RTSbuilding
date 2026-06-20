@@ -1,6 +1,9 @@
 package com.rtsbuilding.rtsbuilding.common;
 
-import com.rtsbuilding.rtsbuilding.common.shape.*;
+import com.rtsbuilding.rtsbuilding.common.shape.model.AreaShape;
+import com.rtsbuilding.rtsbuilding.common.shape.model.AreaShapeInput;
+import com.rtsbuilding.rtsbuilding.common.shape.model.ShapeFillMode;
+import com.rtsbuilding.rtsbuilding.common.shape.generator.*;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;

@@ -11,17 +11,17 @@ public class Config {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
     public static final ModConfigSpec.BooleanValue ENABLE_SURVIVAL_PROGRESSION = BUILDER
-            .comment("Enable RTS Building survival progression, feature unlocks, home anchors, and progression radius limits.")
+            .comment("Enable RTS Home anchors and home-radius limits.")
             .translation("rtsbuilding.configuration.enableSurvivalProgression")
             .define("enableSurvivalProgression", false);
 
     public static final ModConfigSpec.BooleanValue SHARE_SURVIVAL_PROGRESSION_WITH_TEAMS = BUILDER
-            .comment("When survival progression is enabled, share unlocked progression nodes and RTS home anchors with the player's FTB Team, or vanilla scoreboard team when FTB Teams is unavailable.")
+            .comment("When RTS Home is enabled, share RTS home anchors with the player's FTB Team, or vanilla scoreboard team when FTB Teams is unavailable.")
             .translation("rtsbuilding.configuration.shareSurvivalProgressionWithTeams")
             .define("shareSurvivalProgressionWithTeams", false);
 
     public static final ModConfigSpec.IntValue MAX_ACTION_RADIUS_BLOCKS = BUILDER
-            .comment("Maximum RTS action radius in blocks. Used directly when survival progression is disabled, and by the Radius Max skill when survival progression is enabled.")
+            .comment("Maximum RTS action radius in blocks.")
             .translation("rtsbuilding.configuration.maxActionRadiusBlocks")
             .defineInRange("maxActionRadiusBlocks", 128, 48, 512);
 
@@ -77,23 +77,6 @@ public class Config {
             .translation("rtsbuilding.configuration.useRangeDestroySkeleton")
             .define("useRangeDestroySkeleton", true);
 
-    // ---- Inventory sync configuration ----
-
-    public static final ModConfigSpec.IntValue INVENTORY_DELTA_MERGE_WINDOW_TICKS = BUILDER
-            .comment("Maximum ticks to coalesce delta changes for the same item before pushing to the client. Higher values reduce network traffic but increase client staleness.")
-            .translation("rtsbuilding.configuration.inventoryDeltaMergeWindowTicks")
-            .defineInRange("inventoryDeltaMergeWindowTicks", 3, 1, 20);
-
-    public static final ModConfigSpec.IntValue INVENTORY_FULL_PUSH_COOLDOWN_MS = BUILDER
-            .comment("Minimum cooldown in milliseconds between server-side full inventory snapshot pushes. Protects against client spam.")
-            .translation("rtsbuilding.configuration.inventoryFullPushCooldownMs")
-            .defineInRange("inventoryFullPushCooldownMs", 2000, 500, 10000);
-
-    public static final ModConfigSpec.IntValue INVENTORY_FULL_REQUEST_COOLDOWN_MS = BUILDER
-            .comment("Minimum cooldown in milliseconds between client-initiated full inventory snapshot requests. Enforced on server side.")
-            .translation("rtsbuilding.configuration.inventoryFullRequestCooldownMs")
-            .defineInRange("inventoryFullRequestCooldownMs", 3000, 1000, 30000);
-
     public static final ModConfigSpec SPEC = BUILDER.build();
 
     public static void setSurvivalProgressionEnabled(boolean enabled) {
@@ -118,29 +101,22 @@ public class Config {
         return MAX_BLUEPRINT_BLOCKS.getAsInt();
     }
 
-    public static void saveProgressionSettings(boolean survivalEnabled, boolean shareWithTeams, int radiusBlocks,
-            boolean blueprintsEnabled, int maxBlueprintBlocks, Map<String, String> costOverrides) {
-        saveGeneralSettings(
-                survivalEnabled,
-                shareWithTeams,
-                radiusBlocks,
-                blueprintsEnabled,
-                maxBlueprintBlocks,
-                isPlacementBlockGhostPreviewEnabled(),
-                isPlaceBlockGhostAnimationEnabled(),
-                isDestroyBlockGhostAnimationEnabled(),
-                isPlacementWireframePreviewEnabled(),
-                isPlaceWireframeAnimationEnabled(),
-                isDestroyWireframeAnimationEnabled(),
-                isRangeDestroySkeletonEnabled(),
-                costOverrides);
-    }
-
     public static void saveGeneralSettings(boolean survivalEnabled, boolean shareWithTeams, int radiusBlocks,
             boolean blueprintsEnabled, int maxBlueprintBlocks, boolean placementBlockGhostPreview,
             boolean placeBlockGhostAnimation, boolean destroyBlockGhostAnimation, boolean placementWireframePreview,
             boolean placeWireframeAnimation, boolean destroyWireframeAnimation, boolean rangeDestroySkeleton,
             Map<String, String> costOverrides) {
+        saveGeneralSettings(survivalEnabled, shareWithTeams, radiusBlocks,
+                blueprintsEnabled, maxBlueprintBlocks, placementBlockGhostPreview,
+                placeBlockGhostAnimation, destroyBlockGhostAnimation, placementWireframePreview,
+                placeWireframeAnimation, destroyWireframeAnimation, rangeDestroySkeleton);
+        setProgressionCostOverrides(costOverrides);
+    }
+
+    public static void saveGeneralSettings(boolean survivalEnabled, boolean shareWithTeams, int radiusBlocks,
+            boolean blueprintsEnabled, int maxBlueprintBlocks, boolean placementBlockGhostPreview,
+            boolean placeBlockGhostAnimation, boolean destroyBlockGhostAnimation, boolean placementWireframePreview,
+            boolean placeWireframeAnimation, boolean destroyWireframeAnimation, boolean rangeDestroySkeleton) {
         ENABLE_SURVIVAL_PROGRESSION.set(survivalEnabled);
         SHARE_SURVIVAL_PROGRESSION_WITH_TEAMS.set(shareWithTeams);
         MAX_ACTION_RADIUS_BLOCKS.set(Math.max(48, Math.min(512, radiusBlocks)));
@@ -153,27 +129,7 @@ public class Config {
         USE_PLACE_WIREFRAME_ANIMATION.set(placeWireframeAnimation);
         USE_DESTROY_WIREFRAME_ANIMATION.set(destroyWireframeAnimation);
         USE_RANGE_DESTROY_SKELETON.set(rangeDestroySkeleton);
-        setProgressionCostOverrides(costOverrides);
         SPEC.save();
-    }
-
-    public static Map<String, String> progressionCostOverrides() {
-        Map<String, String> out = new LinkedHashMap<>();
-        for (String raw : PROGRESSION_COST_OVERRIDES.get()) {
-            if (raw == null) {
-                continue;
-            }
-            int split = raw.indexOf('=');
-            if (split <= 0) {
-                continue;
-            }
-            String node = raw.substring(0, split).trim();
-            String costs = raw.substring(split + 1).trim();
-            if (!node.isBlank()) {
-                out.put(node, costs);
-            }
-        }
-        return out;
     }
 
     public static boolean isPlacementBlockGhostPreviewEnabled() {
@@ -239,6 +195,43 @@ public class Config {
         SPEC.save();
     }
 
+    public static void saveProgressionSettings(boolean survivalEnabled, boolean shareWithTeams, int radiusBlocks,
+            boolean blueprintsEnabled, int maxBlueprintBlocks, Map<String, String> costOverrides) {
+        saveGeneralSettings(
+                survivalEnabled,
+                shareWithTeams,
+                radiusBlocks,
+                blueprintsEnabled,
+                maxBlueprintBlocks,
+                isPlacementBlockGhostPreviewEnabled(),
+                isPlaceBlockGhostAnimationEnabled(),
+                isDestroyBlockGhostAnimationEnabled(),
+                isPlacementWireframePreviewEnabled(),
+                isPlaceWireframeAnimationEnabled(),
+                isDestroyWireframeAnimationEnabled(),
+                isRangeDestroySkeletonEnabled());
+        setProgressionCostOverrides(costOverrides);
+    }
+
+    public static Map<String, String> progressionCostOverrides() {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (String raw : PROGRESSION_COST_OVERRIDES.get()) {
+            if (raw == null) {
+                continue;
+            }
+            int split = raw.indexOf('=');
+            if (split <= 0) {
+                continue;
+            }
+            String node = raw.substring(0, split).trim();
+            String costs = raw.substring(split + 1).trim();
+            if (!node.isBlank()) {
+                out.put(node, costs);
+            }
+        }
+        return out;
+    }
+
     public static void setProgressionCostOverride(String nodePath, String costsText) {
         if (nodePath == null || nodePath.isBlank()) {
             return;
@@ -266,5 +259,5 @@ public class Config {
         }
         PROGRESSION_COST_OVERRIDES.set(encoded);
     }
-}
 
+}

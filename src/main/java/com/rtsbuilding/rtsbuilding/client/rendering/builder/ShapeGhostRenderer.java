@@ -11,6 +11,8 @@ import net.minecraft.core.BlockPos;
 
 import java.util.List;
 
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
+
 /**
  * Entry-point facade that coordinates all in-world ghost preview rendering
  * for shape building and destruction modes within the {@link BuilderScreen}.
@@ -241,15 +243,19 @@ public final class ShapeGhostRenderer {
 
     private static float rawDestroyProgress(ClientRtsController controller, ShapeDataRecords.GhostPreview preview) {
         if (controller == null) return 0.0F;
-        BlockPos progressPos = controller.getMineProgressPos();
-        if (progressPos == null || !previewContains(preview, progressPos)) return 0.0F;
-        int processed = controller.getUltimineProgressProcessed();
-        int total = controller.getUltimineProgressTotal();
-        int stage = controller.getMineProgressStage();
-        if (processed >= 0 && total > 0) {
-            if (processed > 0) return 1.0F;
-            return stage < 0 ? 0.0F : RenderingUtil.clamp01((Math.min(9, stage) + 1) / 10.0F);
+
+        // 主数据源：工作流进度（稳定，仅在工作流同步时才变化）
+        RtsWorkflowStatus workflow = controller.findActiveDestroyWorkflow();
+        if (workflow != null && workflow.totalBlocks() > 0) {
+            return RenderingUtil.clamp01((float) workflow.completedBlocks() / (float) workflow.totalBlocks());
         }
+
+        // 次级 fallback：无工作流时的单方块挖掘破坏阶段
+        BlockPos progressPos = controller.getMineProgressPos();
+        if (progressPos == null || !previewContains(preview, progressPos)) {
+            return 0.0F;
+        }
+        int stage = controller.getMineProgressStage();
         return stage < 0 ? 0.0F : RenderingUtil.clamp01((Math.min(9, stage) + 1) / 10.0F);
     }
 
@@ -262,17 +268,21 @@ public final class ShapeGhostRenderer {
     static boolean hasStartedDestroyBatch(ClientRtsController controller, ShapeDataRecords.GhostPreview preview) {
         if (controller == null || preview == null) return false;
         BlockPos progressPos = controller.getMineProgressPos();
+        RtsWorkflowStatus workflow = controller.findActiveDestroyWorkflow();
+        int processed = workflow != null ? workflow.completedBlocks() : 0;
+        int total = workflow != null ? workflow.totalBlocks() : 0;
         return progressPos != null
                 && previewContains(preview, progressPos)
-                && controller.getUltimineProgressProcessed() > 0
-                && controller.getUltimineProgressTotal() > 0;
+                && processed > 0
+                && total > 0;
     }
 
     private static boolean hasActiveDestroyProgress(ClientRtsController controller, ShapeDataRecords.GhostPreview preview) {
         if (controller == null || preview == null) return false;
         BlockPos progressPos = controller.getMineProgressPos();
         if (progressPos == null || !previewContains(preview, progressPos)) return false;
-        if (controller.getUltimineProgressProcessed() >= 0 && controller.getUltimineProgressTotal() > 0) {
+        RtsWorkflowStatus workflow = controller.findActiveDestroyWorkflow();
+        if (workflow != null && workflow.totalBlocks() > 0) {
             return true;
         }
         return controller.getMineProgressStage() >= 0;
@@ -282,10 +292,13 @@ public final class ShapeGhostRenderer {
             ShapeDataRecords.GhostPreview preview) {
         if (controller == null || preview == null) return false;
         BlockPos progressPos = controller.getMineProgressPos();
+        RtsWorkflowStatus workflow = controller.findActiveDestroyWorkflow();
+        int total = workflow != null ? workflow.totalBlocks() : 0;
+        int processed = workflow != null ? workflow.completedBlocks() : -1;
         return progressPos != null
                 && previewContains(preview, progressPos)
-                && controller.getUltimineProgressTotal() > 0
-                && controller.getUltimineProgressProcessed() >= controller.getUltimineProgressTotal();
+                && total > 0
+                && processed >= total;
     }
 
     private static boolean hasRecentDestroyCompletion(ClientRtsController controller,

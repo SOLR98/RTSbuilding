@@ -20,14 +20,22 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Handles world fluid placement logic.
+ * 世界级流体放置器，负责在世界中放置流体方块和填充现有流体处理器。
  *
- * <p>This service is responsible for placing fluid blocks in the world,
- * filling existing fluid handlers at target positions, and resolving
- * placement coordinates. It deliberately does not interact with the
- * session's internal fluid buffer or linked fluid handlers; those
- * responsibilities belong to {@link RtsFluidBufferService} and the
- * network operator layer.
+ * <p>核心功能：
+ * <ul>
+ *   <li>{@link #fillFluidHandlerAtTarget} — 在点击位置及其周围搜索 {@link IFluidHandler} 并尝试填充，
+ *   按点击面→无面→六方向→相邻块对面等顺序搜索候选处理器</li>
+ *   <li>{@link #resolveFluidPlacementPos} — 解析流体方块的放置位置（点击位置或相邻位置）</li>
+ *   <li>{@link #placeFluidBlock} — 在世界中放置流体方块，处理 {@link LiquidBlockContainer}、
+ *   汽化、非固体替换等场景</li>
+ * </ul>
+ *
+ * <p><b>职责边界：</b>
+ * <ul>
+ *   <li>不处理会话内部缓冲区（由 {@link RtsFluidBufferService} 负责）</li>
+ *   <li>不处理跨链接网络操作（由 {@link RtsFluidNetworkOperator} 负责）</li>
+ * </ul>
  */
 public final class RtsFluidWorldPlacer {
 
@@ -35,9 +43,8 @@ public final class RtsFluidWorldPlacer {
     }
 
     /**
-     * Attempts to fill an existing fluid handler at or around the clicked
-     * position. Returns the amount of fluid filled (in mb), or 0 if no
-     * compatible handler was found.
+     * 尝试填充点击位置或其周围的现有流体处理器。
+     * 返回填充的流体量（以 mb 为单位），如果未找到兼容的处理器则返回 0。
      */
     public static int fillFluidHandlerAtTarget(ServerLevel level, BlockPos clickedPos, Direction face, FluidStack fluidStack) {
         if (fluidStack.isEmpty() || !level.hasChunkAt(clickedPos)) {
@@ -79,9 +86,8 @@ public final class RtsFluidWorldPlacer {
     }
 
     /**
-     * Resolves the position where a fluid block should be placed.
-     * Returns null if placement is not possible at either the clicked
-     * position or the adjacent position.
+     * 解析流体方块应该被放置的位置。
+     * 如果在点击位置或相邻位置都无法放置，则返回 null。
      */
     public static BlockPos resolveFluidPlacementPos(ServerLevel level, ServerPlayer player, BlockHitResult hit,
             FluidStack fluidStack) {
@@ -99,7 +105,7 @@ public final class RtsFluidWorldPlacer {
     }
 
     /**
-     * Places a fluid block in the world at the given position.
+     * 在世界的指定位置放置一个流体方块。
      */
     public static boolean placeFluidBlock(ServerLevel level, ServerPlayer player, BlockPos pos, FluidStack fluidStack,
             BlockHitResult placementHit) {

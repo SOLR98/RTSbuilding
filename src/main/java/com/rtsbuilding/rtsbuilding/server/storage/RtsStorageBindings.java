@@ -1,33 +1,31 @@
 package com.rtsbuilding.rtsbuilding.server.storage;
 
-import com.rtsbuilding.rtsbuilding.common.BuilderMode;
+import com.rtsbuilding.rtsbuilding.common.build.BuilderMode;
 import com.rtsbuilding.rtsbuilding.server.service.bindings.RtsLinkedStorageBindingService;
 import com.rtsbuilding.rtsbuilding.server.service.bindings.RtsQuickSlotBindingService;
+import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
 /**
- * Owns the player binding edge of an RTS storage session.
+ * 拥有玩家 RTS 存储会话的绑定边缘。
  *
- * <p>This helper decides which storage refs, external GUI targets, quick-slot
- * item ids, and builder mode values are stored on the player's RTS session. It
- * deliberately does not read or build the full storage page, aggregate storage
- * contents, move items, transfer fluids, craft, mine, place blocks, or persist
- * wrappers so existing network handlers do not need to know about this split.
+ * <p>此辅助类决定哪些存储引用、外部 GUI 目标、快捷槽物品 ID
+ * 和建造模式值存储在玩家的 RTS 会话上。它刻意不读取或构建
+ * 完整的存储页面、聚合存储内容、移动物品、转移流体、合成、
+ * 挖掘、放置方块或持久化包装器，因此现有网络处理器无需了解此拆分。
  *
- * <p>Linked storage capability probing and access checks still come from
- * {@link RtsLinkedStorageResolver}; this class only applies the resulting
- * binding state to the session. Remote GUI opening is delegated to
- * {@link RtsGuiBindingHelper}.
+ * <p>链接存储能力探测和访问检查仍来自 {@link RtsLinkedStorageResolver}；
+ * 本类仅将产生的绑定状态应用到会话。远程 GUI 打开委托给 {@link RtsGuiBindingHelper}。
  */
 public final class RtsStorageBindings {
     public static final int QUICK_SLOT_COUNT = 27;
     public static final int GUI_BINDING_SLOT_COUNT = 8;
 
     /** 绑定存储上限——防止玩家无限添加导致页面构建性能退化。 */
-    public static final int MAX_LINKED_STORAGES = 5000;
+    public static final int MAX_LINKED_STORAGES = 50;
 
     private RtsStorageBindings() {
     }
@@ -37,8 +35,8 @@ public final class RtsStorageBindings {
     // ======================================================================
 
     /**
-     * Stores the requested builder mode and reports whether leaving funnel mode
-     * requires the manager to flush the funnel buffer and refresh the page.
+     * 存储请求的建造模式，并报告离开漏斗模式是否需要管理器
+     * 刷新漏斗缓冲并刷新页面。
      */
     public static boolean setMode(RtsStorageSession session, BuilderMode mode) {
         if (session == null) {
@@ -53,19 +51,17 @@ public final class RtsStorageBindings {
     // ======================================================================
 
     /**
-     * Toggles or retargets a linked storage ref while preserving the existing
-     * extract-only mode behavior. A target with no item or fluid endpoint still
-     * asks the UI to return to page zero without saving session data.
+     * 切换或重新定位链接存储引用，同时保留现有的仅提取模式行为。
+     * 没有物品或流体端点的目标仍会要求 UI 返回第零页而不保存会话数据。
      */
     public static UpdateResult linkStorage(ServerPlayer player, RtsStorageSession session, BlockPos pos, byte linkMode) {
         return RtsLinkedStorageBindingService.linkStorage(player, session, pos, linkMode);
     }
 
     /**
-     * Updates settings for an existing linked storage row. This is intentionally
-     * not a link/create operation: the detail panel can edit mode and AE-style
-     * priority, but the server still requires the ref to already belong to the
-     * player's session.
+     * 更新现有链接存储行的设置。这故意不是链接/创建操作：
+     * 详情面板可以编辑模式和 AE 风格优先级，
+     * 但服务器仍要求引用已属于玩家的会话。
      */
     public static UpdateResult updateLinkedStorageSettings(ServerPlayer player, RtsStorageSession session,
             BlockPos pos, byte linkMode, int priority) {
@@ -73,12 +69,12 @@ public final class RtsStorageBindings {
     }
 
     // ======================================================================
-    //  快速槽
+    //  快捷槽
     // ======================================================================
 
     /**
-     * Updates one fixed quick-slot cell. Blank/null item ids clear the slot;
-     * nonblank ids must parse to a registered item before the session changes.
+     * 更新一个固定的快捷槽单元格。空白/null 物品 ID 清除该槽位；
+     * 非空白 ID 必须在会话变更前解析为已注册的物品。
      */
     public static UpdateResult setQuickSlot(RtsStorageSession session, byte slotId, String itemId, ItemStack previewStack) {
         return RtsQuickSlotBindingService.setQuickSlot(session, slotId, itemId, previewStack);
@@ -93,7 +89,7 @@ public final class RtsStorageBindings {
     // ======================================================================
 
     /**
-     * Binds or clears one external GUI slot.
+     * 绑定或清除一个外部 GUI 槽位。
      */
     public static UpdateResult setGuiBinding(ServerPlayer player, RtsStorageSession session, byte slotId, boolean clear,
             BlockPos pos, Direction face, String itemIdHint) {
@@ -101,21 +97,21 @@ public final class RtsStorageBindings {
     }
 
     /**
-     * Reopens a saved GUI binding from RTS camera mode.
+     * 从 RTS 相机模式重新打开已保存的 GUI 绑定。
      */
     public static UpdateResult openGuiBinding(ServerPlayer player, RtsStorageSession session, byte slotId, double remotePovBlockReach) {
         return RtsGuiBindingHelper.openGuiBinding(player, session, slotId, remotePovBlockReach);
     }
 
     /**
-     * Backfills older GUI bindings that predate item-id icons.
+     * 回填早于物品 ID 图标的旧 GUI 绑定。
      */
     public static boolean refreshMissingGuiBindingIcons(ServerPlayer player, RtsStorageSession session) {
         return RtsGuiBindingHelper.refreshMissingGuiBindingIcons(player, session);
     }
 
     // ======================================================================
-    //  记录
+    //  记录类型
     // ======================================================================
 
     public record UpdateResult(boolean saveSession, boolean refreshPage, int page) {

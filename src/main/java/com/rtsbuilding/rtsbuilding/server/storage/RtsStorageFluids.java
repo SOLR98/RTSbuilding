@@ -5,6 +5,8 @@ import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
 import com.rtsbuilding.rtsbuilding.server.service.fluids.RtsFluidBufferService;
 import com.rtsbuilding.rtsbuilding.server.service.fluids.RtsFluidNetworkOperator;
 import com.rtsbuilding.rtsbuilding.server.service.fluids.RtsFluidWorldPlacer;
+import com.rtsbuilding.rtsbuilding.server.storage.model.LinkedFluidHandler;
+import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -23,17 +25,15 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.List;
 
 /**
- * Owns RTS storage fluid mutation and linked-fluid behavior.
+ * 拥有 RTS 存储流体变更和链接流体行为。
  *
- * <p>This helper is responsible for internal fluid buffer changes, linked
- * fluid handler fill/drain behavior, fluid container draining, target tank
- * filling, and world fluid placement rules. It deliberately does not own item
- * transfer, crafting, storage page dispatch, or packet registration.
+ * <p>此辅助类负责内部流体缓冲变更、链接流体处理器的填充/排出行为、
+ * 流体容器清空、目标容器填充和世界流体放置规则。
+ * 它刻意不拥有物品传输、合成、存储页面分发或数据包注册。
  *
- * <p>World placement logic has been extracted to {@link RtsFluidWorldPlacer},
- * internal buffer management to {@link RtsFluidBufferService}, and network
- * operations (count/extract/insert across linked handlers + buffer) to
- * {@link RtsFluidNetworkOperator}.
+ * <p>世界放置逻辑已提取到 {@link RtsFluidWorldPlacer}，
+ * 内部缓冲管理到 {@link RtsFluidBufferService}，
+ * 网络操作（跨链接处理器和缓冲区的计数/提取/插入）到 {@link RtsFluidNetworkOperator}。
  */
 public final class RtsStorageFluids {
     private static final int FLUID_TRANSFER_MB = FluidType.BUCKET_VOLUME;
@@ -42,7 +42,7 @@ public final class RtsStorageFluids {
     }
 
     // ======================================================================
-    //  Public API: store / place / query
+    //  公开 API：存储 / 放置 / 查询
     // ======================================================================
 
     public static boolean storeFluidFromContainer(FluidTransferGate gate, ServerPlayer player, RtsStorageSession session,
@@ -126,7 +126,7 @@ public final class RtsStorageFluids {
     }
 
     // ======================================================================
-    //  Network operations (delegated to RtsFluidNetworkOperator)
+    //  网络操作（委托给 RtsFluidNetworkOperator）
     // ======================================================================
 
     public static long countFluidInNetwork(RtsStorageSession session, List<LinkedFluidHandler> fluidHandlers, Fluid fluid) {
@@ -139,7 +139,7 @@ public final class RtsStorageFluids {
     }
 
     // ======================================================================
-    //  Internal: store fluid from item handlers
+    //  内部：从物品处理器存储流体
     // ======================================================================
 
     private static boolean storeFluidFromLinkedItem(FluidTransferGate gate, ServerPlayer player, RtsStorageSession session,
@@ -251,7 +251,7 @@ public final class RtsStorageFluids {
     }
 
     // ======================================================================
-    //  Utility
+    //  实用方法
     // ======================================================================
 
     private static void moveToPlayerInventoryOrDrop(FluidTransferGate gate, ServerPlayer player, ItemStack stack) {

@@ -3,16 +3,21 @@ package com.rtsbuilding.rtsbuilding.client.screen.workflow;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.RtsWindowPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
+import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsDeleteWorkflowPayload;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsPauseWorkflowPayload;
+import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsScanBlueprintResumePayload;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsScanResumePlacementPayload;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowProgressProcessor;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowStatus;
+import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowType;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
+
+import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.TOP_H;
 
 /**
  * A movable window panel showing active workflows, progress bars, delete buttons,
@@ -59,12 +64,15 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
     @Override
     protected void computeDefaultPosition() {
         if (this.screen == null) return;
-        this.windowX = this.screen.width - PANEL_W - 8;
-        this.windowY = 8;
+        this.windowX = Math.max(8, this.screen.width - PANEL_W - 8);
+        this.windowY = TOP_H + 8;
     }
 
     @Override
     protected boolean canShowWindow() {
+        if (!RtsClientUiStateStore.isShowWorkflowPanelEnabled()) {
+            return false;
+        }
         return getActiveCount() > 0 || getSuspendedCount() > 0 || hasPending();
     }
 
@@ -112,7 +120,12 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
         cachedVisibleRows = totalRows;
         int contentH = PADDING + visibleRows * ROW_H + PADDING;
         int totalH = getTitleBarHeight() + 1 + contentH;
-        setTransientBounds(this.windowX, this.windowY, PANEL_W, totalH);
+        if (hasUserBoundsPreference()) {
+            setBounds(this.windowX, this.windowY, PANEL_W, totalH);
+        } else {
+            computeDefaultPosition();
+            setTransientBounds(this.windowX, this.windowY, PANEL_W, totalH);
+        }
     }
 
     @Override
@@ -146,19 +159,19 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
         boolean suspended = status.suspended();
         String label = RtsWorkflowProgressProcessor.formatLabel(status);
         String progress = RtsWorkflowProgressProcessor.formatProgressText(status);
-    
+
         if (suspended) {
             // Suspended workflow: need space for 2 buttons ▶ + ✖
             int btnArea = BTN_W * 2 + 2;
             int rowW = PANEL_W - PADDING * 2 - btnArea - 2;
             boolean hovered = isInside(mouseX, mouseY, x, y, rowW, ROW_H);
-    
+
             // Amber/warning tint background
             RtsClientUiUtil.drawPanelFrame(g, x, y, rowW, ROW_H,
                     hovered ? 0xAA4A3A1A : 0xAA2A2820,
                     0xFF8A7A4A, 0xFF0D0D0A);
             g.drawString(font, label, x + 4, y + 2, 0xFFE7C46A, false);
-    
+
             // Dimmed progress bar
             int barX = x + 4;
             int barY = y + 12;
@@ -173,7 +186,7 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
             g.vLine(barX, barY, barY + BAR_H, 0xFF5A4A2A);
             g.vLine(barX + barW, barY, barY + BAR_H, 0xFF0A0A05);
             g.drawString(font, progress, barX + 2, barY + 1, 0xAAFFFFFF, false);
-    
+
             // Resume button (▶) — rightmost
             int resumeBtnX = x + rowW + 2;
             boolean resumeHovered = isInside(mouseX, mouseY, resumeBtnX, y, BTN_W, ROW_H);
@@ -182,7 +195,7 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
                     resumeBg, 0xFF74E88C, 0xFF123A1D);
             RtsClientUiUtil.drawCenteredStringNoShadow(g, font, "▶",
                     resumeBtnX + BTN_W / 2, y + 4, 0xFFFFFF);
-    
+
             // Cancel button (✖) — second from right
             int cancelBtnX = resumeBtnX + BTN_W + 2;
             boolean cancelHovered = isInside(mouseX, mouseY, cancelBtnX, y, BTN_W, ROW_H);
@@ -196,12 +209,12 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
             int btnArea = BTN_W * 2 + 2;
             int rowW = PANEL_W - PADDING * 2 - btnArea - 2;
             boolean hovered = isInside(mouseX, mouseY, x, y, rowW, ROW_H);
-    
+
             RtsClientUiUtil.drawPanelFrame(g, x, y, rowW, ROW_H,
                     hovered ? 0xAA2A3A4A : 0xAA1A222C,
                     0xFF5E738A, 0xFF0D1117);
             g.drawString(font, label, x + 4, y + 2, 0xEAF2FF, false);
-    
+
             // Progress bar
             int barX = x + 4;
             int barY = y + 12;
@@ -215,7 +228,7 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
             g.hLine(barX, barX + barW, barY + BAR_H, 0xFF0A0D12);
             g.vLine(barX, barY, barY + BAR_H, 0xFF405064);
             g.vLine(barX + barW, barY, barY + BAR_H, 0xFF0A0D12);
-    
+
             // Progress text overlay
             g.drawString(font, progress, barX + 2, barY + 1, 0xCCFFFFFF, false);
 
@@ -239,7 +252,7 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
                     pauseBg, pauseBorder, 0xFF1A2A1A);
             RtsClientUiUtil.drawCenteredStringNoShadow(g, font, isPaused ? "▶" : "⏸",
                     pauseBtnX + BTN_W / 2, y + 4, 0xFFFFFF);
-    
+
             // Delete button (✖) — second from right
             int deleteBtnX = pauseBtnX + BTN_W + 2;
             boolean deleteHovered = isInside(mouseX, mouseY, deleteBtnX, y, BTN_W, ROW_H);
@@ -249,7 +262,7 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
             RtsClientUiUtil.drawCenteredStringNoShadow(g, font, "✖",
                     deleteBtnX + BTN_W / 2, y + 4, 0xFFFFFF);
         }
-    
+
         return y + ROW_H;
     }
 
@@ -280,8 +293,14 @@ public final class RtsWorkflowPanel extends RtsWindowPanel {
                 int resumeBtnX = baseX + rowW + 2;
                 int cancelBtnX = resumeBtnX + BTN_W + 2;
                 if (isInside(mouseX, mouseY, resumeBtnX, rowY, BTN_W, ROW_H)) {
-                    // ▶ Resume — request scan first, then open panel
-                    PacketDistributor.sendToServer(new C2SRtsScanResumePlacementPayload(status.entryId()));
+                    // ▶ Resume
+                    if (status.type() == RtsWorkflowType.BLUEPRINT_BUILD) {
+                        // 蓝图：扫描剩余材料需求，弹出材料清单面板
+                        PacketDistributor.sendToServer(new C2SRtsScanBlueprintResumePayload(status.entryId()));
+                    } else {
+                        // 范围放置：先扫描，再打开重启面板
+                        PacketDistributor.sendToServer(new C2SRtsScanResumePlacementPayload(status.entryId()));
+                    }
                     return;
                 }
                 if (isInside(mouseX, mouseY, cancelBtnX, rowY, BTN_W, ROW_H)) {

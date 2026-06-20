@@ -3,10 +3,10 @@ package com.rtsbuilding.rtsbuilding.server.service.mining;
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.server.service.resolver.RtsLinkedHandlerResolutionService;
 import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
-import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
+import com.rtsbuilding.rtsbuilding.server.storage.model.LinkedHandler;
+import com.rtsbuilding.rtsbuilding.server.storage.resolver.RtsLinkedStorageResolver;
+import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -18,16 +18,22 @@ import net.neoforged.neoforge.items.IItemHandler;
 import java.util.List;
 
 /**
- * Manages the lifecycle of borrowed mining tools:
- * <ul>
- *   <li>Locating a matching tool in the player inventory or linked storage</li>
- *   <li>Borrowing a single copy and tracking its source</li>
- *   <li>Returning the (possibly damaged) remainder after mining</li>
- *   <li>Safety fallback for non-damageable tools that vanish unexpectedly</li>
- * </ul>
+ * 挖掘工具租赁管理器，负责挖掘工具的生命周期管理。
  *
- * <p>Every method is stateless — all state is held in the returned
- * {@link RtsToolLease} and the caller's session.</p>
+ * <p>处理从定位匹配工具、借用单个副本、到归还可能已损坏剩余物的完整流程。
+ * 所有方法均为无状态，状态保存在返回的 {@link RtsToolLease} 和调用者的会话中。
+ *
+ * <p><b>核心职责：</b>
+ * <ul>
+ *   <li><b>借用</b>（{@link #borrowMiningTool}）— 根据工具原型，依次在玩家主背包、
+ *   剩余快捷栏（排除当前选中槽位）、链接存储处理器中搜索匹配的工具并提取一个副本</li>
+ *   <li><b>归还</b>（{@link #returnMiningTool}）— 将借用的工具归还到原始来源，
+ *   若源槽位不可用则回退到链接存储或玩家背包</li>
+ *   <li><b>安全回退</b>（{@link #protectBorrowedToolRemainder}）— 防止不可损坏的
+ *   单堆叠工具因意外丢失（如模组 Bug）导致玩家永久失去工具</li>
+ *   <li><b>原型匹配</b>（{@link #matchesMiningToolPrototype}）— 支持精确组件匹配
+ *   和可损坏工具的标准化组件匹配（允许耐久度差异）</li>
+ * </ul>
  */
 public final class RtsToolLeaseManager {
 
@@ -37,12 +43,12 @@ public final class RtsToolLeaseManager {
     }
 
     // =========================================================================
-    //  Borrowing
+    //  借用
     // =========================================================================
 
     /**
-     * Locates a real tool matching {@code toolPrototype} and borrows a single
-     * copy, searching the player's main inventory first, then linked storage.
+     * 定位与 {@code toolPrototype} 匹配的实际工具，并借用单个副本，
+     * 首先搜索玩家的主背包，然后是链接储存。
      */
     public static RtsToolLease borrowMiningTool(ServerPlayer player, RtsStorageSession session, String toolItemId,
             ItemStack toolPrototype, int selectedToolSlot) {
@@ -82,8 +88,8 @@ public final class RtsToolLeaseManager {
     }
 
     /**
-     * Scans the player's main inventory (excluding the selected hotbar slot)
-     * for a matching tool, then checks the remaining hotbar slots.
+     * 扫描玩家主背包（排除选中的快捷栏槽位）寻找匹配的工具，
+     * 然后检查剩余的快捷栏槽位。
      */
     private static RtsToolLease borrowMiningToolFromPlayerInventory(ServerPlayer player, ItemStack prototype, int selectedToolSlot) {
         int selected = RtsMiningValidator.clampHotbarSlot(selectedToolSlot);
@@ -108,7 +114,7 @@ public final class RtsToolLeaseManager {
     }
 
     /**
-     * Attempts to split off a single item from the given player inventory slot.
+     * 尝试从给定的玩家背包槽位分割出一个物品。
      */
     private static RtsToolLease borrowMiningToolFromPlayerSlot(ServerPlayer player, ItemStack prototype, int slot) {
         if (slot < 0 || slot >= player.getInventory().getContainerSize()) {
@@ -129,8 +135,8 @@ public final class RtsToolLeaseManager {
     }
 
     /**
-     * Searches a linked {@link IItemHandler} for a matching tool and extracts
-     * one item. If extraction yields a non-matching item, it is re-inserted.
+     * 在链接的 {@link IItemHandler} 中搜索匹配的工具并提取一个物品。
+     * 如果提取产生不匹配的物品，则重新插入。
      */
     private static RtsToolLease borrowMiningToolFromLinkedHandler(IItemHandler handler, ItemStack prototype) {
         if (handler == null || prototype == null || prototype.isEmpty()) {
@@ -153,9 +159,8 @@ public final class RtsToolLeaseManager {
     }
 
     /**
-     * Matches two item stacks for mining-tool purposes: either exact component
-     * match, or same item + damageable + normalised component match (allowing
-     * durability differences).
+     * 为挖掘工具目的匹配两个物品堆叠：要么精确组件匹配，
+     * 要么相同物品 + 可损坏 + 标准化组件匹配（允许耐久度差异）。
      */
     private static boolean matchesMiningToolPrototype(ItemStack stack, ItemStack prototype) {
         if (stack == null || stack.isEmpty() || prototype == null || prototype.isEmpty()) {
@@ -176,13 +181,12 @@ public final class RtsToolLeaseManager {
     }
 
     // =========================================================================
-    //  Returning
+    //  归还
     // =========================================================================
 
     /**
-     * Returns the borrowed tool (or its damaged remainder) to the original
-     * source. If the source slot is unavailable, falls back to linked storage
-     * or the player's inventory.
+     * 将借用的工具（或其损坏的剩余物）归还到原始来源。
+     * 如果源槽位不可用，回退到链接储存或玩家背包。
      */
     public static void returnMiningTool(ServerPlayer player, RtsStorageSession session, RtsToolLease lease) {
         if (player == null || session == null || lease == null || lease.isEmpty()) {
@@ -198,13 +202,12 @@ public final class RtsToolLeaseManager {
     }
 
     // =========================================================================
-    //  Safety Fallback
+    //  安全回退
     // =========================================================================
 
     /**
-     * Safety fallback: if the borrowed tool remainder is unexpectedly empty
-     * and the original stack meets protection criteria, restores the original
-     * stack to avoid losing non-repairable, single-stack tools.
+     * 安全回退：如果借用的工具剩余物意外为空且原始堆叠满足保护条件，
+     * 则恢复原始堆叠，以避免丢失不可修复的单堆叠工具。
      */
     public static ItemStack protectBorrowedToolRemainder(ServerPlayer player, RtsToolLease lease, ItemStack remainder) {
         if (remainder != null && !remainder.isEmpty()) {
@@ -222,9 +225,8 @@ public final class RtsToolLeaseManager {
     }
 
     /**
-     * Determines whether the safety fallback should protect an empty tool
-     * remainder. Protection applies to non-stackable, non-damageable items
-     * that are not {@link BlockItem}s.
+     * 确定安全回退是否应保护一个空的工具剩余物。
+     * 保护适用于不可堆叠、不可损坏且不是 {@link BlockItem} 的物品。
      */
     private static boolean shouldProtectEmptyBorrowedToolRemainder(ItemStack original) {
         return original != null

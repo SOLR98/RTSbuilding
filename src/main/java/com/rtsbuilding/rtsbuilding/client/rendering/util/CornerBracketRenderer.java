@@ -76,8 +76,21 @@ public final class CornerBracketRenderer {
             double maxX, double maxY, double maxZ,
             float r, float g, float b, float a,
             double distance) {
+        renderCornerBrackets(poseStack, consumer, minX, minY, minZ, maxX, maxY, maxZ, r, g, b, a, distance, 1.0D);
+    }
 
-        double scaledThickness = BRACKET_THICKNESS * Math.max(1.0D, distance / THICKNESS_SCALE_DISTANCE);
+    /**
+     * Renders thickened corner brackets with a caller-controlled thickness multiplier.
+     */
+    public static void renderCornerBrackets(PoseStack poseStack, VertexConsumer consumer,
+            double minX, double minY, double minZ,
+            double maxX, double maxY, double maxZ,
+            float r, float g, float b, float a,
+            double distance, double thicknessMultiplier) {
+
+        double scaledThickness = BRACKET_THICKNESS
+                * Math.max(0.25D, thicknessMultiplier)
+                * Math.max(1.0D, distance / THICKNESS_SCALE_DISTANCE);
         double halfThick = scaledThickness * 0.5D;
 
         // Bottom horizontal ring

@@ -35,6 +35,9 @@ public final class RtsClientPathfinding {
 
     private static BlockPos target = null;
     private static MovementModeHandler previousMode = null;
+    private static BlockPos highlightedTarget = null;
+    private static long highlightFadeStartedAtMs = 0L;
+    private static boolean highlightFading = false;
     /**
      * 当 &gt; 0 时，目标点 Y 轴偏移量（单位：格）。
      * 用于「飞到目标上方」模式（Ctrl + 双击右键），
@@ -46,6 +49,7 @@ public final class RtsClientPathfinding {
     private static final double REACH_DISTANCE_SQ = 0.1 * 0.1;
     /** 向量零长度判断阈值，避免除零。 */
     private static final double EPSILON = 0.01;
+    private static final long TARGET_HIGHLIGHT_FADE_MS = 350L;
 
     private RtsClientPathfinding() {}
 
@@ -78,6 +82,7 @@ public final class RtsClientPathfinding {
     public static void goTo(BlockPos target) {
         RtsClientPathfinding.target = target.immutable();
         targetYOffset = 0;
+        setHighlightedTarget(RtsClientPathfinding.target);
         RtsClientPacketGateway.sendPathfindingGoTo(target);
     }
 
@@ -97,6 +102,7 @@ public final class RtsClientPathfinding {
     public static void goToAbove(BlockPos target, int yOffset) {
         RtsClientPathfinding.target = target.immutable();
         targetYOffset = Math.max(1, yOffset);
+        setHighlightedTarget(RtsClientPathfinding.target);
         RtsClientPacketGateway.sendPathfindingGoTo(target);
     }
 
@@ -104,12 +110,22 @@ public final class RtsClientPathfinding {
      * Cancels any active movement and cleans up the previous mode.
      */
     public static void cancel() {
+        stopMovement();
+        clearHighlightedTarget();
+    }
+
+    private static void stopMovement() {
         target = null;
         targetYOffset = 0;
         if (previousMode != null && Minecraft.getInstance().player instanceof LocalPlayer lp) {
             previousMode.onDeactivate(lp);
         }
         previousMode = null;
+    }
+
+    private static void finishArrived() {
+        stopMovement();
+        beginHighlightFade();
     }
 
     /**
@@ -119,6 +135,23 @@ public final class RtsClientPathfinding {
         return target != null;
     }
 
+    @Nullable
+    public static MoveTargetHighlight getMoveTargetHighlight() {
+        if (highlightedTarget == null) {
+            return null;
+        }
+        if (!highlightFading) {
+            return new MoveTargetHighlight(highlightedTarget, 1.0F);
+        }
+        long elapsed = System.currentTimeMillis() - highlightFadeStartedAtMs;
+        if (elapsed >= TARGET_HIGHLIGHT_FADE_MS) {
+            clearHighlightedTarget();
+            return null;
+        }
+        float alpha = 1.0F - (elapsed / (float) TARGET_HIGHLIGHT_FADE_MS);
+        return new MoveTargetHighlight(highlightedTarget, Math.max(0.0F, alpha));
+    }
+
    /**
      * Called from {@link ClientTickEvent.Pre}
      * — before {@code aiStep()}. Sets the player's velocity toward the target
@@ -126,59 +159,59 @@ public final class RtsClientPathfinding {
      */
     public static void tickPre() {
         if (target == null) return;
-   
+
         // Ensure the registry is initialised on first tick
         RtsMovementModeRegistry.init();
-   
+
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer player = mc.player;
         if (player == null || !ClientRtsController.get().isEnabled()) {
             cancel();
             return;
         }
-   
+
         Vec3 playerPos = player.position();
         Vec3 targetPos = computeTargetPos();
         Vec3 toTarget = targetPos.subtract(playerPos);
         Vec3 horizontal = new Vec3(toTarget.x, 0, toTarget.z);
         double horizontalDist = horizontal.length();
-   
+
         // ── Face the target (yaw) ──
         faceTarget(player, toTarget);
-   
+
         // ── Resolve movement mode ──
         MovementParams params = resolveMode(player);
         if (params == null) {
             cancel();
             return;
         }
-   
+
         // ── Arrival check ──
         if (isArrived(player, playerPos, targetPos, params)) {
-            cancel();
+            finishArrived();
             return;
         }
-   
+
         // ── Pitch ──
         applyPitch(player, toTarget, horizontalDist, params);
-   
+
         // ── Sprint ──
         applySprint(player, params);
-   
+
         // ── Velocity ──
         applyVelocity(player, toTarget, horizontal, horizontalDist, targetPos, playerPos, params);
-   
+
         // ── Stuck / collision ──
         if (player.horizontalCollision
                 && target.getY() + 1.0 > player.position().y + 0.2) {
             handleStuck(player, params);
         }
     }
-   
+
     // ==================================================================
     //  Helper methods
     // ==================================================================
-   
+
     /**
      * Computes the 3D target position from the stored {@link #target} block,
      * using {@link #targetYOffset} to decide the Y level.
@@ -236,7 +269,7 @@ public final class RtsClientPathfinding {
         // Two blocks of nothing — target the center of the target block
         return pos.getY() + 0.5;
     }
-   
+
     /**
      * Sets the player's yaw to face the target direction.
      */
@@ -247,7 +280,7 @@ public final class RtsClientPathfinding {
         player.yBodyRot = yaw;
         player.yBodyRotO = yaw;
     }
-   
+
     /**
      * Resolves the current movement mode from the registry, tracks
      * mode transitions, and returns the movement params.
@@ -258,14 +291,14 @@ public final class RtsClientPathfinding {
     private static MovementParams resolveMode(LocalPlayer player) {
         MovementModeHandler currentMode = RtsMovementModeRegistry.findActive(player);
         if (currentMode == null) return null;
-   
+
         // Handle mode transitions (activate / deactivate lifecycle)
         if (currentMode != previousMode) {
             if (previousMode != null) previousMode.onDeactivate(player);
             currentMode.onActivate(player);
             previousMode = currentMode;
         }
-   
+
         Vec3 toTarget = new Vec3(
                 target.getX() + 0.5 - player.position().x,
                 target.getY() + (targetYOffset > 0 ? targetYOffset : 1.0) - player.position().y,
@@ -273,7 +306,7 @@ public final class RtsClientPathfinding {
         double horizontalDist = Math.sqrt(toTarget.x * toTarget.x + toTarget.z * toTarget.z);
         return currentMode.computeParams(player, toTarget, horizontalDist);
     }
-   
+
     /**
      * Checks whether the player has arrived at the target position.
      * The vertical check depends on the mode and whether precision-landing is active.
@@ -289,7 +322,7 @@ public final class RtsClientPathfinding {
         double dx = playerPos.x - targetPos.x;
         double dz = playerPos.z - targetPos.z;
         double horizDistSq = dx * dx + dz * dz;
-    
+
         if (targetYOffset > 0) {
             // Precision landing (Ctrl+双击): require both horizontal AND vertical proximity,
             // then disable creative flight so the player lands on whatever collision shape
@@ -309,12 +342,12 @@ public final class RtsClientPathfinding {
             }
             return false;
         }
-    
+
         // Normal mode: per-mode Y check
         if (horizDistSq >= REACH_DISTANCE_SQ) return false;
         return params.arrivalCheckHorizontalOnly() || playerPos.y >= targetPos.y;
     }
-   
+
     /**
      * Sets the player's pitch based on movement mode.
      * <ul>
@@ -334,7 +367,7 @@ public final class RtsClientPathfinding {
             player.setXRot(0);
         }
     }
-   
+
     /**
      * Applies sprinting rules per the mode's {@link MovementParams#allowSprint()}.
      */
@@ -349,7 +382,7 @@ public final class RtsClientPathfinding {
             player.setSprinting(false);
         }
     }
-   
+
     /**
      * Applies velocity toward the target using either the input system
      * (elytra) or direct {@code setDeltaMovement} (other modes).
@@ -364,15 +397,15 @@ public final class RtsClientPathfinding {
             player.hurtMarked = true;
             return;
         }
-   
+
         if (horizontalDist <= EPSILON) return;
-   
+
         double speed = params.speed();
         // Scale down when close to avoid overshooting
         if (params.applyApproachSlowdown() && horizontalDist < 0.5) {
             speed *= horizontalDist / 0.5;
         }
-   
+
         if (params.threeDimensional()) {
             // 3D velocity: swim directly toward the target
             double dist3D = toTarget.length();
@@ -382,7 +415,7 @@ public final class RtsClientPathfinding {
         } else {
             // 2D velocity: horizontal only
             Vec3 velocity = horizontal.scale(speed / horizontalDist);
-   
+
             if (targetYOffset > 0) {
                 // Precision landing: gentle vertical guidance
                 double dy = targetPos.y - playerPos.y;
@@ -391,13 +424,13 @@ public final class RtsClientPathfinding {
             } else {
                 velocity = new Vec3(velocity.x, player.getDeltaMovement().y, velocity.z);
             }
-   
+
             if (params.applyEntityInsideSlow()) {
                 velocity = applyEntityInsideSlow(player, velocity);
             }
             player.setDeltaMovement(velocity);
         }
-   
+
         player.hurtMarked = true;
     }
 
@@ -433,5 +466,28 @@ public final class RtsClientPathfinding {
                 player.hurtMarked = true;
             }
         }
+    }
+
+    private static void setHighlightedTarget(BlockPos pos) {
+        highlightedTarget = pos == null ? null : pos.immutable();
+        highlightFadeStartedAtMs = 0L;
+        highlightFading = false;
+    }
+
+    private static void beginHighlightFade() {
+        if (highlightedTarget == null) {
+            return;
+        }
+        highlightFadeStartedAtMs = System.currentTimeMillis();
+        highlightFading = true;
+    }
+
+    private static void clearHighlightedTarget() {
+        highlightedTarget = null;
+        highlightFadeStartedAtMs = 0L;
+        highlightFading = false;
+    }
+
+    public record MoveTargetHighlight(BlockPos target, float alpha) {
     }
 }

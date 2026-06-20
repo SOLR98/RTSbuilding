@@ -70,7 +70,9 @@ public final class RtsClientOnboardingReminder {
         minecraft.player.displayClientMessage(Component.translatable(
                 "chat.rtsbuilding.intro.rts_key",
                 Component.keybind("key.rtsbuilding.toggle_rts")).withStyle(ChatFormatting.AQUA), false);
-        minecraft.player.displayClientMessage(Component.translatable("chat.rtsbuilding.intro.version_warning")
+        minecraft.player.displayClientMessage(Component.translatable(
+                "chat.rtsbuilding.intro.version_warning",
+                websiteComponent())
                 .withStyle(ChatFormatting.GOLD), false);
         minecraft.player.displayClientMessage(Component.translatable(
                 "chat.rtsbuilding.intro.feedback",
@@ -97,6 +99,14 @@ public final class RtsClientOnboardingReminder {
                 .withUnderlined(true)
                 .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, RtsCommunityLinks.DISCORD_INVITE))
                 .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal(RtsCommunityLinks.DISCORD_INVITE))));
+    }
+
+    private static Component websiteComponent() {
+        return Component.literal(RtsCommunityLinks.WEBSITE).withStyle(style -> style
+                .withColor(ChatFormatting.BLUE)
+                .withUnderlined(true)
+                .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, RtsCommunityLinks.WEBSITE))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal(RtsCommunityLinks.WEBSITE))));
     }
 
     private static Component githubComponent() {

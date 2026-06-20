@@ -8,10 +8,9 @@ import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.service.*;
 import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferExtractor;
 import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
-import com.rtsbuilding.rtsbuilding.server.storage.LinkedHandler;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsLinkedStorageResolver;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageRecentEntries;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStorageSession;
+import com.rtsbuilding.rtsbuilding.server.storage.model.LinkedHandler;
+import com.rtsbuilding.rtsbuilding.server.storage.resolver.RtsLinkedStorageResolver;
+import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -37,7 +36,23 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 
 /**
- * Handles craft execution: single-craft loop, ingredient extraction, output storage, rollback.
+ * 合成执行器，负责完整的远程合成生命周期管理。
+ *
+ * <p>处理从打开远程合成终端、获取配方、提取材料、执行合成、
+ * 存储产出到链接存储、到回滚失败操作的全流程。支持批量合成（最多 999 次）
+ * 和自动记录消耗/产出统计。
+ *
+ * <p>核心流程：
+ * <ul>
+ *   <li>{@link #openCraftTerminal} — 打开 RTS 远程合成终端菜单</li>
+ *   <li>{@link #craftRecipeToLinked} — 将指定配方批量合成到链接存储中</li>
+ *   <li>{@link #craftSingleRecipeToLinked} — 单次合成的原子操作（提取→合成→存储→回滚）</li>
+ *   <li>{@link #snapshotCraftGridBlueprint} — 捕获当前合成网格的蓝图</li>
+ * </ul>
+ *
+ * <p>提取材料时优先从链接存储中取用，若玩家不在合成终端中则回退到玩家背包。
+ * 任何中间步骤失败都会触发完整的回滚机制（{@link #rollbackCraftIngredients}），
+ * 将已提取的材料归还到链接存储或玩家背包。
  */
 public final class RtsCraftingExecutor {
 
@@ -45,7 +60,7 @@ public final class RtsCraftingExecutor {
     }
 
     /**
-     * Opens the remote crafting terminal from RTS mode.
+     * 从 RTS 模式打开远程合成终端。
      */
     public static void openCraftTerminal(ServerPlayer player, RtsStorageSession session) {
         if (!RtsProgressionManager.canUse(player, RtsFeature.CRAFT_TERMINAL)) {
@@ -75,11 +90,11 @@ public final class RtsCraftingExecutor {
                         }),
                 Component.literal("RTS Craft Terminal")));
         RtsRemoteMenuService.relaxOpenedMenuValidation(player.containerMenu);
-        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
+        ServiceRegistry.getInstance().serviceOp().refreshPage(player, session);
     }
 
     /**
-     * Crafts a recipe into linked storage, up to {@code craftCount} times.
+     * 将配方合成到链接存储中，最多合成 {@code craftCount} 次。
      */
     public static void craftRecipeToLinked(ServerPlayer player, RtsStorageSession session, String recipeId, int craftCount) {
         if (!RtsProgressionManager.canUse(player, RtsFeature.CRAFT_TERMINAL)) {
@@ -145,7 +160,7 @@ public final class RtsCraftingExecutor {
             RtsCraftingUtils.mergeConsumedCounts(consumedCounts, result.consumedCounts());
         }
 
-        RtsPageService.requestPage(player, session.browser.page, session.browser.search, session.browser.category, session.browser.sort, session.browser.ascending);
+        ServiceRegistry.getInstance().serviceOp().refreshPage(player, session);
         RtsCraftingSearch.refreshCraftables(player, session);
         if (completedCrafts <= 0) {
             if (storageFull) {
@@ -156,9 +171,9 @@ public final class RtsCraftingExecutor {
             return;
         }
 
-        RtsStorageRecentEntries.recordRecentItem(session, craftedItemId,
+        ServiceRegistry.getInstance().page().recordRecentItem(session, craftedItemId,
                 S2CRtsStoragePagePayload.RECENT_ITEM_CRAFTED, totalCraftedCount);
-        RtsSessionService.saveToPlayerNbt(player, session);
+        ServiceRegistry.getInstance().session().saveToPlayerNbt(player, session);
         PacketDistributor.sendToPlayer(player, new S2CRtsCraftFeedbackPayload(
                 craftedItemId, totalCraftedCount,
                 new ArrayList<>(consumedCounts.keySet()),
@@ -266,13 +281,7 @@ public final class RtsCraftingExecutor {
         if (ingredient == null || ingredient.isEmpty() || prototype == null || prototype.isEmpty() || !ingredient.test(prototype)) {
             return takeIngredientForCraft(handlers, player, ingredient, includePlayerFallback);
         }
-        // 路由优先: 通过aggregate提取计划精准匹配原型
-        ItemStack fromLinked = RtsTransferExtractor.extractPrototypeFromAggregate(player, prototype, 1);
-        if (!fromLinked.isEmpty() && ingredient.test(fromLinked)) {
-            return new ExtractedIngredient(fromLinked, false);
-        }
-        // Fallback: 全量O(handlers×slots)扫描
-        fromLinked = RtsTransferExtractor.extractOneMatchingPrototypeFromLinked(handlers, prototype);
+        ItemStack fromLinked = RtsTransferExtractor.extractOneMatchingPrototypeFromLinked(handlers, prototype);
         if (!fromLinked.isEmpty() && ingredient.test(fromLinked)) {
             return new ExtractedIngredient(fromLinked, false);
         }
@@ -464,7 +473,7 @@ public final class RtsCraftingExecutor {
     // ---- craft grid refill from blueprint ----------------------------------------
 
     /**
-     * Captures a one-item-per-slot blueprint of the current crafting grid.
+     * 捕获当前合成网格的每个槽位一个物品的蓝图。
      */
     public static ItemStack[] snapshotCraftGridBlueprint(
             net.minecraft.world.inventory.CraftingMenu menu) {

@@ -9,7 +9,7 @@ import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildMode;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.QuickBuildPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.screen.ultimine.AreaMineShape;
-import com.rtsbuilding.rtsbuilding.common.shape.ShapeFillMode;
+import com.rtsbuilding.rtsbuilding.common.shape.model.ShapeFillMode;
 import net.minecraft.util.Mth;
 
 import java.util.LinkedHashMap;
@@ -154,7 +154,7 @@ public final class RtsScreenUiStateManager {
         state.fillMode = this.shapeController.getShapeFillMode().name();
         state.lineConnected = this.shapeController.isLineConnected();
         state.rotationDegrees = this.shapeController.getShapeRotateDegrees();
-        state.quickBuildOpen = this.quickBuildPanel.isQuickBuildOpen();
+        state.quickBuildOpen = this.quickBuildPanel.isOpen();
         state.quickBuildMode = this.quickBuildPanel.getMode().name();
         state.ultimineOpen = false;
         state.ultimineLimit = this.quickBuildPanel.getChainDestroyLimit();
@@ -181,7 +181,7 @@ public final class RtsScreenUiStateManager {
 
     /** Restores panel open state and limit values. */
     private void applyPanelState(RtsClientUiStateStore.UiState state) {
-        this.quickBuildPanel.setQuickBuildOpen(state.quickBuildOpen);
+        this.quickBuildPanel.setOpen(state.quickBuildOpen);
         try {
             this.quickBuildPanel.setMode(QuickBuildMode.valueOf(state.quickBuildMode));
         } catch (IllegalArgumentException ignored) {

@@ -1,8 +1,12 @@
 package com.rtsbuilding.rtsbuilding.server.service.crafting;
 
 import com.rtsbuilding.rtsbuilding.network.craft.S2CRtsCraftablesPayload;
-import com.rtsbuilding.rtsbuilding.server.service.RtsSessionService;
-import com.rtsbuilding.rtsbuilding.server.storage.*;
+import com.rtsbuilding.rtsbuilding.server.service.ServiceRegistry;
+import com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder;
+import com.rtsbuilding.rtsbuilding.server.storage.model.LinkedHandler;
+import com.rtsbuilding.rtsbuilding.server.storage.resolver.RtsLinkedStorageResolver;
+import com.rtsbuilding.rtsbuilding.server.storage.session.RtsBrowserState;
+import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import com.rtsbuilding.rtsbuilding.util.RtsPinyinSearch;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
@@ -15,7 +19,21 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import java.util.*;
 
 /**
- * Handles craftable-panel search, recipe scanning, and candidate building.
+ * 可合成物品搜索器，负责扫描所有服务器配方并构建可合成面板。
+ *
+ * <p>核心职责：
+ * <ul>
+ *   <li><b>配方扫描</b>（{@link #requestCraftables}）— 遍历服务器所有 {@link net.minecraft.world.item.crafting.CraftingRecipe}，
+ *   过滤出 3x3 工作台配方，评估可用材料，构建可合成候选项列表</li>
+ *   <li><b>搜索过滤</b>— 支持物品 ID、显示名称、拼音（{@code pinyinSearchEnabled}）、
+ *   模组命名空间（{@code @modid}）等多种搜索方式</li>
+ *   <li><b>分组排序</b>— 按产出物品分组合成方案，可合成优先、标签排序</li>
+ *   <li><b>刷新</b>（{@link #refreshCraftables}）— 重用会话中的搜索状态重新扫描</li>
+ * </ul>
+ *
+ * <p>搜索状态存储在 {@link com.rtsbuilding.rtsbuilding.server.storage.session.RtsBrowserState} 中，
+ * 支持分页加载。每个配方组（{@link CraftableGroupEntry}）包含多个候选方案
+ * （如不同配方 ID 产出同一物品），客户端可切换选择。
  */
 public final class RtsCraftingSearch {
 
@@ -23,7 +41,7 @@ public final class RtsCraftingSearch {
     }
 
     /**
-     * Scans all server recipes for those the linked storage can craft, grouped by result item.
+     * 扫描所有服务器配方，找出链接存储可合成的配方，按结果物品分组。
      */
     public static void requestCraftables(ServerPlayer player, RtsStorageSession session, String search,
             boolean showUnavailable, int offset, int limit,
@@ -37,7 +55,7 @@ public final class RtsCraftingSearch {
         int batchOffset = Math.max(0, offset);
         int batchLimit = Math.max(1, limit);
         session.browser.craftRequestedCount = Math.max(RtsBrowserState.CRAFTABLE_BATCH_SIZE, batchOffset + batchLimit);
-        RtsSessionService.saveToPlayerNbt(player, session);
+        ServiceRegistry.getInstance().session().saveToPlayerNbt(player, session);
 
         if (session.browser.craftSearch.isBlank()) {
             sendCraftables(player, session, List.of(), 0, false, false);
@@ -92,7 +110,7 @@ public final class RtsCraftingSearch {
     }
 
     /**
-     * Refreshes the currently visible craftable panel (re-uses search state from session).
+     * 刷新当前可见的可合成面板（重用会话中的搜索状态）。
      */
     public static void refreshCraftables(ServerPlayer player, RtsStorageSession session) {
         requestCraftables(player, session,
@@ -149,7 +167,7 @@ public final class RtsCraftingSearch {
     private static List<AvailableCraftItem> snapshotAvailableCraftItems(
             ServerPlayer player, RtsStorageSession session, List<LinkedHandler> activeLinked) {
         boolean includePlayerMainInventory = session != null
-                && !session.linkedStorages.isEmpty()
+                && !session.linkedStorageInfo.isEmpty()
                 && player != null
                 && !(player.containerMenu instanceof com.rtsbuilding.rtsbuilding.server.menu.RtsCraftTerminalMenu);
         return snapshotAvailableCraftItemsFromHandlers(
@@ -218,7 +236,7 @@ public final class RtsCraftingSearch {
     }
 
     /**
-     * Checks whether a recipe is supported by the workbench craft panel (3x3 grid only).
+     * 检查配方是否受工作台合成面板支持（仅 3x3 网格）。
      */
     static boolean supportsWorkbenchCraftPanelRecipe(CraftingRecipe recipe) {
         if (recipe == null) {

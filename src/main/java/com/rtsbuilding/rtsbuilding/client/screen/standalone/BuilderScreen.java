@@ -1,10 +1,11 @@
 package com.rtsbuilding.rtsbuilding.client.screen.standalone;
 
 
-import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintMaterialWindowPanel;
-import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintNameWindowPanel;
-import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintPanel;
-import com.rtsbuilding.rtsbuilding.blueprint.client.BlueprintWindowPanel;
+import com.mojang.blaze3d.platform.InputConstants;
+import com.rtsbuilding.rtsbuilding.client.screen.blueprint.BlueprintMaterialWindowPanel;
+import com.rtsbuilding.rtsbuilding.client.screen.blueprint.BlueprintNameWindowPanel;
+import com.rtsbuilding.rtsbuilding.client.screen.blueprint.BlueprintPanel;
+import com.rtsbuilding.rtsbuilding.client.screen.blueprint.BlueprintWindowPanel;
 import com.rtsbuilding.rtsbuilding.client.bootstrap.ClientKeyMappings;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
@@ -37,15 +38,16 @@ import com.rtsbuilding.rtsbuilding.client.screen.shape.ShapeGeometryUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.storage.LinkedStoragePanel;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarTypes;
+import com.rtsbuilding.rtsbuilding.client.screen.workflow.RtsBlueprintResumePanel;
 import com.rtsbuilding.rtsbuilding.client.screen.workflow.RtsResumePlacementPanel;
 import com.rtsbuilding.rtsbuilding.client.screen.workflow.RtsWorkflowPanel;
 import com.rtsbuilding.rtsbuilding.client.service.MiningOperationService;
 import com.rtsbuilding.rtsbuilding.client.state.RtsClientUiStateStore;
 import com.rtsbuilding.rtsbuilding.client.state.RtsScreenUiStateManager;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
-import com.rtsbuilding.rtsbuilding.common.BuilderMode;
+import com.rtsbuilding.rtsbuilding.common.build.BuilderMode;
 import com.rtsbuilding.rtsbuilding.common.RtsUltimineCollector;
-import com.rtsbuilding.rtsbuilding.common.shape.ShapeFillMode;
+import com.rtsbuilding.rtsbuilding.common.shape.model.ShapeFillMode;
 import com.rtsbuilding.rtsbuilding.compat.ae2.RtsAe2IconResolver;
 import com.rtsbuilding.rtsbuilding.progression.RtsProgressionNodes;
 import net.minecraft.client.gui.Font;
@@ -149,6 +151,8 @@ public final class BuilderScreen extends Screen {
     private final RtsWorkflowPanel workflowPanel = new RtsWorkflowPanel();
     /** Panel for reviewing and resuming suspended placement jobs. */
     private final RtsResumePlacementPanel resumePlacementPanel = new RtsResumePlacementPanel();
+    /** Panel for reviewing and resuming suspended blueprint placement jobs. */
+    private final RtsBlueprintResumePanel blueprintResumePanel = new RtsBlueprintResumePanel();
     /** Whether the user is currently dragging the input sensitivity slider. */
     private boolean draggingInputSensitivity = false;
     /** Whether the funnel hotkey (quick-activate funnel mode) is currently held down. */
@@ -206,7 +210,8 @@ public final class BuilderScreen extends Screen {
                 this.guidePanel,
                 this.quickBuildPanel,
                 this.workflowPanel,
-                this.resumePlacementPanel);
+                this.resumePlacementPanel,
+                this.blueprintResumePanel);
         this.uiStateManager.registerWindowPanel("settings", this.gearMenuPanel);
         this.uiStateManager.registerWindowPanel("blueprints", this.blueprintWindowPanel);
         this.uiStateManager.registerWindowPanel("guide", this.guidePanel);
@@ -225,6 +230,7 @@ public final class BuilderScreen extends Screen {
         this.quickBuildPanel.init(this, this.controller);
         this.workflowPanel.init(this, this.controller);
         this.resumePlacementPanel.init(this, this.controller);
+        this.blueprintResumePanel.init(this, this.controller);
         this.linkedStoragePanel.init(this, this.controller);
         this.topBarPanel.init(this, this.controller);
         this.bottomPanel.init(this, this.controller);
@@ -290,11 +296,11 @@ public final class BuilderScreen extends Screen {
     }
     /** Returns whether the quick-build panel is currently open. */
     public boolean isQuickBuildOpen() {
-        return this.quickBuildPanel.isQuickBuildOpen();
+        return this.quickBuildPanel.isOpen();
     }
     /** Opens or closes the quick-build panel. */
     public void setQuickBuildOpen(boolean open) {
-        this.quickBuildPanel.setQuickBuildOpen(open);
+        this.quickBuildPanel.setOpen(open);
     }
     /** Returns the Minecraft client instance for access by sub-panels and utilities. */
     public net.minecraft.client.Minecraft getMinecraft() {
@@ -306,6 +312,10 @@ public final class BuilderScreen extends Screen {
      */
     public RtsResumePlacementPanel getResumePlacementPanel() {
         return this.resumePlacementPanel;
+    }
+    /** Returns the blueprint resume panel, so external handlers can open it. */
+    public RtsBlueprintResumePanel getBlueprintResumePanel() {
+        return this.blueprintResumePanel;
     }
     /** Returns the last recorded mouse X position (updated each render frame). */
     public double getCurrentMouseX() {
@@ -555,11 +565,7 @@ public final class BuilderScreen extends Screen {
         if (isWorldArea(mouseX, mouseY) && this.controller.getMode() == BuilderMode.LINK_STORAGE) {
             BlockHitResult hit = this.cursorPicker.pickBlockHit();
             if (hit != null) {
-                if (hasShiftDown()) {
-                    handleLinkStorageAreaClick(hit.getBlockPos());
-                } else {
-                    this.controller.linkStorage(hit.getBlockPos());
-                }
+                this.controller.linkStorage(hit.getBlockPos());
                 return true;
             }
         }
@@ -606,25 +612,8 @@ public final class BuilderScreen extends Screen {
                 }
                 return true;
             }
-            if (primaryMouse && isWorldArea(mouseX, mouseY) && Screen.hasControlDown()) {
-                // Ctrl + RightClick → 向目标点直线移动
-                // 双击（300ms 内连续两次）→ 飞到目标上方指定高度
-                long now = System.currentTimeMillis();
-                boolean isDoubleClick = (now - this.lastCtrlRightClickTime) < CTRL_DOUBLE_CLICK_THRESHOLD_MS;
-                this.lastCtrlRightClickTime = now;
-
-                BlockHitResult hit = this.cursorPicker.pickBlockHit();
-                if (hit != null) {
-                    if (isDoubleClick) {
-                        this.lastCtrlRightClickTime = 0;
-                        // Ctrl + 双击右键 → 强制降落到目标方块表面（3D到达判定）
-                        RtsClientPathfinding.goToAbove(hit.getBlockPos(), 1);
-                    } else {
-                        // Ctrl + 单次右键 → 普通直线移动（仅 XZ 到达判定）
-                        RtsClientPathfinding.goTo(hit.getBlockPos());
-                    }
-                }
-                return true;
+            if (isMovePlayerActionMouse(button) && isWorldArea(mouseX, mouseY)) {
+                return handleMovePlayerActionAt(mouseX, mouseY);
             }
             if (isWorldArea(mouseX, mouseY)) {
                 this.cameraInput.beginRightPress(mouseX, mouseY, button, primaryMouse, rotateMouse);
@@ -792,11 +781,7 @@ public final class BuilderScreen extends Screen {
             this.shapeController.clearShapeBuildSession();
             BlockHitResult hit = this.cursorPicker.pickBlockHit();
             if (hit != null) {
-                if (hasShiftDown()) {
-                    handleLinkStorageAreaClick(hit.getBlockPos());
-                } else {
-                    this.controller.linkStorage(hit.getBlockPos(), mouseButton == GLFW.GLFW_MOUSE_BUTTON_LEFT);
-                }
+                this.controller.linkStorage(hit.getBlockPos(), mouseButton == GLFW.GLFW_MOUSE_BUTTON_LEFT);
             }
             return true;
         }
@@ -939,18 +924,6 @@ public final class BuilderScreen extends Screen {
             }
         }
         return true;
-    }
-
-    private void handleLinkStorageAreaClick(BlockPos pos) {
-        if (!this.controller.isSelectingLinkStorageArea()) {
-            this.controller.startLinkStorageArea(pos);
-            if (this.minecraft != null && this.minecraft.player != null) {
-                this.minecraft.player.displayClientMessage(
-                        Component.literal("选区角点A: " + pos.toShortString() + " | Shift+右键点击角点B"), false);
-            }
-        } else {
-            this.controller.completeLinkStorageArea(pos);
-        }
     }
 
     private boolean tryUseMainHandItemInAir() {
@@ -1117,6 +1090,9 @@ public final class BuilderScreen extends Screen {
                 this.cameraInput.tryPickHoveredBlockForPlacement();
             }
             return true;
+        }
+        if (!isSearchFocused() && isMovePlayerActionKey(keyCode, scanCode)) {
+            return handleMovePlayerActionAt(currentMouseX(), currentMouseY());
         }
         if (!isSearchFocused() && ClientKeyMappings.ACTION_PRIMARY.matches(keyCode, scanCode)) {
             return runPrimaryActionAt(currentMouseX(), currentMouseY());
@@ -1633,11 +1609,11 @@ public final class BuilderScreen extends Screen {
 
     /** Returns true when quick-build is showing the range-destroy workflow. */
     public boolean isQuickBuildRangeDestroyMode() {
-        return this.quickBuildPanel.isQuickBuildOpen() && this.quickBuildPanel.isRangeDestroyMode();
+        return this.quickBuildPanel.isOpen() && this.quickBuildPanel.isRangeDestroyMode();
     }
     /** Returns true when Quick Build range-destroy is using the connected-chain shape. */
     public boolean isQuickBuildRangeDestroyChainMode() {
-        return this.quickBuildPanel.isQuickBuildOpen() && this.quickBuildPanel.isRangeDestroyChainMode();
+        return this.quickBuildPanel.isOpen() && this.quickBuildPanel.isRangeDestroyChainMode();
     }
     /** Player-facing shape label for the top status row. */
     public String activeQuickBuildShapeLabel() {
@@ -1877,7 +1853,7 @@ public final class BuilderScreen extends Screen {
                 .append(" uiScale=").append(rtsGuiScaleLabel()).append('\n');
         out.append("mode=").append(this.controller.getMode())
                 .append(" topAction=").append(this.topBarPanel.topActionForMode())
-                .append(" quickBuild=").append(this.quickBuildPanel.isQuickBuildOpen())
+                .append(" quickBuild=").append(this.quickBuildPanel.isOpen())
                 .append(" quickDestroy=").append(isQuickBuildRangeDestroyMode())
                 .append(" debugButton=").append(this.uiStateManager.isDebugButtonVisible())
                 .append(" invertPanDragX=").append(this.controller.isInvertPanDragX())
@@ -2208,32 +2184,34 @@ public final class BuilderScreen extends Screen {
         double renderScale = this.uiStateManager.fixedRtsGuiScale() / currentScale;
         return renderScale > 0.0D && Double.isFinite(renderScale) ? renderScale : 1.0D;
     }
-    /**
-     * Performs a direct tool interaction (interact entity or block) using the
-     * currently selected tool slot, without shape building.
-     *
-     * @return true if the interaction was performed
-     */
-    private boolean tryDirectToolInteraction() {
-        InteractionTypes.InteractionTarget target = this.cursorPicker.pickInteractionTarget(false);
-        if (target == null) {
-            return false;
-        }
-        int slot = getSelectedToolSlot();
-        if (target.isEntityTarget()) {
-            this.controller.interactEntityWithToolSlot(
-                    target.entityId(),
-                    target.hitLocation(),
-                    slot,
-                    target.rayOrigin(),
-                    target.rayDir());
+
+    private boolean isMovePlayerActionMouse(int button) {
+        return ClientKeyMappings.MOVE_PLAYER.isActiveAndMatches(InputConstants.Type.MOUSE.getOrCreate(button));
+    }
+
+    private boolean isMovePlayerActionKey(int keyCode, int scanCode) {
+        return ClientKeyMappings.MOVE_PLAYER.isActiveAndMatches(InputConstants.getKey(keyCode, scanCode));
+    }
+
+    private boolean handleMovePlayerActionAt(double mouseX, double mouseY) {
+        if (!isWorldArea(mouseX, mouseY)) {
             return true;
         }
-        if (target.blockHit() != null) {
-            this.controller.interactBlockWithToolSlot(target.blockHit(), slot, target.rayOrigin(), target.rayDir());
-            return true;
+        // 移动玩家键位默认是 Ctrl+右键；双击仍保留“飞到目标上方”的精确落点。
+        long now = System.currentTimeMillis();
+        boolean isDoubleClick = (now - this.lastCtrlRightClickTime) < CTRL_DOUBLE_CLICK_THRESHOLD_MS;
+        this.lastCtrlRightClickTime = now;
+
+        BlockHitResult hit = this.cursorPicker.pickBlockHit();
+        if (hit != null) {
+            if (isDoubleClick) {
+                this.lastCtrlRightClickTime = 0;
+                RtsClientPathfinding.goToAbove(hit.getBlockPos(), 1);
+            } else {
+                RtsClientPathfinding.goTo(hit.getBlockPos());
+            }
         }
-        return false;
+        return true;
     }
     /** Retired interaction-wheel hook kept so older extracted callers remain harmless. */
     public void closeInteractionWheel() {
