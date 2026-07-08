@@ -755,6 +755,10 @@ public final class BuilderScreen extends Screen {
             return true;
         }
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT
+                && BlueprintPanel.releaseCaptureActiveHandleIfDragged()) {
+            return true;
+        }
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT
                 && this.cullingManager.isManagementMode()
                 && this.cullingManager.releaseActiveHandleIfDragged()) {
             return true;

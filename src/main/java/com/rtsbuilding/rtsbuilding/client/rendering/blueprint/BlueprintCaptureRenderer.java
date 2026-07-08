@@ -2,12 +2,11 @@ package com.rtsbuilding.rtsbuilding.client.rendering.blueprint;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import com.rtsbuilding.rtsbuilding.client.screen.culling.RtsCullingAxisHandle;
+import com.rtsbuilding.rtsbuilding.client.rendering.selection.RtsBoxHandleRenderer;
 import com.rtsbuilding.rtsbuilding.client.screen.culling.RtsCullingBox;
 import com.rtsbuilding.rtsbuilding.client.screen.blueprint.BlueprintPanel;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.world.phys.AABB;
 
 import java.util.List;
@@ -40,18 +39,6 @@ public final class BlueprintCaptureRenderer {
     private static final float BOUNDARY_BOX_G = 0.78F;
     private static final float BOUNDARY_BOX_B = 1.0F;
     private static final float BOUNDARY_BOX_A = 0.95F;
-    private static final float HANDLE_X_R = 1.00F;
-    private static final float HANDLE_X_G = 0.34F;
-    private static final float HANDLE_X_B = 0.32F;
-    private static final float HANDLE_Y_R = 0.36F;
-    private static final float HANDLE_Y_G = 1.00F;
-    private static final float HANDLE_Y_B = 0.42F;
-    private static final float HANDLE_Z_R = 0.38F;
-    private static final float HANDLE_Z_G = 0.64F;
-    private static final float HANDLE_Z_B = 1.00F;
-    private static final float ACTIVE_R = 1.00F;
-    private static final float ACTIVE_G = 0.78F;
-    private static final float ACTIVE_B = 0.18F;
 
     /**
      * Private constructor to prevent instantiation.
@@ -72,14 +59,18 @@ public final class BlueprintCaptureRenderer {
         if (box == null) {
             return;
         }
+        AABB renderBox = BlueprintPanel.getCapturePreviewAabbForRender();
+        if (renderBox == null) {
+            return;
+        }
 
         // Compute bounding box edges (expand 0.01 units to prevent Z-fighting)
-        double minX = box.min().getX() - 0.01D;
-        double minY = box.min().getY() - 0.01D;
-        double minZ = box.min().getZ() - 0.01D;
-        double maxX = box.max().getX() + 1.01D;
-        double maxY = box.max().getY() + 1.01D;
-        double maxZ = box.max().getZ() + 1.01D;
+        double minX = renderBox.minX - 0.01D;
+        double minY = renderBox.minY - 0.01D;
+        double minZ = renderBox.minZ - 0.01D;
+        double maxX = renderBox.maxX + 0.01D;
+        double maxY = renderBox.maxY + 0.01D;
+        double maxZ = renderBox.maxZ + 0.01D;
 
         // Get the list of included blocks (subject to limit)
         List<BlockPos> includedBlocks = BlueprintPanel.getCaptureIncludedBlocksForRender(CAPTURE_BLOCK_HIGHLIGHT_LIMIT);
@@ -125,53 +116,13 @@ public final class BlueprintCaptureRenderer {
                 maxX, maxY, maxZ,
                 BOUNDARY_BOX_R, BOUNDARY_BOX_G, BOUNDARY_BOX_B, BOUNDARY_BOX_A);
         if (BlueprintPanel.isCaptureSelectionComplete()) {
-            renderAxisHandles(
+            RtsBoxHandleRenderer.renderAxisHandles(
                     poseStack,
                     handleLineBuffer,
                     handleFillBuffer,
-                    box,
+                    renderBox,
                     BlueprintPanel.getCaptureHoveredHandleDirection(),
                     BlueprintPanel.getCaptureActiveHandleDirection());
         }
-    }
-
-    private static void renderAxisHandles(PoseStack poseStack, VertexConsumer lineBuffer, VertexConsumer fillBuffer,
-            RtsCullingBox box, Direction hoveredDirection, Direction activeDirection) {
-        for (RtsCullingAxisHandle.Handle handle : RtsCullingAxisHandle.handles(box)) {
-            boolean hovered = handle.direction() == hoveredDirection;
-            boolean active = handle.direction() == activeDirection;
-            AxisColor color = active ? new AxisColor(ACTIVE_R, ACTIVE_G, ACTIVE_B) : color(handle.axis());
-            float fillAlpha = active ? 0.58F : hovered ? 0.42F : 0.22F;
-            float lineAlpha = active ? 1.00F : hovered ? 0.95F : 0.70F;
-            if (active) {
-                renderHandleBox(poseStack, lineBuffer, fillBuffer, handle.shaft().inflate(0.06D),
-                        color, 0.16F, 0.42F);
-                renderHandleBox(poseStack, lineBuffer, fillBuffer, handle.head().inflate(0.08D),
-                        color, 0.20F, 0.54F);
-            }
-            renderHandleBox(poseStack, lineBuffer, fillBuffer, handle.shaft(), color, fillAlpha, lineAlpha);
-            renderHandleBox(poseStack, lineBuffer, fillBuffer, handle.head(), color, fillAlpha, lineAlpha);
-        }
-    }
-
-    private static void renderHandleBox(PoseStack poseStack, VertexConsumer lineBuffer, VertexConsumer fillBuffer,
-            AABB box, AxisColor color, float fillAlpha, float lineAlpha) {
-        LevelRenderer.addChainedFilledBoxVertices(poseStack, fillBuffer,
-                box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ,
-                color.r(), color.g(), color.b(), fillAlpha);
-        LevelRenderer.renderLineBox(poseStack, lineBuffer,
-                box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ,
-                color.r(), color.g(), color.b(), lineAlpha);
-    }
-
-    private static AxisColor color(Direction.Axis axis) {
-        return switch (axis) {
-            case X -> new AxisColor(HANDLE_X_R, HANDLE_X_G, HANDLE_X_B);
-            case Y -> new AxisColor(HANDLE_Y_R, HANDLE_Y_G, HANDLE_Y_B);
-            case Z -> new AxisColor(HANDLE_Z_R, HANDLE_Z_G, HANDLE_Z_B);
-        };
-    }
-
-    private record AxisColor(float r, float g, float b) {
     }
 }

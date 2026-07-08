@@ -2,6 +2,7 @@ package com.rtsbuilding.rtsbuilding.client.screen.blueprint;
 
 import com.rtsbuilding.rtsbuilding.client.screen.culling.RtsCullingBox;
 import com.rtsbuilding.rtsbuilding.client.screen.culling.RtsBoxHandleInteraction;
+import com.rtsbuilding.rtsbuilding.client.screen.selection.RtsSelectionBoxAnimator;
 import com.rtsbuilding.rtsbuilding.common.blueprint.io.BlueprintWriters;
 import com.rtsbuilding.rtsbuilding.common.blueprint.model.RtsBlueprint;
 import com.rtsbuilding.rtsbuilding.network.blueprint.S2CBlueprintStatusPayload;
@@ -10,6 +11,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -28,6 +30,7 @@ import static com.rtsbuilding.rtsbuilding.client.screen.blueprint.BlueprintPanel
  */
 final class BlueprintCaptureController {
     private final RtsBoxHandleInteraction handleInteraction = new RtsBoxHandleInteraction();
+    private final RtsSelectionBoxAnimator boxAnimator = new RtsSelectionBoxAnimator();
     private boolean active = false;
     private BlockPos firstWorldCorner = null;
     private BlockPos pointA = null;
@@ -103,6 +106,11 @@ final class BlueprintCaptureController {
         }
         BlockPos second = hoverPoint == null ? firstWorldCorner : hoverPoint;
         return new RtsCullingBox(1, firstWorldCorner, second);
+    }
+
+    AABB previewAabbForRender() {
+        RtsCullingBox box = previewBox();
+        return box == null ? null : boxAnimator.renderAabb(box);
     }
 
     void updateHoverPoint(BlockPos pos) {
@@ -220,6 +228,10 @@ final class BlueprintCaptureController {
 
     boolean releaseActiveHandle() {
         return handleInteraction.releaseActiveHandle();
+    }
+
+    boolean releaseActiveHandleIfDragged() {
+        return handleInteraction.releaseActiveHandleIfDragged();
     }
 
     boolean handleWorldAction(BlockHitResult hit, Vec3 origin, Vec3 direction, StatusSink status) {
@@ -358,6 +370,7 @@ final class BlueprintCaptureController {
             status.set(S2CBlueprintStatusPayload.ERROR, "screen.rtsbuilding.blueprints.status.capture_incomplete", "");
             return;
         }
+        RtsCullingBox previous = selectionBox();
         if (firstWorldCorner != null) {
             firstWorldCorner = firstWorldCorner.offset(deltaX, deltaY, deltaZ);
         }
@@ -376,6 +389,8 @@ final class BlueprintCaptureController {
             excludedBlocks.clear();
             excludedBlocks.addAll(moved);
         }
+        RtsCullingBox movedBox = selectionBox();
+        boxAnimator.animate(previous, movedBox);
         status.set(S2CBlueprintStatusPayload.INFO, "screen.rtsbuilding.blueprints.status.capture_moved", sizeText());
     }
 
@@ -524,11 +539,13 @@ final class BlueprintCaptureController {
         if (box == null) {
             return;
         }
+        RtsCullingBox previous = selectionBox();
         this.firstWorldCorner = box.min();
         this.pointA = new BlockPos(box.min().getX(), box.min().getY() - 1, box.min().getZ());
         this.pointB = box.max();
         this.hoverPoint = box.max();
         this.excludedBlocks.removeIf(pos -> !isInsideSelection(pointA, pointB, pos));
+        boxAnimator.animate(previous, box);
     }
 
     private void resetSelection() {
@@ -537,6 +554,7 @@ final class BlueprintCaptureController {
         pointB = null;
         hoverPoint = null;
         handleInteraction.clear();
+        boxAnimator.clear();
         excludedBlocks.clear();
     }
 
