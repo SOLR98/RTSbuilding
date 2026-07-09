@@ -1,6 +1,5 @@
 package com.rtsbuilding.rtsbuilding.client.util;
 
-import com.rtsbuilding.rtsbuilding.util.RtsPinyinSearch;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
@@ -26,7 +25,11 @@ public final class RtsCreativeItemCatalog {
 
     private final List<CreativeCategory> categories = new ArrayList<>();
     private final List<CreativeEntry> entries = new ArrayList<>();
-    private long lastRefreshMs;
+    private final RtsCreativeSearchCache<CreativeEntry> searchCache =
+            new RtsCreativeSearchCache<>(CreativeEntry::searchIndex);
+    private long entriesVersion;
+    private String lastContextKey = "";
+    private boolean initialized;
 
     private RtsCreativeItemCatalog() {
     }
@@ -42,34 +45,29 @@ public final class RtsCreativeItemCatalog {
 
     public List<CreativeEntry> entries(String categoryToken, String search) {
         refreshIfNeeded();
-        String normalizedCategory = normalizeToken(categoryToken);
-        String normalizedSearch = normalizeSearch(search);
-        List<CreativeEntry> filtered = new ArrayList<>();
-        for (CreativeEntry entry : this.entries) {
-            if (!matchesCategory(entry, normalizedCategory)) {
-                continue;
-            }
-            if (!matchesSearch(entry, normalizedSearch)) {
-                continue;
-            }
-            filtered.add(entry);
-        }
-        return filtered;
+        return this.searchCache.filter(this.entries, this.entriesVersion, categoryToken, search);
+    }
+
+    public void forceRefresh() {
+        rebuild(currentContextKey());
     }
 
     private void refreshIfNeeded() {
-        long now = System.currentTimeMillis();
-        if (!this.entries.isEmpty() && now - this.lastRefreshMs < 5_000L) {
+        String contextKey = currentContextKey();
+        if (this.initialized && contextKey.equals(this.lastContextKey)) {
             return;
         }
-        rebuild();
-        this.lastRefreshMs = now;
+        rebuild(contextKey);
     }
 
-    private void rebuild() {
+    private void rebuild(String contextKey) {
         this.categories.clear();
         this.entries.clear();
+        this.searchCache.invalidate();
         this.categories.add(new CreativeCategory(ALL_TOKEN, "All", 0, false, ""));
+        this.lastContextKey = contextKey;
+        this.initialized = true;
+        this.entriesVersion++;
 
         CreativeModeTab.ItemDisplayParameters parameters = resolveItemDisplayParameters();
         Map<String, Set<String>> modToTabs = new LinkedHashMap<>();
@@ -114,6 +112,16 @@ public final class RtsCreativeItemCatalog {
         }
     }
 
+    private static String currentContextKey() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc == null || mc.level == null) {
+            return "no-level";
+        }
+        String dimension = String.valueOf(mc.level.dimension().location());
+        boolean operatorTabs = mc.player != null && mc.player.canUseGameMasterBlocks();
+        return dimension + "|op=" + operatorTabs;
+    }
+
     private static CreativeModeTab.ItemDisplayParameters resolveItemDisplayParameters() {
         Minecraft mc = Minecraft.getInstance();
         if (mc == null || mc.level == null) {
@@ -155,7 +163,10 @@ public final class RtsCreativeItemCatalog {
         if (!seenItems.add(uniqueKey)) {
             return;
         }
-        this.entries.add(new CreativeEntry(preview, itemKey, categoryToken, label, itemId.getNamespace(), itemId.getPath()));
+        String mod = itemId.getNamespace();
+        String name = itemId.getPath();
+        this.entries.add(new CreativeEntry(preview, itemKey, categoryToken, label, mod, name,
+                RtsCreativeSearchCache.index(categoryToken, itemKey, label, mod, name)));
     }
 
     private static Collection<ItemStack> safeDisplayItems(CreativeModeTab tab) {
@@ -173,58 +184,6 @@ public final class RtsCreativeItemCatalog {
         } catch (RuntimeException ex) {
             return fallback.toString();
         }
-    }
-
-    private static boolean matchesSearch(CreativeEntry entry, String search) {
-        if (search.isBlank()) {
-            return true;
-        }
-        String label = entry.label().toLowerCase(Locale.ROOT);
-        String itemId = entry.itemId().toLowerCase(Locale.ROOT);
-        String mod = entry.mod().toLowerCase(Locale.ROOT);
-        String name = entry.name().toLowerCase(Locale.ROOT);
-        for (String token : search.split("\\s+")) {
-            if (token == null || token.isBlank()) {
-                continue;
-            }
-            if (token.startsWith("@")) {
-                String modQuery = token.substring(1).trim();
-                if (!modQuery.isEmpty() && !mod.contains(modQuery)) {
-                    return false;
-                }
-                continue;
-            }
-            if (!label.contains(token)
-                    && !itemId.contains(token)
-                    && !mod.contains(token)
-                    && !name.contains(token)
-                    && !RtsPinyinSearch.contains(entry.label(), token)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean matchesCategory(CreativeEntry entry, String category) {
-        if (category.isBlank() || ALL_TOKEN.equals(category)) {
-            return true;
-        }
-        if (category.startsWith(CATEGORY_MOD_PREFIX)) {
-            String mod = category.substring(CATEGORY_MOD_PREFIX.length());
-            return entry.mod().equals(mod);
-        }
-        return entry.categoryToken().equals(category);
-    }
-
-    private static String normalizeToken(String token) {
-        if (token == null || token.isBlank()) {
-            return ALL_TOKEN;
-        }
-        return token.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private static String normalizeSearch(String search) {
-        return search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
     }
 
     private static String encodeModCategory(String namespace) {
@@ -306,6 +265,7 @@ public final class RtsCreativeItemCatalog {
     public record CreativeCategory(String token, String label, int depth, boolean expandable, String modNamespace) {
     }
 
-    public record CreativeEntry(ItemStack stack, String itemId, String categoryToken, String label, String mod, String name) {
+    public record CreativeEntry(ItemStack stack, String itemId, String categoryToken, String label, String mod, String name,
+                                RtsCreativeSearchCache.IndexedEntry searchIndex) {
     }
 }
