@@ -145,7 +145,7 @@ public final class ShapeGhostRenderer {
                         : true);
         BuildGhostRenderer.render(minecraft, preview, poseStack, lineBuffer, fillBuffer,
                 renderBlockGhost,
-                true);
+                com.rtsbuilding.rtsbuilding.Config.isPlacementWireframePreviewEnabled());
     }
 
     // ===== Range-destroy confirmed work area handling =====
@@ -248,6 +248,11 @@ public final class ShapeGhostRenderer {
     private static float rawDestroyProgress(ClientRtsController controller, ShapeDataRecords.GhostPreview preview) {
         if (controller == null) return 0.0F;
 
+        float miningStageProgress = miningStageProgress(controller, preview);
+        if (preview != null && preview.chainDestroyPreview() && miningStageProgress > 0.0F) {
+            return miningStageProgress;
+        }
+
         // 主数据源：工作流进度（稳定，仅在工作流同步时才变化）
         RtsWorkflowStatus workflow = controller.findActiveDestroyWorkflow();
         if (workflow != null && workflow.totalBlocks() > 0) {
@@ -255,6 +260,13 @@ public final class ShapeGhostRenderer {
         }
 
         // 次级 fallback：无工作流时的单方块挖掘破坏阶段
+        return miningStageProgress;
+    }
+
+    private static float miningStageProgress(ClientRtsController controller, ShapeDataRecords.GhostPreview preview) {
+        if (controller == null || preview == null) {
+            return 0.0F;
+        }
         BlockPos progressPos = controller.getMineProgressPos();
         if (progressPos == null || !previewContains(preview, progressPos)) {
             return 0.0F;

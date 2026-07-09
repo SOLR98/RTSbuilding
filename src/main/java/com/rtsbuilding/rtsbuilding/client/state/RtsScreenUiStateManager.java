@@ -62,9 +62,6 @@ public final class RtsScreenUiStateManager {
     /** 控制器级别设置的声明式双向绑定列表 */
     private final List<CtrlBind> ctrlBindings;
 
-    /** 调试按钮可见性（运行时状态，仅由此类管理） */
-    private boolean debugButtonVisible = false;
-
     /** 是否正在执行 applyStoredUiState（加载中），在此期间禁止 persistUiState 写入缓存 */
     private boolean applyingStoredState = false;
     /** 缓存的固定 RTS GUI 缩放值 */
@@ -124,11 +121,6 @@ public final class RtsScreenUiStateManager {
                         s -> s.combat.damageSoundEnabled, (s, v) -> s.combat.damageSoundEnabled = v),
                 CtrlBind.bool(controller::isDamageAutoReturnEnabled, controller::setDamageAutoReturnEnabled,
                         s -> s.combat.damageAutoReturnEnabled, (s, v) -> s.combat.damageAutoReturnEnabled = v),
-                // debugButtonVisible 是本地字段
-                // debug
-                CtrlBind.bool(() -> this.debugButtonVisible, v -> this.debugButtonVisible = v,
-                        s -> s.debug.debugButtonVisible, (s, v) -> s.debug.debugButtonVisible = v),
-
                 // ---- 覆盖层与存储 UI 偏好（本地字段 ↔ UiState） ----
                 // overlay
                 CtrlBind.bool(() -> this.containerOverlayEnabled, v -> this.containerOverlayEnabled = v,
@@ -227,18 +219,6 @@ public final class RtsScreenUiStateManager {
      */
     public void flush() {
         this.cache.flushIfDirty();
-    }
-
-    // ======================== Debug 按钮 ========================
-
-    /** 调试按钮是否可见。 */
-    public boolean isDebugButtonVisible() {
-        return this.debugButtonVisible;
-    }
-
-    /** 切换调试按钮可见性。 */
-    public void toggleDebugButton() {
-        this.debugButtonVisible = !this.debugButtonVisible;
     }
 
     // ======================== 覆盖层与存储 UI 偏好 ========================

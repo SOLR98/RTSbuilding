@@ -393,6 +393,7 @@ public final class RtsClientUiStateStore {
             public boolean controlsExpanded;
             public boolean displayExpanded;
             public boolean helpersExpanded;
+            public boolean soundExpanded;
             public boolean animationExpanded;
             public List<String> expandedHintKeys = new ArrayList<>();
         }
@@ -470,6 +471,7 @@ public final class RtsClientUiStateStore {
             clean.settings.controlsExpanded = this.settings.controlsExpanded;
             clean.settings.displayExpanded = this.settings.displayExpanded;
             clean.settings.helpersExpanded = this.settings.helpersExpanded;
+            clean.settings.soundExpanded = this.settings.soundExpanded;
             clean.settings.animationExpanded = this.settings.animationExpanded;
             clean.settings.expandedHintKeys = sanitizeKeys(this.settings.expandedHintKeys);
             // top-level

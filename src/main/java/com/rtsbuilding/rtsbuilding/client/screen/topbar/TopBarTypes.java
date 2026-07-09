@@ -29,7 +29,6 @@ public final class TopBarTypes {
         QUICK_BUILD,
         CHUNK_VIEW,
         RANGE_CULLING,
-        DEBUG,
         GEAR,
         SENSITIVITY,
         AUTO_STORE,

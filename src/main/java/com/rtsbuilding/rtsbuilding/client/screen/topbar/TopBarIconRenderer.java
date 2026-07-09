@@ -23,10 +23,6 @@ import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen
  * @see TopBarTypes.TopBarButtonId
  */
 public final class TopBarIconRenderer {
-    private static final int RANGE_CULLING_ACTIVE_MARKER_HALF_WIDTH = 9;
-    private static final int RANGE_CULLING_ACTIVE_MARKER_TOP_OFFSET = 8;
-    private static final int RANGE_CULLING_ACTIVE_MARKER_HEIGHT = 2;
-
     // ======================== Public API ========================
 
     /**
@@ -42,7 +38,7 @@ public final class TopBarIconRenderer {
      * @param cy     the Y coordinate of the icon center
      * @param color  the base ARGB color for the icon outline or fill
      * @param active whether the button is in its active (toggled-on) state; affects accent colors
-     * @param font   the {@link Font} used for text-based icons (DEBUG); may be {@code null} for
+     * @param font   the {@link Font} used for text-based icons; may be {@code null} for
      *               purely pixel-art icons
      */
     public static void renderIcon(TopBarTypes.TopBarButtonId id, GuiGraphics g, int cx, int cy, int color, boolean active, Font font) {
@@ -54,8 +50,6 @@ public final class TopBarIconRenderer {
             case QUICK_BUILD -> drawQuickBuildIcon(g, cx, cy, color, active);
             case QUEST_DETECT -> drawQuestCheckIcon(g, cx, cy, color);
             case CHUNK_VIEW -> drawChunkCurtainIcon(g, cx, cy, color, active);
-            case RANGE_CULLING -> drawRangeCullingIcon(g, cx, cy, color, active);
-            case DEBUG -> drawDebugIcon(g, cx, cy, color, font);
             case GEAR -> drawGearIcon(g, cx, cy, color);
             default -> {
                 // No icon defined for this button type (e.g. GUIDE is rendered as plain text elsewhere)
@@ -71,7 +65,7 @@ public final class TopBarIconRenderer {
      * The method resolves these from the constants defined in
      * {@link com.rtsbuilding.rtsbuilding.client.screen.BuilderScreenConstants}.
      * <p>
-     * Buttons without a texture-based icon (e.g. DEBUG, GUIDE) return {@code null}.
+     * Buttons without a texture-based icon (e.g. GUIDE) return {@code null}.
      *
      * @param id      the button identifier
      * @param active  whether the button is in its activated/toggled state
@@ -124,6 +118,12 @@ public final class TopBarIconRenderer {
                 case "pressed" -> TOPBAR_CHUNK_VIEW_PRESSED;
                 case "hover" -> TOPBAR_CHUNK_VIEW_HOVER;
                 default -> TOPBAR_CHUNK_VIEW_INACTIVE;
+            };
+            case RANGE_CULLING -> switch (state) {
+                case "active" -> TOPBAR_RANGE_CULLING_ACTIVE;
+                case "pressed" -> TOPBAR_RANGE_CULLING_PRESSED;
+                case "hover" -> TOPBAR_RANGE_CULLING_HOVER;
+                default -> TOPBAR_RANGE_CULLING_INACTIVE;
             };
             case GEAR -> switch (state) {
                 case "active" -> TOPBAR_GEAR_ACTIVE;
@@ -248,36 +248,6 @@ public final class TopBarIconRenderer {
     }
 
     /**
-     * 绘制范围剔除按钮：空心立方体表示被隐藏区域，斜线表示射线会穿透。
-     */
-    private static void drawRangeCullingIcon(GuiGraphics g, int cx, int cy, int color, boolean active) {
-        int fill = active ? 0x884AA8FF : 0x221D2530;
-        int slash = active ? 0xFFFFD45A : 0xFF88BEF4;
-        if (active) {
-            int markerY = cy + RANGE_CULLING_ACTIVE_MARKER_TOP_OFFSET;
-            g.fill(cx - RANGE_CULLING_ACTIVE_MARKER_HALF_WIDTH,
-                    markerY,
-                    cx + RANGE_CULLING_ACTIVE_MARKER_HALF_WIDTH,
-                    markerY + RANGE_CULLING_ACTIVE_MARKER_HEIGHT,
-                    0xFFFFD45A);
-        }
-        g.fill(cx - 8, cy - 6, cx + 5, cy + 6, fill);
-        g.hLine(cx - 8, cx + 4, cy - 6, color);
-        g.hLine(cx - 8, cx + 4, cy + 6, color);
-        g.vLine(cx - 8, cy - 6, cy + 6, color);
-        g.vLine(cx + 5, cy - 6, cy + 6, color);
-        g.hLine(cx - 4, cx + 8, cy - 9, color);
-        g.vLine(cx + 8, cy - 9, cy + 3, color);
-        g.fill(cx - 4, cy - 9, cx - 2, cy - 6, color);
-        g.fill(cx + 5, cy + 3, cx + 8, cy + 6, color);
-        g.fill(cx - 7, cy + 5, cx - 4, cy + 8, slash);
-        g.fill(cx - 4, cy + 2, cx - 1, cy + 5, slash);
-        g.fill(cx - 1, cy - 1, cx + 2, cy + 2, slash);
-        g.fill(cx + 2, cy - 4, cx + 5, cy - 1, slash);
-        g.fill(cx + 5, cy - 7, cx + 8, cy - 4, slash);
-    }
-
-    /**
      * Draws the GEAR (settings) icon: a cog shape with four outer notches and a solid center.
      * The center contains a small dark hole.
      */
@@ -292,16 +262,6 @@ public final class TopBarIconRenderer {
         g.fill(cx + 3, cy + 3, cx + 6, cy + 6, color);
         g.fill(cx - 4, cy - 4, cx + 4, cy + 4, color);
         g.fill(cx - 1, cy - 1, cx + 1, cy + 1, 0xFF1B222C);
-    }
-
-    /**
-     * Draws the DEBUG icon: a rounded square with a letter "D" and a cyan glow.
-     */
-    private static void drawDebugIcon(GuiGraphics g, int cx, int cy, int color, Font font) {
-        g.fill(cx - 7, cy - 7, cx + 7, cy + 7, 0x3328D4FF);
-        g.fill(cx - 5, cy - 5, cx + 5, cy + 5, color);
-        g.fill(cx - 2, cy - 2, cx + 2, cy + 2, 0xFF1B222C);
-        g.drawCenteredString(font, "D", cx, cy - 4, 0xFF1B222C);
     }
 
     // ======================== Internal Helper ========================

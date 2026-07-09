@@ -290,6 +290,15 @@ public final class BuilderScreenConstants {
     /** Chunk view (pressed) */
     public static final ResourceLocation TOPBAR_CHUNK_VIEW_PRESSED = topbarTexture("chunk_view_pressed");
 
+    /** 范围剔除（未激活） */
+    public static final ResourceLocation TOPBAR_RANGE_CULLING_INACTIVE = topbarTexture("filter_block_inactive");
+    /** 范围剔除（悬停） */
+    public static final ResourceLocation TOPBAR_RANGE_CULLING_HOVER = topbarTexture("filter_block_hover");
+    /** 范围剔除（已激活） */
+    public static final ResourceLocation TOPBAR_RANGE_CULLING_ACTIVE = topbarTexture("filter_block_active");
+    /** 范围剔除（按下） */
+    public static final ResourceLocation TOPBAR_RANGE_CULLING_PRESSED = topbarTexture("filter_block_pressed");
+
     /** Settings gear (inactive) */
     public static final ResourceLocation TOPBAR_GEAR_INACTIVE = topbarTexture("settings_gear_inactive");
     /** Settings gear (hover) */

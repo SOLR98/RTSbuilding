@@ -145,7 +145,7 @@ public class Config {
             .defineInRange("mining.dropScanRadius", 1.25D, 0.25D, 8.0D);
 
     public static final ModConfigSpec.IntValue REMOTE_PLACE_SOUNDS_PER_TICK = SERVER_BUILDER
-            .comment("Maximum remote placement sounds emitted per player per tick.")
+            .comment("Maximum RTS remote block action sounds emitted per player per tick.")
             .translation("rtsbuilding.configuration.remotePlaceSoundsPerTick")
             .defineInRange("placement.remotePlaceSoundsPerTick", 1, 0, 16);
 

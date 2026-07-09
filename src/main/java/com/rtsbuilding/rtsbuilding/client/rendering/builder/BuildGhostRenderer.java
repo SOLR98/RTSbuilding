@@ -32,9 +32,10 @@ public final class BuildGhostRenderer {
     }
 
     /**
-     * Renders the build-mode ghost preview. The model layer is toggleable, but
-     * the blue preview wireframe is always rendered so range selection is never
-     * invisible just because an animation setting was disabled.
+     * 渲染建造模式预览。
+     *
+     * <p>半透明模型层和蓝色线框层分别由玩家的视觉设置控制。
+     * 如果预览线框关闭，这里不能再画蓝色放置描边。</p>
      */
     static void render(Minecraft minecraft, ShapeDataRecords.GhostPreview preview,
             PoseStack poseStack, VertexConsumer lineBuffer, VertexConsumer fillBuffer,
@@ -68,7 +69,9 @@ public final class BuildGhostRenderer {
             }
         }
 
-        // 3. Render preview wireframe outlines. This is independent from animation settings.
-        BuildGhostWireframeRenderer.renderWireframes(blocks, poseStack, lineBuffer, readyConfirm);
+        // 3. 仅在玩家启用预览线框时绘制蓝色描边。
+        if (renderWireframe) {
+            BuildGhostWireframeRenderer.renderWireframes(blocks, poseStack, lineBuffer, readyConfirm);
+        }
     }
 }

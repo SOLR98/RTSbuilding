@@ -11,8 +11,6 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 
-import java.util.List;
-
 import static com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants.*;
 
 /**
@@ -130,37 +128,6 @@ public final class StorageLinkDetailHandler extends RtsWindowPanel {
     protected void computeDefaultPosition() {
         this.windowX = 4;
         this.windowY = TOP_H + 2;
-    }
-
-    // ===== Status tooltip =====
-
-    /**
-     * Renders a tooltip for the storage link status text (row 2 of the status bar).
-     *
-     * @return true if the tooltip was rendered (mouse was over the status text)
-     */
-    public boolean renderStatusTooltip(GuiGraphics g, int mouseX, int mouseY) {
-        if (mouseY < 42 || mouseY > 56) {
-            return false;
-        }
-        String linkedText = this.controller.isStorageLinked()
-                ? screen.text("screen.rtsbuilding.status.storage_linked", this.controller.getLinkedStorageName())
-                : screen.text("screen.rtsbuilding.status.storage_not_linked");
-        int linkedW = Math.min(screen.font().width(linkedText), Math.max(20, screen.width - 16));
-        if (!inside(mouseX, mouseY, 8, 42, linkedW, 14)) {
-            return false;
-        }
-        int linkedCount = this.controller.getLinkedStoragePositions().size();
-        if (this.controller.isStorageLinked()) {
-            g.renderComponentTooltip(screen.font(), List.of(
-                    Component.translatable("screen.rtsbuilding.tooltip.storage_linked_short",
-                            this.controller.getLinkedStorageName(), linkedCount),
-                    Component.translatable("screen.rtsbuilding.tooltip.storage_unbind_short")),
-                    mouseX, mouseY);
-        } else {
-            g.renderTooltip(screen.font(), Component.translatable("screen.rtsbuilding.tooltip.storage_unlinked_short"), mouseX, mouseY);
-        }
-        return true;
     }
 
     // ===== Private helpers =====

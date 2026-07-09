@@ -180,9 +180,6 @@ public final class TopBarPanel {
                 case GUIDE -> {
                     screen.toggleTopGuide(button.x() + button.width() / 2, 4 + TOP_BUTTON_H);
                 }
-                case DEBUG -> {
-                    screen.copyDebugSnapshotToClipboard();
-                }
                 case GEAR -> screen.toggleGearMenu();
                 default -> { /* no-op for unrecognised button IDs */ }
             }
@@ -198,8 +195,8 @@ public final class TopBarPanel {
      * <p>
      * Buttons are arranged left-to-right: mode buttons first (INTERACT, LINK,
      * FUNNEL, ROTATE — each gated by progression), then a separator, then action
-     * buttons (QUICK_BUILD, QUEST_DETECT, CHUNK_VIEW, GUIDE, optionally
-     * DEBUG), then a right-aligned GEAR button.
+     * buttons (QUICK_BUILD, QUEST_DETECT, CHUNK_VIEW, GUIDE), then a
+     * right-aligned GEAR button.
      * <p>
      * Mode buttons track their active state via {@link #topActionForMode()}.
      * Action buttons track their active state separately (open/visible toggles).
@@ -240,10 +237,6 @@ public final class TopBarPanel {
 
         // ---- Right-aligned buttons ----
         int gearX = Math.max(x + TOP_BUTTON_GAP, screen.width - TOP_ICON_BUTTON_W - 8);
-        if (screen.isDebugButtonVisible()) {
-            int debugX = gearX - TOP_ICON_BUTTON_W - TOP_BUTTON_GAP;
-            layouts.add(new TopBarTypes.TopBarButtonLayout(TopBarTypes.TopBarButtonId.DEBUG, debugX, TOP_ICON_BUTTON_W, "", true, false));
-        }
         layouts.add(new TopBarTypes.TopBarButtonLayout(TopBarTypes.TopBarButtonId.GEAR, gearX, TOP_ICON_BUTTON_W, "", true, screen.isGearMenuOpen()));
         return layouts;
     }
