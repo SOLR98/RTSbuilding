@@ -6,6 +6,7 @@
     "BlockEntityRenderDispatcherMixin",
     "BlockRenderDispatcherMixin",
     "EmbeddiumWorldSliceMixin",
+    "SodiumLevelSliceMixin",
     "RenderChunkRegionMixin",
     "LocalPlayerMixin"
   ],

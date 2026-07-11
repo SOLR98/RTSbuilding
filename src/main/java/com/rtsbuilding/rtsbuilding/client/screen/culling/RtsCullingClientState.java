@@ -12,7 +12,8 @@ import net.minecraft.world.phys.Vec3;
  */
 public final class RtsCullingClientState {
     private static final RtsCullingManager PERSISTENT_MANAGER = new RtsCullingManager();
-    private static RtsCullingManager activeManager;
+    // Embeddium 在后台网格线程读取隐藏状态，必须安全发布当前管理器。
+    private static volatile RtsCullingManager activeManager;
 
     private RtsCullingClientState() {
     }
@@ -31,6 +32,8 @@ public final class RtsCullingClientState {
     public static void clearActiveManager(RtsCullingManager manager) {
         if (activeManager == manager) {
             activeManager = null;
+            // 先停止剔除，再按盒子范围重建网格，让普通视角立即恢复真实方块。
+            manager.refreshWorldCullRendering();
         }
     }
 
