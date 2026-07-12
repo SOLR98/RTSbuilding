@@ -180,7 +180,6 @@ public class RtsbuildingMod {
          *
          * <p>在所有世界加载完毕后触发，此时世界数据已完整就绪：</p>
          * <ol>
-         *   <li>预热创造栏标签页的缓存，减少玩家首次打开时的延迟</li>
          *   <li>清理所有维度的孤儿相机实体（如服务端重启/崩溃后的残留）</li>
          * </ol>
          *
@@ -188,8 +187,6 @@ public class RtsbuildingMod {
          */
         @SubscribeEvent
         static void onServerStarted(ServerStartedEvent event) {
-            // 预热创造模式物品栏缓存，提升首次打开速度
-            ServerTickOrchestrator.getInstance().warmCreativeTabCaches(event.getServer());
             // 清理所有维度的孤儿相机实体
             RtsCameraManager.cleanupOrphanCameras(event.getServer());
             // 清理旧版全量文件（迁移完毕后删除）

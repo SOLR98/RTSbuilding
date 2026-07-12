@@ -7,10 +7,8 @@ import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.service.destruction.RtsDestructionBatch;
 import com.rtsbuilding.rtsbuilding.server.service.mining.RtsMiningStateMachine;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch;
-import com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder;
 import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
@@ -35,8 +33,6 @@ import net.minecraft.server.level.ServerPlayer;
  *         <li>Pipeline 实例 tick — {@link TickablePipelineRegistry#tickAll()}</li>
  *       </ul>
  *   </li>
- *   <li>{@link #warmCreativeTabCaches(MinecraftServer)} — 预热创造模式标签页缓存：
- *       清除缓存状态后，以正常模式和搜索模式各预热一次</li>
  * </ul>
  */
 public final class ServerTickOrchestrator {
@@ -127,21 +123,4 @@ public final class ServerTickOrchestrator {
     //  缓存预热
     // ======================================================================
 
-    /**
-     * 预热创造模式标签页缓存。
-     */
-    public void warmCreativeTabCaches(MinecraftServer server) {
-        if (server == null) {
-            return;
-        }
-        synchronized (ServerTickOrchestrator.class) {
-            RtsStoragePageBuilder.clearCreativeTabCacheState();
-            ServerLevel level = server.overworld();
-            if (level == null) {
-                return;
-            }
-            RtsStoragePageBuilder.warmCreativeTabCacheMode(level, false);
-            RtsStoragePageBuilder.warmCreativeTabCacheMode(level, true);
-        }
-    }
 }
