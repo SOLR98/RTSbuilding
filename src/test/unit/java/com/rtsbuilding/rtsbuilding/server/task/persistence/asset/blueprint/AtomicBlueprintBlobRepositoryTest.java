@@ -170,6 +170,34 @@ class AtomicBlueprintBlobRepositoryTest {
                 repository(codec).load(record.assetId()));
     }
 
+    @Test
+    void repeatedCompetingWritesStayIdempotentWithoutPerTaskResidentLocks() throws Exception {
+        BlueprintBlobCodec codec = new BlueprintBlobCodec();
+        BlueprintBlobRecord record = codec.freeze(
+                TaskId.create(), 1, "house", "striped", "VANILLA_NBT", structure(new byte[]{4, 5, 6}));
+        CountDownLatch start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(8)) {
+            var futures = new java.util.ArrayList<java.util.concurrent.Future<
+                    AtomicBlueprintBlobRepository.WriteOutcome>>();
+            for (int i = 0; i < 32; i++) {
+                futures.add(executor.submit(() -> {
+                    start.await();
+                    return repository(codec).writeOnce(record);
+                }));
+            }
+            start.countDown();
+            int written = 0;
+            for (var future : futures) {
+                if (future.get(3, TimeUnit.SECONDS)
+                        == AtomicBlueprintBlobRepository.WriteOutcome.WRITTEN) written++;
+            }
+            assertEquals(1, written);
+        }
+        var found = assertInstanceOf(
+                AtomicBlueprintBlobRepository.LoadResult.Found.class, repository(codec).load(record.assetId()));
+        assertEquals(record.sha256(), found.record().sha256());
+    }
+
     private AtomicBlueprintBlobRepository repository(BlueprintBlobCodec codec) {
         return new AtomicBlueprintBlobRepository(temporaryDirectory, codec);
     }

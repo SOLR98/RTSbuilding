@@ -20,7 +20,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 每任务独占蓝图 blob 的原子 write-once 仓库。
@@ -32,7 +31,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class AtomicBlueprintBlobRepository {
     public static final int MAX_SCAN_ENTRIES = 100_000;
     public static final long MAX_SCAN_COMPRESSED_BYTES = 4L * 1024L * 1024L * 1024L;
-    private static final ConcurrentHashMap<TaskAssetId, Object> WRITE_LOCKS = new ConcurrentHashMap<>();
+    private static final int LOCK_STRIPES = 256;
+    private static final Object[] ASSET_LOCKS = createLockStripes();
 
     private final Path directory;
     private final BlueprintBlobCodec codec;
@@ -50,8 +50,7 @@ public final class AtomicBlueprintBlobRepository {
 
     public WriteOutcome writeOnce(BlueprintBlobRecord record) {
         Objects.requireNonNull(record, "record");
-        Object lock = WRITE_LOCKS.computeIfAbsent(record.assetId(), ignored -> new Object());
-        synchronized (lock) {
+        synchronized (assetLock(record.assetId())) {
             return writeOnceLocked(record);
         }
     }
@@ -111,7 +110,14 @@ public final class AtomicBlueprintBlobRepository {
     }
 
     /** 仅在 manifest 已 durable 移除 metadata/建立 tombstone 后调用；hash 不符时拒绝误删。 */
-    public synchronized boolean deleteIfMatches(TaskAssetId assetId, String sha256) {
+    public boolean deleteIfMatches(TaskAssetId assetId, String sha256) {
+        Objects.requireNonNull(assetId, "assetId");
+        synchronized (assetLock(assetId)) {
+            return deleteIfMatchesLocked(assetId, sha256);
+        }
+    }
+
+    private boolean deleteIfMatchesLocked(TaskAssetId assetId, String sha256) {
         LoadResult loaded = load(assetId);
         if (loaded instanceof LoadResult.Missing) return false;
         BlueprintBlobRecord record = requireFound(loaded);
@@ -184,6 +190,17 @@ public final class AtomicBlueprintBlobRepository {
         Path resolved = directory.resolve(assetId + ".nbt").normalize();
         if (!resolved.getParent().equals(directory)) throw new IllegalArgumentException("assetId 路径越界");
         return resolved;
+    }
+
+    private static Object assetLock(TaskAssetId assetId) {
+        int spread = assetId.hashCode() ^ (assetId.hashCode() >>> 16);
+        return ASSET_LOCKS[spread & (LOCK_STRIPES - 1)];
+    }
+
+    private static Object[] createLockStripes() {
+        Object[] locks = new Object[LOCK_STRIPES];
+        for (int i = 0; i < locks.length; i++) locks[i] = new Object();
+        return locks;
     }
 
     private static BlueprintBlobRecord requireFound(LoadResult result) {
