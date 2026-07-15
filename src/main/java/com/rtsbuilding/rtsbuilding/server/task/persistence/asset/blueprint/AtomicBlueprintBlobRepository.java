@@ -6,7 +6,8 @@ import net.minecraft.world.level.storage.LevelResource;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
+import java.io.OutputStream;
+import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -37,6 +38,7 @@ public final class AtomicBlueprintBlobRepository {
     private final Path directory;
     private final BlueprintBlobCodec codec;
     private final AtomicMover atomicMover;
+    private volatile boolean writeAdmissionReadOnly;
 
     public AtomicBlueprintBlobRepository(MinecraftServer server, BlueprintBlobCodec codec) {
         this(Objects.requireNonNull(server, "server").getWorldPath(LevelResource.ROOT)
@@ -71,14 +73,20 @@ public final class AtomicBlueprintBlobRepository {
             forceDirectoryBestEffort(directory);
             return WriteOutcome.ALREADY_PRESENT;
         }
+        if (writeAdmissionReadOnly) {
+            throw new BlobRepositoryException("blob 目录扫描已超过维护配额，拒绝接纳新蓝图资产");
+        }
 
-        byte[] encoded = codec.encodeCompressed(record);
         Path temporary = target.resolveSibling(target.getFileName() + "." + UUID.randomUUID() + ".tmp");
         try {
             Files.createDirectories(directory);
-            writeAndForceNew(temporary, encoded);
+            writeAndForceNew(temporary, record);
+            long compressedBytes = Files.size(temporary);
+            if (compressedBytes <= 0L || compressedBytes > BlueprintBlobCodec.MAX_COMPRESSED_BYTES) {
+                throw new IOException("blob 压缩文件大小越界: " + compressedBytes);
+            }
             try (var input = new BufferedInputStream(Files.newInputStream(temporary))) {
-                requireSame(codec.decodeCompressed(input, Files.size(temporary)), record);
+                requireSame(codec.decodeCompressed(input, compressedBytes), record);
             }
             if (!moveNew(temporary, target, atomicMover)) {
                 BlueprintBlobRecord existing = requireFound(load(record.assetId()));
@@ -145,18 +153,32 @@ public final class AtomicBlueprintBlobRepository {
         }
     }
 
-    /** 启动/GC 使用的有界物理目录扫描；不持仓库总锁，避免与单资产写锁形成反序。 */
+    /** 启动/GC 使用的有界物理目录扫描；超限只进入新资产只读态，不阻断精确 ID 恢复。 */
     public ScanResult scan() {
-        if (!Files.exists(directory)) return new ScanResult(List.of(), 0L, 0);
+        return scan(MAX_SCAN_ENTRIES, MAX_SCAN_COMPRESSED_BYTES);
+    }
+
+    ScanResult scan(int maxEntries, long maxCompressedBytes) {
+        if (maxEntries <= 0 || maxCompressedBytes <= 0L) {
+            throw new IllegalArgumentException("scan 配额必须为正数");
+        }
+        if (!Files.exists(directory)) return new ScanResult(List.of(), 0L, 0, true, false);
         List<TaskAssetId> ids = new ArrayList<>();
         long totalBytes = 0L;
         int visited = 0;
         int removedTemps = 0;
+        boolean complete = true;
+        boolean quotaExceeded = false;
         try (var files = Files.list(directory)) {
             var iterator = files.iterator();
             while (iterator.hasNext()) {
+                if (visited >= maxEntries) {
+                    complete = false;
+                    quotaExceeded = true;
+                    break;
+                }
                 Path file = iterator.next();
-                if (++visited > MAX_SCAN_ENTRIES) throw new BlobRepositoryException("蓝图 blob 目录项超过扫描上限");
+                visited++;
                 if (!Files.isRegularFile(file)) continue;
                 String name = file.getFileName().toString();
                 if (name.endsWith(".tmp")) {
@@ -164,22 +186,31 @@ public final class AtomicBlueprintBlobRepository {
                     if (marker <= 0) throw new BlobRepositoryException("发现未知临时 blob 文件: " + name);
                     TaskAssetId temporaryAssetId = TaskAssetId.parse(name.substring(0, marker));
                     synchronized (assetLock(temporaryAssetId)) {
-                        if (Files.deleteIfExists(file)) removedTemps++;
+                        if (Files.deleteIfExists(file)) {
+                            removedTemps++;
+                        } else {
+                            // 写线程已在等待期间完成发布；本轮目录视图不再能声称是完整快照。
+                            complete = false;
+                        }
                     }
                     continue;
                 }
                 if (!name.endsWith(".nbt")) continue;
-                totalBytes = Math.addExact(totalBytes, Files.size(file));
-                if (totalBytes > MAX_SCAN_COMPRESSED_BYTES) {
-                    throw new BlobRepositoryException("蓝图 blob 压缩总量超过 4 GiB");
+                long fileBytes = Files.size(file);
+                if (fileBytes > maxCompressedBytes - totalBytes) {
+                    complete = false;
+                    quotaExceeded = true;
+                    break;
                 }
+                totalBytes += fileBytes;
                 ids.add(TaskAssetId.parse(name.substring(0, name.length() - 4)));
             }
-        } catch (IOException | ArithmeticException failure) {
+        } catch (IOException failure) {
             throw new BlobRepositoryException("扫描蓝图 blob 目录失败", failure);
         }
         ids.sort(Comparator.naturalOrder());
-        return new ScanResult(ids, totalBytes, removedTemps);
+        if (quotaExceeded) writeAdmissionReadOnly = true;
+        return new ScanResult(ids, totalBytes, removedTemps, complete, quotaExceeded);
     }
 
     private static boolean moveNew(Path temporary, Path target, AtomicMover mover) throws IOException {
@@ -198,11 +229,12 @@ public final class AtomicBlueprintBlobRepository {
         Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE);
     }
 
-    private static void writeAndForceNew(Path temporary, byte[] encoded) throws IOException {
+    private void writeAndForceNew(Path temporary, BlueprintBlobRecord record) throws IOException {
         try (FileChannel channel = FileChannel.open(temporary,
                 StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
-            ByteBuffer buffer = ByteBuffer.wrap(encoded);
-            while (buffer.hasRemaining()) channel.write(buffer);
+            OutputStream output = Channels.newOutputStream(channel);
+            codec.writeCompressed(record, output);
+            output.flush();
             channel.force(true);
         }
     }
@@ -284,7 +316,12 @@ public final class AtomicBlueprintBlobRepository {
         }
     }
 
-    public record ScanResult(List<TaskAssetId> assetIds, long compressedBytes, int removedTemporaryFiles) {
+    public record ScanResult(
+            List<TaskAssetId> assetIds,
+            long compressedBytes,
+            int removedTemporaryFiles,
+            boolean complete,
+            boolean quotaExceeded) {
         public ScanResult { assetIds = List.copyOf(assetIds); }
     }
 

@@ -6,26 +6,17 @@ import com.rtsbuilding.rtsbuilding.server.task.persistence.NbtStringLimits;
 import com.rtsbuilding.rtsbuilding.server.task.persistence.TaskCodec;
 import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.TaskAssetId;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ByteArrayTag;
-import net.minecraft.nbt.IntArrayTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.LongArrayTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NumericTag;
-import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.HexFormat;
-import java.util.List;
+import java.io.OutputStream;
+import java.util.Objects;
 import java.util.Set;
 
 /** 蓝图独立 blob 的精确 schema、硬上限和内容哈希校验。 */
@@ -37,7 +28,7 @@ public final class BlueprintBlobCodec {
     public static final long MAX_DECODE_ACCOUNTING_BYTES = 256L * 1024L * 1024L;
     public static final int MAX_NBT_NODES = 2_000_000;
     public static final int MAX_BLOCKS = 1_000_000;
-    private static final byte[] HASH_DOMAIN = "RTSBuilding/blueprint-blob".getBytes(StandardCharsets.UTF_8);
+    private static final String HASH_DOMAIN = "RTSBuilding/blueprint-blob";
     private static final int HASH_VERSION = 1;
     private static final String KIND = "blueprint";
     private static final Set<String> EXACT_FIELDS = Set.of(
@@ -52,12 +43,10 @@ public final class BlueprintBlobCodec {
         String safeName = safe(name);
         String safeSourceName = safe(sourceName);
         String safeFormat = safe(format);
-        BlueprintBlobRecord draft = new BlueprintBlobRecord(
-                assetId, taskId, blockCount, safeName, safeSourceName, safeFormat,
-                "0".repeat(64), structure);
-        validateLogical(draft);
+        validateLogical(assetId, taskId, blockCount, safeName, safeSourceName, safeFormat, structure);
         return new BlueprintBlobRecord(assetId, taskId, blockCount, safeName, safeSourceName, safeFormat,
-                hashContent(draft), structure);
+                hashContent(assetId, taskId, blockCount, safeName, safeSourceName, safeFormat, structure),
+                structure);
     }
 
     public CompoundTag encode(BlueprintBlobRecord record) {
@@ -113,13 +102,24 @@ public final class BlueprintBlobCodec {
     public byte[] encodeCompressed(BlueprintBlobRecord record) {
         try {
             ByteArrayOutputStream output = new ByteArrayOutputStream();
-            NbtIo.writeCompressed(encode(record), output);
+            writeCompressed(record, output);
             byte[] bytes = output.toByteArray();
             if (bytes.length > MAX_COMPRESSED_BYTES) throw new BlobCodecException("蓝图 blob 压缩文件超过 32 MiB");
             return bytes;
         } catch (IOException failure) {
             throw new BlobCodecException("编码蓝图 blob 失败", failure);
         }
+    }
+
+    /** 后台磁盘写入入口；不关闭调用方持有的流，也不在内存中构造第二份压缩数组。 */
+    public void writeCompressed(BlueprintBlobRecord record, OutputStream output) throws IOException {
+        Objects.requireNonNull(output, "output");
+        NbtIo.writeCompressed(encode(record), new FilterOutputStream(output) {
+            @Override
+            public void close() throws IOException {
+                flush();
+            }
+        });
     }
 
     /** 与磁盘 load 共用相同的解码及上限路径，供原子发布前做字节级预检。 */
@@ -144,21 +144,30 @@ public final class BlueprintBlobCodec {
     }
 
     private void validateLogical(BlueprintBlobRecord record) {
-        if (record.blockCount() <= 0 || record.blockCount() > MAX_BLOCKS) {
+        validateLogical(record.assetId(), record.taskId(), record.blockCount(), record.name(),
+                record.sourceName(), record.format(), record.structureView());
+    }
+
+    private void validateLogical(TaskAssetId assetId, TaskId taskId, int blockCount, String name,
+            String sourceName, String format, CompoundTag structure) {
+        Objects.requireNonNull(assetId, "assetId");
+        Objects.requireNonNull(taskId, "taskId");
+        Objects.requireNonNull(structure, "structure");
+        if (blockCount <= 0 || blockCount > MAX_BLOCKS) {
             throw new BlobCodecException("蓝图 blob 方块数越界");
         }
-        NbtStringLimits.requireWritable(record.name(), "blob name");
-        NbtStringLimits.requireWritable(record.sourceName(), "blob sourceName");
-        NbtStringLimits.requireWritable(record.format(), "blob format");
+        NbtStringLimits.requireWritable(name, "blob name");
+        NbtStringLimits.requireWritable(sourceName, "blob sourceName");
+        NbtStringLimits.requireWritable(format, "blob format");
         try {
-            BlueprintFormat.valueOf(record.format());
+            BlueprintFormat.valueOf(format);
         } catch (IllegalArgumentException failure) {
-            throw new BlobCodecException("不支持的蓝图格式: " + record.format(), failure);
+            throw new BlobCodecException("不支持的蓝图格式: " + format, failure);
         }
-        if (!TaskAssetId.forTask(record.taskId(), KIND).equals(record.assetId())) {
+        if (!TaskAssetId.forTask(taskId, KIND).equals(assetId)) {
             throw new BlobCodecException("蓝图 blob ID 不是由 TaskId 确定性派生");
         }
-        boundedNbt.estimatePayloadBytes(record.structureView(), MAX_LOGICAL_BYTES, MAX_NBT_NODES);
+        boundedNbt.estimatePayloadBytes(structure, MAX_LOGICAL_BYTES, MAX_NBT_NODES);
     }
 
     private static CompoundTag contentTag(BlueprintBlobRecord record) {
@@ -180,94 +189,15 @@ public final class BlueprintBlobCodec {
 
     private static String hashContent(TaskAssetId assetId, TaskId taskId, int blockCount, String name,
             String sourceName, String format, CompoundTag structure) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            putBytes(digest, HASH_DOMAIN);
-            putInt(digest, HASH_VERSION);
-            CompoundTag content = new CompoundTag();
-            content.putUUID("asset_id", assetId.value());
-            content.putUUID("task_id", taskId.value());
-            content.putInt("block_count", blockCount);
-            content.putString("name", name);
-            content.putString("source_name", sourceName);
-            content.putString("format", format);
-            content.put("structure", structure);
-            hashTag(digest, content);
-            return HexFormat.of().formatHex(digest.digest());
-        } catch (NoSuchAlgorithmException failure) {
-            throw new BlobCodecException("计算蓝图 blob canonical hash 失败", failure);
-        }
-    }
-
-    /** Compound key 排序，List 保序，所有数字显式大端编码，避免 hash 依赖压缩器或插入顺序。 */
-    private static void hashTag(MessageDigest digest, Tag tag) {
-        digest.update(tag.getId());
-        switch (tag.getId()) {
-            case Tag.TAG_END -> { }
-            case Tag.TAG_BYTE -> digest.update(((NumericTag) tag).getAsByte());
-            case Tag.TAG_SHORT -> putShort(digest, ((NumericTag) tag).getAsShort());
-            case Tag.TAG_INT -> putInt(digest, ((NumericTag) tag).getAsInt());
-            case Tag.TAG_LONG -> putLong(digest, ((NumericTag) tag).getAsLong());
-            case Tag.TAG_FLOAT -> putInt(digest, Float.floatToRawIntBits(((NumericTag) tag).getAsFloat()));
-            case Tag.TAG_DOUBLE -> putLong(digest, Double.doubleToRawLongBits(((NumericTag) tag).getAsDouble()));
-            case Tag.TAG_BYTE_ARRAY -> {
-                byte[] values = ((ByteArrayTag) tag).getAsByteArray();
-                putInt(digest, values.length);
-                digest.update(values);
-            }
-            case Tag.TAG_STRING -> putBytes(digest,
-                    ((StringTag) tag).getAsString().getBytes(StandardCharsets.UTF_8));
-            case Tag.TAG_LIST -> {
-                ListTag list = (ListTag) tag;
-                putInt(digest, list.size());
-                for (Tag element : list) hashTag(digest, element);
-            }
-            case Tag.TAG_COMPOUND -> {
-                CompoundTag compound = (CompoundTag) tag;
-                List<String> keys = new ArrayList<>(compound.getAllKeys());
-                keys.sort(String::compareTo);
-                putInt(digest, keys.size());
-                for (String key : keys) {
-                    putBytes(digest, key.getBytes(StandardCharsets.UTF_8));
-                    Tag value = compound.get(key);
-                    if (value == null) throw new BlobCodecException("Compound key 缺失值: " + key);
-                    hashTag(digest, value);
-                }
-            }
-            case Tag.TAG_INT_ARRAY -> {
-                int[] values = ((IntArrayTag) tag).getAsIntArray();
-                putInt(digest, values.length);
-                for (int value : values) putInt(digest, value);
-            }
-            case Tag.TAG_LONG_ARRAY -> {
-                long[] values = ((LongArrayTag) tag).getAsLongArray();
-                putInt(digest, values.length);
-                for (long value : values) putLong(digest, value);
-            }
-            default -> throw new BlobCodecException("不支持参与 canonical hash 的 NBT 类型: " + tag.getId());
-        }
-    }
-
-    private static void putBytes(MessageDigest digest, byte[] values) {
-        putInt(digest, values.length);
-        digest.update(values);
-    }
-
-    private static void putShort(MessageDigest digest, short value) {
-        digest.update((byte) (value >>> 8));
-        digest.update((byte) value);
-    }
-
-    private static void putInt(MessageDigest digest, int value) {
-        digest.update((byte) (value >>> 24));
-        digest.update((byte) (value >>> 16));
-        digest.update((byte) (value >>> 8));
-        digest.update((byte) value);
-    }
-
-    private static void putLong(MessageDigest digest, long value) {
-        putInt(digest, (int) (value >>> 32));
-        putInt(digest, (int) value);
+        CompoundTag content = new CompoundTag();
+        content.putUUID("asset_id", assetId.value());
+        content.putUUID("task_id", taskId.value());
+        content.putInt("block_count", blockCount);
+        content.putString("name", name);
+        content.putString("source_name", sourceName);
+        content.putString("format", format);
+        content.put("structure", structure);
+        return CanonicalNbtHasher.sha256(HASH_DOMAIN, HASH_VERSION, content);
     }
 
     private static void require(CompoundTag root, String key, int type) {

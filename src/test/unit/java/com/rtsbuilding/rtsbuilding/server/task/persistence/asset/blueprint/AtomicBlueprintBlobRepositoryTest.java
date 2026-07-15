@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -19,6 +20,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -90,6 +92,26 @@ class AtomicBlueprintBlobRepositoryTest {
         assertEquals(record.sha256(), decoded.sha256());
         assertEquals(50_000, decoded.structure().getList("nodes", Tag.TAG_INT).size());
         assertTrue(BlueprintBlobCodec.MAX_DECODE_ACCOUNTING_BYTES > BlueprintBlobCodec.MAX_LOGICAL_BYTES);
+    }
+
+    @Test
+    void streamingCodecDoesNotCloseCallerOutputStream() throws IOException {
+        BlueprintBlobCodec codec = new BlueprintBlobCodec();
+        BlueprintBlobRecord record = codec.freeze(
+                TaskId.create(), 1, "stream", "test", "VANILLA_NBT", structure(new byte[]{1, 2}));
+        AtomicBoolean closed = new AtomicBoolean();
+        ByteArrayOutputStream output = new ByteArrayOutputStream() {
+            @Override
+            public void close() throws IOException {
+                closed.set(true);
+                super.close();
+            }
+        };
+
+        codec.writeCompressed(record, output);
+
+        assertFalse(closed.get());
+        assertEquals(record.sha256(), codec.decodeCompressed(output.toByteArray()).sha256());
     }
 
     @Test
@@ -174,6 +196,36 @@ class AtomicBlueprintBlobRepositoryTest {
 
         assertEquals(1, scan.removedTemporaryFiles());
         assertTrue(Files.notExists(temporary));
+    }
+
+    @Test
+    void truncatedScanKeepsExactLoadsAvailableAndRejectsOnlyNewAdmissions() throws IOException {
+        BlueprintBlobCodec codec = new BlueprintBlobCodec();
+        AtomicBlueprintBlobRepository repository = repository(codec);
+        BlueprintBlobRecord first = codec.freeze(
+                TaskId.create(), 1, "first", "quota", "VANILLA_NBT", structure(new byte[]{1}));
+        BlueprintBlobRecord second = codec.freeze(
+                TaskId.create(), 1, "second", "quota", "VANILLA_NBT", structure(new byte[]{2}));
+        BlueprintBlobRecord third = codec.freeze(
+                TaskId.create(), 1, "third", "quota", "VANILLA_NBT", structure(new byte[]{3}));
+        repository.writeOnce(first);
+        repository.writeOnce(second);
+
+        AtomicBlueprintBlobRepository.ScanResult scan = repository.scan(1, Long.MAX_VALUE);
+
+        assertFalse(scan.complete());
+        assertTrue(scan.quotaExceeded());
+        assertInstanceOf(AtomicBlueprintBlobRepository.LoadResult.Found.class,
+                repository.load(first.assetId()));
+        assertInstanceOf(AtomicBlueprintBlobRepository.LoadResult.Found.class,
+                repository.load(second.assetId()));
+        assertEquals(AtomicBlueprintBlobRepository.WriteOutcome.ALREADY_PRESENT,
+                repository.writeOnce(first));
+        assertThrows(AtomicBlueprintBlobRepository.BlobRepositoryException.class,
+                () -> repository.writeOnce(third));
+        try (var files = Files.list(temporaryDirectory)) {
+            assertEquals(2L, files.filter(path -> path.getFileName().toString().endsWith(".nbt")).count());
+        }
     }
 
     @Test
