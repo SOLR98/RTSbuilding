@@ -10,18 +10,26 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * durable task 的持久化端口。
  *
- * <p>一次 {@link Commit} 必须满足全有或全无：任务快照、墓碑与迁移完成标记不能部分成功。
- * 实现可以使用单一原子 NBT、分片 Journal 或异步 writer；TaskStore 与业务执行器不依赖具体磁盘布局。</p>
+ * <p>一次 {@link Commit} 必须满足全有或全无。主线程只调用 {@link #prepare(Commit)}；后台 writer
+ * 只接收 {@link PreparedCommit} 并调用 {@link #writePrepared(PreparedCommit)}；完成消息回到主线程后
+ * 才调用 {@link #acknowledge(WriteCompletion)}。后台阶段不得接触玩家、世界、Capability 或 Session。</p>
  */
 public interface TaskRepository {
 
     LoadResult load();
 
-    CommitResult commit(Commit commit);
+    PrepareResult prepare(Commit commit);
+
+    /** 仅限有界后台 writer 调用；实现只能操作深复制 NBT、byte[]、Path 和普通值。 */
+    WriteCompletion writePrepared(PreparedCommit preparedCommit);
+
+    /** 仅限服务器主线程消费 writer completion。 */
+    AcknowledgeResult acknowledge(WriteCompletion completion);
 
     /** 已持久化的完整逻辑镜像；集合在构造时做防御性复制。 */
     record Image(Map<TaskId, TaskSnapshot> tasks,
@@ -42,20 +50,35 @@ public interface TaskRepository {
     /** 一个必须原子提交的增量批次。 */
     record Commit(List<TaskSnapshot> upserts,
                   List<TaskTombstone> tombstones,
+                  Set<TaskId> purgedTombstones,
                   Set<String> completedMigrations) {
         public Commit {
             upserts = List.copyOf(new ArrayList<>(Objects.requireNonNull(upserts, "upserts")));
             tombstones = List.copyOf(new ArrayList<>(Objects.requireNonNull(tombstones, "tombstones")));
+            purgedTombstones = Set.copyOf(
+                    new LinkedHashSet<>(Objects.requireNonNull(purgedTombstones, "purgedTombstones")));
             completedMigrations = Set.copyOf(
                     new LinkedHashSet<>(Objects.requireNonNull(completedMigrations, "completedMigrations")));
-            if (upserts.isEmpty() && tombstones.isEmpty() && completedMigrations.isEmpty()) {
+            if (upserts.isEmpty() && tombstones.isEmpty()
+                    && purgedTombstones.isEmpty() && completedMigrations.isEmpty()) {
                 throw new IllegalArgumentException("不能提交空批次");
             }
         }
 
         public static Commit upserts(Collection<TaskSnapshot> snapshots) {
-            return new Commit(List.copyOf(snapshots), List.of(), Set.of());
+            return new Commit(List.copyOf(snapshots), List.of(), Set.of(), Set.of());
         }
+
+        public int recordCount() {
+            return upserts.size() + tombstones.size() + purgedTombstones.size();
+        }
+    }
+
+    /** Repository 自有的不透明准备结果；接口不暴露内部 NBT，避免外部线程修改。 */
+    interface PreparedCommit {
+        UUID ticketId();
+
+        int recordCount();
     }
 
     sealed interface LoadResult permits LoadResult.Found, LoadResult.Missing, LoadResult.Failed {
@@ -75,18 +98,42 @@ public interface TaskRepository {
         }
     }
 
-    sealed interface CommitResult permits CommitResult.Acknowledged, CommitResult.Failed {
-        /** 实际写入字节数未知时使用 -1；revision 的确认由上层按提交内容完成。 */
-        record Acknowledged(long bytesWritten) implements CommitResult {
-            public Acknowledged {
-                if (bytesWritten < -1L) throw new IllegalArgumentException("bytesWritten 无效");
+    sealed interface PrepareResult permits PrepareResult.Prepared, PrepareResult.Failed {
+        record Prepared(PreparedCommit commit) implements PrepareResult {
+            public Prepared {
+                Objects.requireNonNull(commit, "commit");
             }
         }
 
-        record Failed(Throwable cause) implements CommitResult {
+        record Failed(Throwable cause) implements PrepareResult {
             public Failed {
                 Objects.requireNonNull(cause, "cause");
             }
+        }
+    }
+
+    record WriteCompletion(UUID ticketId, boolean successful, long bytesWritten, Throwable failure) {
+        public WriteCompletion {
+            Objects.requireNonNull(ticketId, "ticketId");
+            if (bytesWritten < -1L) throw new IllegalArgumentException("bytesWritten 无效");
+            if (successful == (failure != null)) {
+                throw new IllegalArgumentException("成功 completion 不能带 failure，失败 completion 必须带 failure");
+            }
+        }
+
+        public static WriteCompletion succeeded(UUID ticketId, long bytesWritten) {
+            return new WriteCompletion(ticketId, true, bytesWritten, null);
+        }
+
+        public static WriteCompletion failed(UUID ticketId, Throwable failure) {
+            return new WriteCompletion(ticketId, false, -1L, failure);
+        }
+    }
+
+    record AcknowledgeResult(boolean accepted, boolean durable, Throwable failure) {
+        public AcknowledgeResult {
+            if (!accepted && durable) throw new IllegalArgumentException("未接受的 ACK 不能是 durable");
+            if (durable && failure != null) throw new IllegalArgumentException("durable ACK 不能带 failure");
         }
     }
 }

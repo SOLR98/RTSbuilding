@@ -14,6 +14,8 @@ public record TaskWaitKey(String kind, String value) implements Comparable<TaskW
         value = requirePart(value, "value");
         if (kind.length() > 64) throw new IllegalArgumentException("kind 不能超过 64 个字符");
         if (value.length() > 512) throw new IllegalArgumentException("value 不能超过 512 个字符");
+        NbtStringLimits.requireWritable(kind, "wait kind");
+        NbtStringLimits.requireWritable(value, "wait value");
     }
 
     private static String requirePart(String value, String name) {

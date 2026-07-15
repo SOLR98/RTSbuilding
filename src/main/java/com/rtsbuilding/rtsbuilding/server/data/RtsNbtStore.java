@@ -8,7 +8,7 @@ import net.minecraft.nbt.CompoundTag;
  * <p>该接口只描述一次完整快照的读取和替换，不负责组件编解码、脏标记或重试策略。
  * 生产环境由 {@link RtsAtomicNbtStore} 实现；独立端口也让故障注入测试不依赖具体文件系统行为。
  */
-interface RtsNbtStore {
+public interface RtsNbtStore {
 
     ReadResult readResult();
 

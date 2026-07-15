@@ -1,37 +1,50 @@
 package com.rtsbuilding.rtsbuilding.server.task.persistence;
 
+import com.rtsbuilding.rtsbuilding.server.task.identity.SubmissionId;
 import com.rtsbuilding.rtsbuilding.server.task.identity.TaskId;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
- * TaskStore 与 durable Repository 之间的 revision/ACK 门闩。
+ * TaskStore 与 durable Repository 之间的主线程协调器。
  *
- * <p>业务先修改内存权威状态，再把不可变快照标脏；只有 Repository 明确 ACK 后才清理对应
- * revision。写盘失败、预算耗尽或较新的 revision 在写入期间出现时，脏状态都会保留。</p>
+ * <p>主线程只准备逻辑批次；全 Root 合并、NBT 编码、压缩和磁盘替换由后台 writer 执行；
+ * completion 回到主线程并确认精确 TaskId/revision 后才清 dirty。协调器只允许一个 in-flight
+ * 批次，从而让 Atomic correctness adapter 与未来 Journal adapter 都拥有明确顺序。</p>
  */
 public final class TaskPersistenceCoordinator {
+    public static final long DEFAULT_RECEIPT_RETENTION_TICKS = 7L * 24_000L;
+    public static final long MAX_DEDICATED_RECORD_BYTES = TaskCodec.MAX_TASK_PAYLOAD_BYTES + 4_096L;
+
     private final TaskStore store;
+    private final TaskQuery query;
     private final TaskRepository repository;
     private final TaskCodec codec;
     private final Map<TaskId, PendingSnapshot> dirtySnapshots = new LinkedHashMap<>();
     private final Map<TaskId, TaskTombstone> pendingTombstones = new LinkedHashMap<>();
+    private final Map<TaskId, Long> durableRevisions = new LinkedHashMap<>();
     private final Set<String> completedMigrations = new LinkedHashSet<>();
+    private PendingCommit inFlight;
+    private int rotationCursor;
 
     private TaskPersistenceCoordinator(TaskStore store, TaskRepository repository, TaskCodec codec) {
         this.store = store;
+        this.query = new ReadOnlyTaskQuery(store);
         this.repository = repository;
         this.codec = codec;
     }
 
-    /** 加载失败时拒绝以空仓库继续，避免损坏存档被后续 checkpoint 覆盖。 */
+    /** Missing 可以启动空仓；Found-empty、类型错误或读取失败都必须 fail closed。 */
     public static TaskPersistenceCoordinator open(TaskRepository repository, TaskCodec codec) {
         Objects.requireNonNull(repository, "repository");
         Objects.requireNonNull(codec, "codec");
@@ -40,8 +53,17 @@ public final class TaskPersistenceCoordinator {
         switch (repository.load()) {
             case TaskRepository.LoadResult.Found found -> {
                 found.image().tasks().values().stream()
-                        .sorted(java.util.Comparator.comparing(TaskSnapshot::id))
-                        .forEach(store::restore);
+                        .sorted(Comparator.comparing(TaskSnapshot::id))
+                        .forEach(snapshot -> {
+                            store.restore(snapshot);
+                            coordinator.durableRevisions.put(snapshot.id(), snapshot.revision());
+                        });
+                found.image().tombstones().values().stream()
+                        .sorted(Comparator.comparing(TaskTombstone::taskId))
+                        .forEach(receipt -> {
+                            store.restoreReceipt(receipt);
+                            coordinator.durableRevisions.put(receipt.taskId(), receipt.revision());
+                        });
                 coordinator.completedMigrations.addAll(found.image().completedMigrations());
             }
             case TaskRepository.LoadResult.Missing ignored -> {
@@ -52,199 +74,408 @@ public final class TaskPersistenceCoordinator {
         return coordinator;
     }
 
-    /** Command Gateway 直接调用；重复 submission 不会产生第二个脏快照。 */
-    public synchronized TaskStore.SubmissionResult submit(TaskSnapshot snapshot) {
+    /** Command Gateway 直接调用；同一活跃 submission 返回旧任务，receipt 中的 submission 则拒绝重放。 */
+    public synchronized TaskAdmissionResult submit(TaskSnapshot snapshot) {
+        requireMigrationSettled();
         long estimatedBytes = codec.estimateSnapshotBytes(snapshot);
-        TaskStore.SubmissionResult result = store.submit(snapshot);
+        TaskAdmissionResult result = store.submit(snapshot);
         if (result.inserted()) dirtySnapshots.put(snapshot.id(), new PendingSnapshot(snapshot, estimatedBytes));
         return result;
     }
 
+    /** tombstone 一旦请求便冻结 snapshot revision，消除 upsert 与墓碑互相追赶。 */
     public synchronized void replace(TaskSnapshot snapshot) {
+        requireMigrationSettled();
+        if (pendingTombstones.containsKey(snapshot.id())) {
+            throw new IllegalStateException("已请求终态回执，禁止继续修改 snapshot revision");
+        }
         long estimatedBytes = codec.estimateSnapshotBytes(snapshot);
         store.replace(snapshot);
         dirtySnapshots.put(snapshot.id(), new PendingSnapshot(snapshot, estimatedBytes));
-        TaskTombstone pending = pendingTombstones.get(snapshot.id());
-        if (pending != null) {
-            if (!snapshot.state().terminal()) {
-                throw new IllegalStateException("已有墓碑的任务不能恢复运行");
-            }
-            pendingTombstones.put(snapshot.id(), new TaskTombstone(
-                    snapshot.id(), snapshot.revision() + 1L,
-                    snapshot.state(), pending.completedGameTime()));
-        }
     }
 
-    /**
-     * 请求删除终态 payload。墓碑 ACK 前任务仍留在内存 Store，因此进程崩溃不会让旧存档任务复活。
-     */
     public synchronized void requestTombstone(TaskId taskId, long completedGameTime) {
+        requestTombstone(taskId, completedGameTime, DEFAULT_RECEIPT_RETENTION_TICKS);
+    }
+
+    public synchronized void requestTombstone(TaskId taskId, long completedGameTime, long retentionTicks) {
+        requireMigrationSettled();
+        if (retentionTicks < 0L) throw new IllegalArgumentException("retentionTicks 不能为负数");
+        if (pendingTombstones.containsKey(taskId)) return;
         TaskSnapshot snapshot = store.get(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + taskId));
-        if (!snapshot.state().terminal()) throw new IllegalStateException("运行中的任务不能建立墓碑");
-        TaskTombstone tombstone = new TaskTombstone(
-                taskId, snapshot.revision() + 1L, snapshot.state(), completedGameTime);
-        pendingTombstones.merge(taskId, tombstone,
-                (before, after) -> after.revision() >= before.revision() ? after : before);
+        if (!snapshot.state().terminal()) throw new IllegalStateException("运行中的任务不能建立终态回执");
+        long retainedUntil = addSaturated(completedGameTime, retentionTicks);
+        pendingTombstones.put(taskId, new TaskTombstone(
+                taskId, snapshot.submissionId(), snapshot.ownerId(), snapshot.dimensionId(),
+                snapshot.revision() + 1L, snapshot.state(), completedGameTime, retainedUntil));
     }
 
-    /**
-     * 在数量与估算字节预算内提交最新 revision。同一任务多次更新只保留最后一个快照。
-     */
-    public synchronized CheckpointResult checkpoint(int maxRecords, long maxEstimatedBytes) {
-        if (maxRecords <= 0 || maxEstimatedBytes <= 0L) {
-            throw new IllegalArgumentException("checkpoint 预算必须为正数");
-        }
+    /** 公平轮转选取普通 checkpoint；所有本轮未选 dirty 都进入 deferredTaskIds。 */
+    public synchronized PreparationResult prepareCheckpoint(int maxRecords, long maxEstimatedBytes) {
+        requireBudget(maxRecords, maxEstimatedBytes);
+        if (inFlight != null) return PreparationResult.inFlight(allDirtyTaskIds());
+        List<Candidate> candidates = candidates();
+        if (candidates.isEmpty()) return PreparationResult.idle();
+
+        int start = Math.floorMod(rotationCursor, candidates.size());
         List<TaskSnapshot> snapshots = new ArrayList<>();
         List<TaskTombstone> tombstones = new ArrayList<>();
-        List<TaskId> deferred = new ArrayList<>();
-        long estimatedBytes = 0L;
-
-        for (PendingSnapshot pending : dirtySnapshots.values()) {
-            if (snapshots.size() + tombstones.size() >= maxRecords) break;
-            if (estimatedBytes + pending.estimatedBytes() > maxEstimatedBytes) {
-                // 跳过当前大项，让后续小项仍能前进；返回 ID 供 Runtime 标记 WAITING_PERSISTENCE。
-                deferred.add(pending.snapshot().id());
+        LinkedHashSet<TaskId> selectedIds = new LinkedHashSet<>();
+        LinkedHashSet<TaskId> deferred = new LinkedHashSet<>();
+        long bytes = 0L;
+        int records = 0;
+        for (int offset = 0; offset < candidates.size(); offset++) {
+            Candidate candidate = candidates.get((start + offset) % candidates.size());
+            if (records + candidate.recordCount() > maxRecords
+                    || bytes + candidate.estimatedBytes() > maxEstimatedBytes) {
+                deferred.add(candidate.taskId());
                 continue;
             }
-            snapshots.add(pending.snapshot());
-            estimatedBytes += pending.estimatedBytes();
+            selectedIds.add(candidate.taskId());
+            if (candidate.snapshot() != null) snapshots.add(candidate.snapshot());
+            if (candidate.tombstone() != null) tombstones.add(candidate.tombstone());
+            records += candidate.recordCount();
+            bytes += candidate.estimatedBytes();
         }
-        for (TaskTombstone tombstone : pendingTombstones.values()) {
-            long estimate = 128L;
-            if (snapshots.size() + tombstones.size() >= maxRecords
-                    || estimatedBytes + estimate > maxEstimatedBytes) break;
-            tombstones.add(tombstone);
-            estimatedBytes += estimate;
-        }
-        if (snapshots.isEmpty() && tombstones.isEmpty()) {
-            return dirtySnapshots.isEmpty() && pendingTombstones.isEmpty()
-                    ? CheckpointResult.idle()
-                    : CheckpointResult.budgetBlocked(deferred);
-        }
-
-        TaskRepository.Commit commit = new TaskRepository.Commit(snapshots, tombstones, Set.of());
-        TaskRepository.CommitResult result = repository.commit(commit);
-        if (result instanceof TaskRepository.CommitResult.Failed failed) {
-            return CheckpointResult.failed(
-                    snapshots.size() + tombstones.size(), estimatedBytes, deferred, failed.cause());
-        }
-        TaskRepository.CommitResult.Acknowledged acknowledged =
-                (TaskRepository.CommitResult.Acknowledged) result;
-        for (TaskSnapshot snapshot : snapshots) {
-            dirtySnapshots.computeIfPresent(snapshot.id(),
-                    (ignored, current) -> current.snapshot().revision() == snapshot.revision() ? null : current);
-        }
-        for (TaskTombstone tombstone : tombstones) {
-            pendingTombstones.computeIfPresent(tombstone.taskId(),
-                    (ignored, current) -> current.revision() == tombstone.revision() ? null : current);
-            store.get(tombstone.taskId()).ifPresent(current -> {
-                if (current.revision() < tombstone.revision()) {
-                    store.remove(tombstone.taskId());
-                    dirtySnapshots.computeIfPresent(tombstone.taskId(),
-                            (ignored, dirty) -> dirty.snapshot().revision() < tombstone.revision() ? null : dirty);
-                }
-            });
-        }
-        return CheckpointResult.acknowledged(
-                snapshots.size() + tombstones.size(), estimatedBytes,
-                acknowledged.bytesWritten(), deferred);
+        rotationCursor = (start + 1) % candidates.size();
+        if (selectedIds.isEmpty()) return PreparationResult.budgetBlocked(List.copyOf(deferred));
+        return prepare(new TaskRepository.Commit(snapshots, tombstones, Set.of(), Set.of()),
+                CommitKind.CHECKPOINT, snapshots, tombstones, Set.of(), null,
+                List.of(), bytes, deferred);
     }
 
-    /**
-     * 把旧 Session Job 转换成快照并与迁移标记同批原子提交；失败时不修改内存 Store。
-     */
-    public synchronized MigrationResult migrateOnce(String migrationId, Collection<TaskSnapshot> snapshots) {
-        Objects.requireNonNull(migrationId, "migrationId");
+    /** 为普通 Tick 预算装不下的单个任务提供显式专用通道；不会偷偷突破调用方给出的硬上限。 */
+    public synchronized PreparationResult prepareDedicated(TaskId taskId, long maxDedicatedBytes) {
+        if (maxDedicatedBytes <= 0L || maxDedicatedBytes > MAX_DEDICATED_RECORD_BYTES) {
+            throw new IllegalArgumentException("专用预算无效");
+        }
+        if (inFlight != null) return PreparationResult.inFlight(allDirtyTaskIds());
+        Candidate candidate = candidate(taskId);
+        if (candidate == null) return PreparationResult.idle();
+        LinkedHashSet<TaskId> deferred = new LinkedHashSet<>(allDirtyTaskIds());
+        deferred.remove(taskId);
+        if (candidate.estimatedBytes() > maxDedicatedBytes) {
+            deferred.add(taskId);
+            return PreparationResult.budgetBlocked(List.copyOf(deferred));
+        }
+        List<TaskSnapshot> snapshots = candidate.snapshot() == null
+                ? List.of() : List.of(candidate.snapshot());
+        List<TaskTombstone> tombstones = candidate.tombstone() == null
+                ? List.of() : List.of(candidate.tombstone());
+        return prepare(new TaskRepository.Commit(snapshots, tombstones, Set.of(), Set.of()),
+                CommitKind.DEDICATED, snapshots, tombstones, Set.of(), null,
+                List.of(), candidate.estimatedBytes(), deferred);
+    }
+
+    /** retention 到期后分批删除 receipt；ACK 前仍保留重放保护。 */
+    public synchronized PreparationResult prepareReceiptCompaction(long gameTime, int maxRecords) {
+        if (maxRecords <= 0) throw new IllegalArgumentException("maxRecords 必须为正数");
+        if (inFlight != null) return PreparationResult.inFlight(allDirtyTaskIds());
+        List<TaskId> expired = store.receipts().stream()
+                .filter(receipt -> receipt.expiredAt(gameTime))
+                .map(TaskTombstone::taskId)
+                .toList();
+        if (expired.isEmpty()) return PreparationResult.idle();
+        Set<TaskId> selected = new LinkedHashSet<>(expired.subList(0, Math.min(maxRecords, expired.size())));
+        List<TaskId> deferred = expired.subList(selected.size(), expired.size());
+        return prepare(new TaskRepository.Commit(List.of(), List.of(), selected, Set.of()),
+                CommitKind.COMPACTION, List.of(), List.of(), selected, null,
+                List.of(), selected.size() * 64L, new LinkedHashSet<>(deferred));
+    }
+
+    /** 旧 Session Job 与迁移标记在同一个后台原子批次中写入；ACK 前不暴露第二套运行状态。 */
+    public synchronized PreparationResult prepareMigrationOnce(
+            String migrationId, Collection<TaskSnapshot> snapshots) {
+        requireMigrationId(migrationId);
         Objects.requireNonNull(snapshots, "snapshots");
-        if (migrationId.isBlank()) throw new IllegalArgumentException("migrationId 不能为空");
-        if (migrationId.length() > 128) throw new IllegalArgumentException("migrationId 不能超过 128 个字符");
-        if (completedMigrations.contains(migrationId)) return MigrationResult.alreadyApplied();
+        if (completedMigrations.contains(migrationId)) return PreparationResult.alreadyApplied();
+        if (inFlight != null) return PreparationResult.inFlight(allDirtyTaskIds());
+        if (!dirtySnapshots.isEmpty() || !pendingTombstones.isEmpty()) {
+            return PreparationResult.failed(allDirtyTaskIds(),
+                    new IllegalStateException("迁移必须在普通任务 admission 前完成"));
+        }
 
         TaskStore probe = new TaskStore();
         store.snapshots().forEach(probe::restore);
+        store.receipts().forEach(probe::restoreReceipt);
         List<TaskSnapshot> newSnapshots = new ArrayList<>();
+        long bytes = 0L;
         for (TaskSnapshot snapshot : snapshots) {
-            codec.estimateSnapshotBytes(snapshot);
-            TaskStore.SubmissionResult result = probe.submit(snapshot);
-            if (result.inserted()) newSnapshots.add(snapshot);
+            long estimated = codec.estimateSnapshotBytes(snapshot);
+            TaskAdmissionResult result = probe.submit(snapshot);
+            if (result.inserted()) {
+                newSnapshots.add(snapshot);
+                bytes = addSaturated(bytes, estimated);
+            }
         }
-
-        TaskRepository.Commit commit = new TaskRepository.Commit(
-                newSnapshots, List.of(), Set.of(migrationId));
-        TaskRepository.CommitResult result = repository.commit(commit);
-        if (result instanceof TaskRepository.CommitResult.Failed failed) {
-            return MigrationResult.retryRequired(failed.cause());
-        }
-        for (TaskSnapshot snapshot : newSnapshots) store.submit(snapshot);
-        completedMigrations.add(migrationId);
-        return MigrationResult.applied(newSnapshots.size());
+        return prepare(new TaskRepository.Commit(newSnapshots, List.of(), Set.of(), Set.of(migrationId)),
+                CommitKind.MIGRATION, newSnapshots, List.of(), Set.of(), migrationId,
+                newSnapshots, bytes, new LinkedHashSet<>());
     }
 
-    public TaskStore store() {
-        return store;
+    /** 有界后台 writer 调用；该路径不读取或修改 TaskStore。 */
+    public TaskRepository.WriteCompletion writePrepared(TaskRepository.PreparedCommit preparedCommit) {
+        return repository.writePrepared(preparedCommit);
+    }
+
+    /** 主线程消费 completion，并只确认实际写入批次中的精确 TaskId/revision。 */
+    public synchronized CommitAckResult acceptCompletion(TaskRepository.WriteCompletion completion) {
+        Objects.requireNonNull(completion, "completion");
+        if (inFlight == null || !inFlight.prepared().ticketId().equals(completion.ticketId())) {
+            return CommitAckResult.rejected(new IllegalArgumentException("completion ticket 不匹配"));
+        }
+        PendingCommit pending = inFlight;
+        TaskRepository.AcknowledgeResult repositoryAck = repository.acknowledge(completion);
+        inFlight = null;
+        if (!repositoryAck.accepted() || !repositoryAck.durable()) {
+            Throwable failure = repositoryAck.failure() == null
+                    ? new IllegalStateException("Repository 未确认 durable") : repositoryAck.failure();
+            return CommitAckResult.failed(failure);
+        }
+
+        Map<TaskId, Long> acknowledged = new LinkedHashMap<>();
+        for (TaskSnapshot snapshot : pending.snapshots()) {
+            durableRevisions.merge(snapshot.id(), snapshot.revision(), Math::max);
+            acknowledged.put(snapshot.id(), snapshot.revision());
+            dirtySnapshots.computeIfPresent(snapshot.id(), (ignored, current) ->
+                    current.snapshot().revision() == snapshot.revision() ? null : current);
+        }
+        for (TaskTombstone receipt : pending.tombstones()) {
+            durableRevisions.merge(receipt.taskId(), receipt.revision(), Math::max);
+            acknowledged.put(receipt.taskId(), receipt.revision());
+            pendingTombstones.computeIfPresent(receipt.taskId(), (ignored, current) ->
+                    current.revision() == receipt.revision() ? null : current);
+            dirtySnapshots.remove(receipt.taskId());
+            store.retire(receipt);
+        }
+        for (TaskId purged : pending.purgedReceipts()) {
+            store.purgeReceipt(purged);
+            durableRevisions.remove(purged);
+        }
+        if (pending.kind() == CommitKind.MIGRATION) {
+            for (TaskSnapshot snapshot : pending.migrationSnapshots()) {
+                store.submit(snapshot);
+                durableRevisions.put(snapshot.id(), snapshot.revision());
+                acknowledged.put(snapshot.id(), snapshot.revision());
+            }
+            completedMigrations.add(pending.migrationId());
+        }
+        return CommitAckResult.acknowledged(
+                acknowledged, pending.purgedReceipts(), completion.bytesWritten());
+    }
+
+    public TaskQuery query() {
+        return query;
+    }
+
+    public synchronized Optional<Long> durableRevision(TaskId taskId) {
+        return Optional.ofNullable(durableRevisions.get(taskId));
+    }
+
+    public synchronized boolean hasAcknowledged(TaskId taskId, long revision) {
+        return durableRevisions.getOrDefault(taskId, 0L) >= revision;
     }
 
     public synchronized int dirtyCount() {
         return dirtySnapshots.size() + pendingTombstones.size();
     }
 
-    public record CheckpointResult(CheckpointOutcome outcome, int records, long estimatedBytes,
-                                   long bytesWritten, List<TaskId> deferredTaskIds, Throwable failure) {
-        public CheckpointResult {
+    private PreparationResult prepare(TaskRepository.Commit commit, CommitKind kind,
+            List<TaskSnapshot> snapshots, List<TaskTombstone> tombstones, Set<TaskId> purgedReceipts,
+            String migrationId, List<TaskSnapshot> migrationSnapshots, long estimatedBytes,
+            LinkedHashSet<TaskId> deferred) {
+        TaskRepository.PrepareResult result = repository.prepare(commit);
+        if (result instanceof TaskRepository.PrepareResult.Failed failed) {
+            deferred.addAll(commit.upserts().stream().map(TaskSnapshot::id).toList());
+            deferred.addAll(commit.tombstones().stream().map(TaskTombstone::taskId).toList());
+            return PreparationResult.failed(List.copyOf(deferred), failed.cause());
+        }
+        TaskRepository.PreparedCommit prepared = ((TaskRepository.PrepareResult.Prepared) result).commit();
+        inFlight = new PendingCommit(prepared, kind, List.copyOf(snapshots), List.copyOf(tombstones),
+                Set.copyOf(purgedReceipts), migrationId, List.copyOf(migrationSnapshots));
+        return PreparationResult.prepared(prepared, estimatedBytes, List.copyOf(deferred));
+    }
+
+    private List<Candidate> candidates() {
+        List<Candidate> result = new ArrayList<>();
+        Set<TaskId> consumedTombstones = new LinkedHashSet<>();
+        for (PendingSnapshot pending : dirtySnapshots.values()) {
+            TaskTombstone tombstone = pendingTombstones.get(pending.snapshot().id());
+            if (tombstone != null) consumedTombstones.add(tombstone.taskId());
+            result.add(new Candidate(pending.snapshot().id(), pending.snapshot(), tombstone,
+                    pending.estimatedBytes() + (tombstone == null ? 0L : 192L)));
+        }
+        for (TaskTombstone tombstone : pendingTombstones.values()) {
+            if (!consumedTombstones.contains(tombstone.taskId())) {
+                result.add(new Candidate(tombstone.taskId(), null, tombstone, 192L));
+            }
+        }
+        return result;
+    }
+
+    private Candidate candidate(TaskId taskId) {
+        PendingSnapshot snapshot = dirtySnapshots.get(taskId);
+        TaskTombstone tombstone = pendingTombstones.get(taskId);
+        if (snapshot == null && tombstone == null) return null;
+        return new Candidate(taskId, snapshot == null ? null : snapshot.snapshot(), tombstone,
+                (snapshot == null ? 0L : snapshot.estimatedBytes()) + (tombstone == null ? 0L : 192L));
+    }
+
+    private List<TaskId> allDirtyTaskIds() {
+        LinkedHashSet<TaskId> ids = new LinkedHashSet<>(dirtySnapshots.keySet());
+        ids.addAll(pendingTombstones.keySet());
+        return List.copyOf(ids);
+    }
+
+    private static void requireBudget(int maxRecords, long maxEstimatedBytes) {
+        if (maxRecords <= 0 || maxEstimatedBytes <= 0L) {
+            throw new IllegalArgumentException("checkpoint 预算必须为正数");
+        }
+    }
+
+    private static void requireMigrationId(String migrationId) {
+        Objects.requireNonNull(migrationId, "migrationId");
+        if (migrationId.isBlank() || migrationId.length() > 128) {
+            throw new IllegalArgumentException("migrationId 无效");
+        }
+        NbtStringLimits.requireWritable(migrationId, "migrationId");
+    }
+
+    private void requireMigrationSettled() {
+        if (inFlight != null && inFlight.kind() == CommitKind.MIGRATION) {
+            throw new IllegalStateException("旧任务迁移 ACK 前不允许修改运行状态");
+        }
+    }
+
+    private static long addSaturated(long left, long right) {
+        return right > Long.MAX_VALUE - left ? Long.MAX_VALUE : left + right;
+    }
+
+    public record PreparationResult(PreparationOutcome outcome,
+                                    TaskRepository.PreparedCommit preparedCommit,
+                                    long estimatedBytes,
+                                    List<TaskId> deferredTaskIds,
+                                    Throwable failure) {
+        public PreparationResult {
             deferredTaskIds = List.copyOf(deferredTaskIds);
         }
 
-        static CheckpointResult idle() {
-            return new CheckpointResult(CheckpointOutcome.IDLE, 0, 0L, 0L, List.of(), null);
+        static PreparationResult idle() {
+            return new PreparationResult(PreparationOutcome.IDLE, null, 0L, List.of(), null);
         }
 
-        static CheckpointResult budgetBlocked(List<TaskId> deferred) {
-            return new CheckpointResult(
-                    CheckpointOutcome.BUDGET_BLOCKED, 0, 0L, 0L, deferred, null);
+        static PreparationResult alreadyApplied() {
+            return new PreparationResult(
+                    PreparationOutcome.ALREADY_APPLIED, null, 0L, List.of(), null);
         }
 
-        static CheckpointResult acknowledged(
-                int records, long estimatedBytes, long bytesWritten, List<TaskId> deferred) {
-            return new CheckpointResult(
-                    CheckpointOutcome.ACKNOWLEDGED,
-                    records, estimatedBytes, bytesWritten, deferred, null);
+        static PreparationResult inFlight(List<TaskId> deferred) {
+            return new PreparationResult(PreparationOutcome.IN_FLIGHT, null, 0L, deferred, null);
         }
 
-        static CheckpointResult failed(
-                int records, long estimatedBytes, List<TaskId> deferred, Throwable failure) {
-            return new CheckpointResult(
-                    CheckpointOutcome.FAILED, records, estimatedBytes, 0L, deferred, failure);
+        static PreparationResult budgetBlocked(List<TaskId> deferred) {
+            return new PreparationResult(
+                    PreparationOutcome.BUDGET_BLOCKED, null, 0L, deferred, null);
+        }
+
+        static PreparationResult failed(List<TaskId> deferred, Throwable failure) {
+            return new PreparationResult(PreparationOutcome.FAILED, null, 0L, deferred, failure);
+        }
+
+        static PreparationResult prepared(TaskRepository.PreparedCommit commit,
+                long estimatedBytes, List<TaskId> deferred) {
+            return new PreparationResult(
+                    PreparationOutcome.PREPARED, commit, estimatedBytes, deferred, null);
         }
     }
 
-    public enum CheckpointOutcome {
+    public enum PreparationOutcome {
         IDLE,
+        PREPARED,
+        IN_FLIGHT,
         BUDGET_BLOCKED,
-        ACKNOWLEDGED,
+        ALREADY_APPLIED,
         FAILED
     }
 
-    public record MigrationResult(MigrationOutcome outcome, int migratedTasks, Throwable failure) {
-        static MigrationResult applied(int migratedTasks) {
-            return new MigrationResult(MigrationOutcome.APPLIED, migratedTasks, null);
+    public record CommitAckResult(AckOutcome outcome, Map<TaskId, Long> acknowledgedRevisions,
+                                  Set<TaskId> purgedReceipts, long bytesWritten, Throwable failure) {
+        public CommitAckResult {
+            acknowledgedRevisions = Map.copyOf(acknowledgedRevisions);
+            purgedReceipts = Set.copyOf(purgedReceipts);
         }
 
-        static MigrationResult alreadyApplied() {
-            return new MigrationResult(MigrationOutcome.ALREADY_APPLIED, 0, null);
+        static CommitAckResult acknowledged(
+                Map<TaskId, Long> revisions, Set<TaskId> purged, long bytesWritten) {
+            return new CommitAckResult(AckOutcome.ACKNOWLEDGED, revisions, purged, bytesWritten, null);
         }
 
-        static MigrationResult retryRequired(Throwable failure) {
-            return new MigrationResult(MigrationOutcome.RETRY_REQUIRED, 0, failure);
+        static CommitAckResult failed(Throwable failure) {
+            return new CommitAckResult(AckOutcome.FAILED, Map.of(), Set.of(), -1L, failure);
+        }
+
+        static CommitAckResult rejected(Throwable failure) {
+            return new CommitAckResult(AckOutcome.REJECTED, Map.of(), Set.of(), -1L, failure);
         }
     }
 
-    public enum MigrationOutcome {
-        APPLIED,
-        ALREADY_APPLIED,
-        RETRY_REQUIRED
+    public enum AckOutcome {
+        ACKNOWLEDGED,
+        FAILED,
+        REJECTED
+    }
+
+    private enum CommitKind {
+        CHECKPOINT,
+        DEDICATED,
+        MIGRATION,
+        COMPACTION
     }
 
     private record PendingSnapshot(TaskSnapshot snapshot, long estimatedBytes) {
+    }
+
+    private record Candidate(TaskId taskId, TaskSnapshot snapshot,
+                             TaskTombstone tombstone, long estimatedBytes) {
+        int recordCount() {
+            return (snapshot == null ? 0 : 1) + (tombstone == null ? 0 : 1);
+        }
+    }
+
+    private record PendingCommit(TaskRepository.PreparedCommit prepared, CommitKind kind,
+                                 List<TaskSnapshot> snapshots, List<TaskTombstone> tombstones,
+                                 Set<TaskId> purgedReceipts, String migrationId,
+                                 List<TaskSnapshot> migrationSnapshots) {
+    }
+
+    private static final class ReadOnlyTaskQuery implements TaskQuery {
+        private final TaskStore store;
+
+        private ReadOnlyTaskQuery(TaskStore store) {
+            this.store = store;
+        }
+
+        @Override public Optional<TaskSnapshot> get(TaskId taskId) { return store.get(taskId); }
+        @Override public Optional<TaskSnapshot> findBySubmission(UUID ownerId, SubmissionId submissionId) {
+            return store.findBySubmission(ownerId, submissionId);
+        }
+        @Override public Optional<TaskSnapshot> findByWorkflow(
+                UUID ownerId, String dimensionId, int workflowEntryId) {
+            return store.findByWorkflow(ownerId, dimensionId, workflowEntryId);
+        }
+        @Override public Optional<TaskTombstone> receipt(TaskId taskId) { return store.receipt(taskId); }
+        @Override public List<TaskSnapshot> ownedBy(UUID ownerId) { return store.ownedBy(ownerId); }
+        @Override public List<TaskSnapshot> inDimension(String dimensionId) {
+            return store.inDimension(dimensionId);
+        }
+        @Override public List<TaskSnapshot> waitingFor(TaskWaitKey waitKey) {
+            return store.waitingFor(waitKey);
+        }
+        @Override public List<TaskSnapshot> runnableFor(UUID ownerId, String dimensionId) {
+            return store.runnableFor(ownerId, dimensionId);
+        }
+        @Override public List<TaskSnapshot> snapshots() { return store.snapshots(); }
+        @Override public int size() { return store.size(); }
     }
 }

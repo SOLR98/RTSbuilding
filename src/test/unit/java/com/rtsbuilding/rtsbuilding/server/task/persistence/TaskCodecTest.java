@@ -22,7 +22,8 @@ class TaskCodecTest {
                 TaskLifecycleState.WAITING_RESOURCE,
                 new TaskWaitKey("item", "minecraft:stone"), 4L, "minecraft:overworld");
         TaskTombstone tombstone = new TaskTombstone(
-                TaskId.create(), 7L, TaskLifecycleState.COMPLETED, 200L);
+                TaskId.create(), SubmissionId.create(), UUID.randomUUID(), "minecraft:overworld",
+                7L, TaskLifecycleState.COMPLETED, 200L, 1_000L);
         TaskRepository.Image source = new TaskRepository.Image(
                 Map.of(task.id(), task), Map.of(tombstone.taskId(), tombstone), Set.of("session-jobs-v1"));
 
@@ -62,5 +63,59 @@ class TaskCodecTest {
         tasks.add(missingIdentity);
         corrupt.put("tasks", tasks);
         assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeImage(corrupt));
+    }
+
+    @Test
+    void rootListsAndPayloadRequireExactNbtTypes() {
+        CompoundTag wrongRootList = new CompoundTag();
+        wrongRootList.putInt("schema", TaskCodec.CURRENT_SCHEMA);
+        wrongRootList.putString("tasks", "not-a-list");
+        wrongRootList.put("tombstones", new net.minecraft.nbt.ListTag());
+        wrongRootList.put("completed_migrations", new net.minecraft.nbt.ListTag());
+        assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeImage(wrongRootList));
+
+        CompoundTag wrongElementType = new CompoundTag();
+        wrongElementType.putInt("schema", TaskCodec.CURRENT_SCHEMA);
+        net.minecraft.nbt.ListTag stringTasks = new net.minecraft.nbt.ListTag();
+        stringTasks.add(net.minecraft.nbt.StringTag.valueOf("not-a-task"));
+        wrongElementType.put("tasks", stringTasks);
+        wrongElementType.put("tombstones", new net.minecraft.nbt.ListTag());
+        wrongElementType.put("completed_migrations", new net.minecraft.nbt.ListTag());
+        assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeImage(wrongElementType));
+
+        TaskSnapshot task = TaskStoreTest.snapshot(
+                TaskId.create(), SubmissionId.create(), UUID.randomUUID(), 55,
+                TaskLifecycleState.QUEUED, null, 1L, "minecraft:overworld");
+        CompoundTag encoded = codec.encodeSnapshot(task);
+        encoded.putInt("payload", 7);
+        assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeSnapshot(encoded));
+    }
+
+    @Test
+    void modifiedUtfLimitRejectsStringsThatFitCharCountButNotNbtBytes() {
+        CompoundTag payload = new CompoundTag();
+        payload.putString("text", "界".repeat(22_000));
+        TaskSnapshot task = new TaskSnapshot(
+                TaskId.create(), SubmissionId.create(), UUID.randomUUID(), "minecraft:overworld",
+                com.rtsbuilding.rtsbuilding.server.task.TaskType.PLACEMENT,
+                TaskLifecycleState.QUEUED, -1, null, 1L, 0L, 0L,
+                1, 0, 0, 0, payload);
+
+        assertThrows(IllegalArgumentException.class, () -> codec.estimateSnapshotBytes(task));
+    }
+
+    @Test
+    void migrationLedgerCapacityIsBounded() {
+        CompoundTag root = new CompoundTag();
+        root.putInt("schema", TaskCodec.CURRENT_SCHEMA);
+        root.put("tasks", new net.minecraft.nbt.ListTag());
+        root.put("tombstones", new net.minecraft.nbt.ListTag());
+        net.minecraft.nbt.ListTag migrations = new net.minecraft.nbt.ListTag();
+        for (int i = 0; i <= TaskCodec.MAX_MIGRATIONS; i++) {
+            migrations.add(net.minecraft.nbt.StringTag.valueOf("migration-" + i));
+        }
+        root.put("completed_migrations", migrations);
+
+        assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeImage(root));
     }
 }

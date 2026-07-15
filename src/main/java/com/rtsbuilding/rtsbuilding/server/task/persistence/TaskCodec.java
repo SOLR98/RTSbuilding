@@ -33,7 +33,7 @@ public final class TaskCodec {
     private static final String MIGRATIONS = "completed_migrations";
 
     public CompoundTag encodeImage(TaskRepository.Image image) {
-        if (image.tasks().size() > MAX_TASKS || image.tombstones().size() > MAX_TASKS) {
+        if ((long) image.tasks().size() + image.tombstones().size() > MAX_TASKS) {
             throw new TaskCodecException("task 存档超过数量上限");
         }
         if (image.completedMigrations().size() > MAX_MIGRATIONS) {
@@ -47,6 +47,13 @@ public final class TaskCodec {
             if (imageBytes > MAX_IMAGE_ESTIMATED_BYTES) {
                 throw new TaskCodecException("task 存档超过总量上限");
             }
+        }
+        imageBytes = addSaturated(imageBytes, image.tombstones().size() * 256L);
+        for (String migration : image.completedMigrations()) {
+            imageBytes = addSaturated(imageBytes, NbtStringLimits.modifiedUtfBytes(migration) + 8L);
+        }
+        if (imageBytes > MAX_IMAGE_ESTIMATED_BYTES) {
+            throw new TaskCodecException("task 存档超过总量上限");
         }
 
         ListTag tasks = new ListTag();
@@ -64,7 +71,13 @@ public final class TaskCodec {
         root.put(TOMBSTONES, tombstones);
 
         ListTag migrations = new ListTag();
-        image.completedMigrations().stream().sorted().map(StringTag::valueOf).forEach(migrations::add);
+        image.completedMigrations().stream().sorted().forEach(migration -> {
+            if (migration.isBlank() || migration.length() > 128) {
+                throw new TaskCodecException("迁移标识无效");
+            }
+            NbtStringLimits.requireWritable(migration, "migrationId");
+            migrations.add(StringTag.valueOf(migration));
+        });
         root.put(MIGRATIONS, migrations);
         return root;
     }
@@ -76,9 +89,9 @@ public final class TaskCodec {
                 throw new TaskCodecException("不支持的 task schema: " + schema);
             }
 
-            ListTag encodedTasks = root.getList(TASKS, Tag.TAG_COMPOUND);
-            ListTag encodedTombstones = root.getList(TOMBSTONES, Tag.TAG_COMPOUND);
-            if (encodedTasks.size() > MAX_TASKS || encodedTombstones.size() > MAX_TASKS) {
+            ListTag encodedTasks = requireList(root, TASKS, Tag.TAG_COMPOUND);
+            ListTag encodedTombstones = requireList(root, TOMBSTONES, Tag.TAG_COMPOUND);
+            if ((long) encodedTasks.size() + encodedTombstones.size() > MAX_TASKS) {
                 throw new TaskCodecException("task 存档超过数量上限");
             }
 
@@ -106,9 +119,10 @@ public final class TaskCodec {
                     throw new TaskCodecException("墓碑与仍存活任务冲突: " + tombstone.taskId());
                 }
             }
+            imageBytes = addSaturated(imageBytes, encodedTombstones.size() * 256L);
 
             Set<String> migrations = new LinkedHashSet<>();
-            ListTag encodedMigrations = root.getList(MIGRATIONS, Tag.TAG_STRING);
+            ListTag encodedMigrations = requireList(root, MIGRATIONS, Tag.TAG_STRING);
             if (encodedMigrations.size() > MAX_MIGRATIONS) {
                 throw new TaskCodecException("迁移台账超过数量上限");
             }
@@ -116,7 +130,13 @@ public final class TaskCodec {
                 String migration = encodedMigrations.getString(i);
                 if (migration.isBlank()) throw new TaskCodecException("迁移标识不能为空");
                 if (migration.length() > 128) throw new TaskCodecException("迁移标识过长");
+                NbtStringLimits.requireWritable(migration, "migrationId");
                 migrations.add(migration);
+                imageBytes = addSaturated(
+                        imageBytes, NbtStringLimits.modifiedUtfBytes(migration) + 8L);
+            }
+            if (imageBytes > MAX_IMAGE_ESTIMATED_BYTES) {
+                throw new TaskCodecException("task 存档超过总量上限");
             }
             return new TaskRepository.Image(tasks, tombstones, migrations);
         } catch (TaskCodecException e) {
@@ -170,8 +190,10 @@ public final class TaskCodec {
             CompoundTag wait = tag.getCompound("wait");
             waitKey = new TaskWaitKey(requireString(wait, "kind"), requireString(wait, "value"));
         }
-        CompoundTag payload = tag.contains("payload", Tag.TAG_COMPOUND)
-                ? tag.getCompound("payload").copy() : new CompoundTag();
+        if (!tag.contains("payload", Tag.TAG_COMPOUND)) {
+            throw new TaskCodecException("缺少 CompoundTag 字段: payload");
+        }
+        CompoundTag payload = tag.getCompound("payload").copy();
         return new TaskSnapshot(
                 new TaskId(tag.getUUID("id")),
                 new SubmissionId(tag.getUUID("submission")),
@@ -198,7 +220,7 @@ public final class TaskCodec {
         if (counter.exceeded()) {
             throw new TaskCodecException("单个 task payload 超过 4 MiB/100000 节点上限");
         }
-        return addSaturated(256L + snapshot.dimensionId().length() * 2L, counter.bytes);
+        return addSaturated(256L + NbtStringLimits.modifiedUtfBytes(snapshot.dimensionId()), counter.bytes);
     }
 
     private static void measureTag(Tag tag, SizeCounter counter, int depth) {
@@ -212,7 +234,11 @@ public final class TaskCodec {
             case Tag.TAG_INT, Tag.TAG_FLOAT -> counter.add(4L);
             case Tag.TAG_LONG, Tag.TAG_DOUBLE -> counter.add(8L);
             case Tag.TAG_BYTE_ARRAY -> counter.add(((ByteArrayTag) tag).getAsByteArray().length);
-            case Tag.TAG_STRING -> counter.add(((StringTag) tag).getAsString().length() * 2L);
+            case Tag.TAG_STRING -> {
+                String value = ((StringTag) tag).getAsString();
+                int bytes = NbtStringLimits.requireWritable(value, "payload string");
+                counter.add(2L + bytes);
+            }
             case Tag.TAG_LIST -> {
                 ListTag list = (ListTag) tag;
                 counter.add(8L);
@@ -224,7 +250,8 @@ public final class TaskCodec {
                 CompoundTag compound = (CompoundTag) tag;
                 counter.add(8L);
                 for (String key : compound.getAllKeys()) {
-                    counter.add(4L + key.length() * 2L);
+                    int keyBytes = NbtStringLimits.requireWritable(key, "payload key");
+                    counter.add(3L + keyBytes);
                     measureTag(compound.get(key), counter, depth + 1);
                     if (counter.exceeded()) break;
                 }
@@ -267,19 +294,40 @@ public final class TaskCodec {
     private CompoundTag encodeTombstone(TaskTombstone tombstone) {
         CompoundTag tag = new CompoundTag();
         tag.putUUID("id", tombstone.taskId().value());
+        tag.putUUID("submission", tombstone.submissionId().value());
+        tag.putUUID("owner", tombstone.ownerId());
+        tag.putString("dimension", tombstone.dimensionId());
         tag.putLong("revision", tombstone.revision());
         tag.putString("state", tombstone.terminalState().name());
         tag.putLong("completed_game_time", tombstone.completedGameTime());
+        tag.putLong("retained_until", tombstone.retainedUntilGameTime());
         return tag;
     }
 
     private TaskTombstone decodeTombstone(CompoundTag tag) {
         requireUuid(tag, "id");
+        requireUuid(tag, "submission");
+        requireUuid(tag, "owner");
         return new TaskTombstone(
                 new TaskId(tag.getUUID("id")),
+                new SubmissionId(tag.getUUID("submission")),
+                tag.getUUID("owner"),
+                requireString(tag, "dimension"),
                 requireLong(tag, "revision"),
                 parseEnum(TaskLifecycleState.class, requireString(tag, "state"), "state"),
-                requireLong(tag, "completed_game_time"));
+                requireLong(tag, "completed_game_time"),
+                requireLong(tag, "retained_until"));
+    }
+
+    private static ListTag requireList(CompoundTag root, String key, int elementType) {
+        Tag value = root.get(key);
+        if (!(value instanceof ListTag list)) {
+            throw new TaskCodecException("缺少 ListTag 字段: " + key);
+        }
+        if (!list.isEmpty() && list.getElementType() != elementType) {
+            throw new TaskCodecException("ListTag 元素类型错误: " + key);
+        }
+        return list;
     }
 
     private static void requireUuid(CompoundTag tag, String key) {

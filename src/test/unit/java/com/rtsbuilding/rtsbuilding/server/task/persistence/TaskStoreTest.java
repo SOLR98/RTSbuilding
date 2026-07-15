@@ -26,13 +26,14 @@ class TaskStoreTest {
                 TaskLifecycleState.QUEUED, null, 1L, "minecraft:overworld");
 
         assertTrue(store.submit(original).inserted());
-        TaskStore.SubmissionResult retry = store.submit(retriedPacket);
+        TaskAdmissionResult retry = store.submit(retriedPacket);
 
         assertFalse(retry.inserted());
         assertEquals(original.id(), retry.snapshot().id());
         assertEquals(1, store.size());
         assertEquals(original.id(), store.findBySubmission(owner, submission).orElseThrow().id());
-        assertEquals(original.id(), store.findByWorkflow(owner, 9).orElseThrow().id());
+        assertEquals(original.id(),
+                store.findByWorkflow(owner, "minecraft:overworld", 9).orElseThrow().id());
     }
 
     @Test
@@ -73,6 +74,12 @@ class TaskStoreTest {
                 TaskId.create(), SubmissionId.create(), owner, 21,
                 TaskLifecycleState.QUEUED, null, 1L, "minecraft:overworld")));
         assertThrows(IllegalArgumentException.class, () -> store.replace(first));
+
+        TaskSnapshot sameWorkflowOtherDimension = snapshot(
+                TaskId.create(), SubmissionId.create(), owner, 21,
+                TaskLifecycleState.QUEUED, null, 1L, "minecraft:the_nether");
+        assertTrue(store.submit(sameWorkflowOtherDimension).inserted(),
+                "workflow key 必须包含 dimension");
     }
 
     static TaskSnapshot snapshot(TaskId id, SubmissionId submission, UUID owner, int workflow,

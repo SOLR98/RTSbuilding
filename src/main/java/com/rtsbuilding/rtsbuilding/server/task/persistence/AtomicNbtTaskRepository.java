@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.task.persistence;
 
 import com.rtsbuilding.rtsbuilding.server.data.RtsAtomicNbtStore;
+import com.rtsbuilding.rtsbuilding.server.data.RtsNbtStore;
 import com.rtsbuilding.rtsbuilding.server.task.identity.TaskId;
 import net.minecraft.nbt.CompoundTag;
 
@@ -10,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * 单文件原子 NBT 的最小 TaskRepository 实现。
@@ -23,6 +25,8 @@ public final class AtomicNbtTaskRepository implements TaskRepository {
     private Image image = Image.empty();
     private boolean loaded;
     private boolean exists;
+    private final Map<UUID, AtomicPreparedCommit> prepared = new LinkedHashMap<>();
+    private final Map<UUID, Image> writtenCandidates = new LinkedHashMap<>();
 
     /** wiring 层负责从 MinecraftServer 构造原子 Store；Repository 本身不接收世界和玩家对象。 */
     public AtomicNbtTaskRepository(RtsAtomicNbtStore store, TaskCodec codec) {
@@ -34,42 +38,83 @@ public final class AtomicNbtTaskRepository implements TaskRepository {
     public synchronized LoadResult load() {
         if (loaded) return exists ? new LoadResult.Found(image) : new LoadResult.Missing();
         try {
-            CompoundTag root = store.read();
-            if (root.isEmpty()) {
-                image = Image.empty();
-                exists = false;
-            } else {
-                image = codec.decodeImage(root);
-                exists = true;
+            switch (store.readResult()) {
+                case RtsNbtStore.ReadResult.Missing ignored -> {
+                    image = Image.empty();
+                    exists = false;
+                }
+                case RtsNbtStore.ReadResult.Found found -> {
+                    // Found-empty 仍是存在但损坏的文件，必须让 Codec 因缺少 schema/list 而拒绝。
+                    image = codec.decodeImage(found.root());
+                    exists = true;
+                }
+                case RtsNbtStore.ReadResult.Failed failed -> {
+                    return new LoadResult.Failed(failed.cause());
+                }
             }
             loaded = true;
             return exists ? new LoadResult.Found(image) : new LoadResult.Missing();
         } catch (RuntimeException e) {
-            // 不设置 loaded，保留修复文件后重试的能力；绝不把损坏文件视为空镜像。
             return new LoadResult.Failed(e);
         }
     }
 
     @Override
-    public synchronized CommitResult commit(Commit commit) {
+    public synchronized PrepareResult prepare(Commit commit) {
         if (!loaded) {
             LoadResult result = load();
-            if (result instanceof LoadResult.Failed failed) {
-                return new CommitResult.Failed(failed.cause());
-            }
+            if (result instanceof LoadResult.Failed failed) return new PrepareResult.Failed(failed.cause());
+        }
+        if (!prepared.isEmpty()) {
+            return new PrepareResult.Failed(new IllegalStateException("Atomic repository 只允许一个 in-flight commit"));
         }
         try {
-            Image candidate = apply(image, commit);
+            UUID ticket = UUID.randomUUID();
+            AtomicPreparedCommit value = new AtomicPreparedCommit(ticket, commit);
+            prepared.put(ticket, value);
+            return new PrepareResult.Prepared(value);
+        } catch (RuntimeException e) {
+            return new PrepareResult.Failed(e);
+        }
+    }
+
+    /** 后台 correctness adapter：全 Root 合并、编码、压缩与原子替换全部发生在这里。 */
+    @Override
+    public synchronized WriteCompletion writePrepared(PreparedCommit preparedCommit) {
+        if (!(preparedCommit instanceof AtomicPreparedCommit atomic)
+                || prepared.get(atomic.ticketId()) != atomic) {
+            return WriteCompletion.failed(preparedCommit.ticketId(),
+                    new IllegalArgumentException("PreparedCommit 不属于当前 Repository"));
+        }
+        try {
+            Image candidate = apply(image, atomic.logicalCommit());
             CompoundTag encoded = codec.encodeImage(candidate);
             if (!store.write(encoded)) {
-                return new CommitResult.Failed(new IOException("原子写入失败: " + store.label()));
+                return WriteCompletion.failed(atomic.ticketId(),
+                        new IOException("原子写入失败: " + store.label()));
             }
-            image = candidate;
-            exists = true;
-            return new CommitResult.Acknowledged(fileSize());
+            writtenCandidates.put(atomic.ticketId(), candidate);
+            return WriteCompletion.succeeded(atomic.ticketId(), fileSize());
         } catch (RuntimeException e) {
-            return new CommitResult.Failed(e);
+            return WriteCompletion.failed(atomic.ticketId(), e);
         }
+    }
+
+    @Override
+    public synchronized AcknowledgeResult acknowledge(WriteCompletion completion) {
+        AtomicPreparedCommit pending = prepared.remove(completion.ticketId());
+        if (pending == null) return new AcknowledgeResult(false, false, completion.failure());
+        Image candidate = writtenCandidates.remove(completion.ticketId());
+        if (!completion.successful()) {
+            return new AcknowledgeResult(true, false, completion.failure());
+        }
+        if (candidate == null) {
+            return new AcknowledgeResult(true, false,
+                    new IllegalStateException("成功 completion 缺少候选镜像"));
+        }
+        image = candidate;
+        exists = true;
+        return new AcknowledgeResult(true, true, null);
     }
 
     private static Image apply(Image current, Commit commit) {
@@ -77,6 +122,9 @@ public final class AtomicNbtTaskRepository implements TaskRepository {
         Map<TaskId, TaskTombstone> tombstones = new LinkedHashMap<>(current.tombstones());
         Set<String> migrations = new LinkedHashSet<>(current.completedMigrations());
 
+        for (TaskId purged : commit.purgedTombstones()) {
+            tombstones.remove(purged);
+        }
         for (TaskSnapshot snapshot : commit.upserts()) {
             TaskTombstone tombstone = tombstones.get(snapshot.id());
             if (tombstone != null) {
@@ -105,6 +153,13 @@ public final class AtomicNbtTaskRepository implements TaskRepository {
         }
         migrations.addAll(commit.completedMigrations());
         return new Image(tasks, tombstones, migrations);
+    }
+
+    private record AtomicPreparedCommit(UUID ticketId, Commit logicalCommit) implements PreparedCommit {
+        @Override
+        public int recordCount() {
+            return logicalCommit.recordCount();
+        }
     }
 
     private long fileSize() {

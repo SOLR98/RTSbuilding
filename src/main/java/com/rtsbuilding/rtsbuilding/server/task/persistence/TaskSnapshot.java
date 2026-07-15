@@ -43,6 +43,7 @@ public record TaskSnapshot(
         Objects.requireNonNull(payload, "payload");
         if (dimensionId.isBlank()) throw new IllegalArgumentException("dimensionId 不能为空");
         if (dimensionId.length() > 256) throw new IllegalArgumentException("dimensionId 不能超过 256 个字符");
+        NbtStringLimits.requireWritable(dimensionId, "dimensionId");
         if (workflowEntryId < -1) throw new IllegalArgumentException("workflowEntryId 不能小于 -1");
         if (revision < 1L) throw new IllegalArgumentException("revision 必须从 1 开始");
         if (createdGameTime < 0L || updatedGameTime < createdGameTime) {

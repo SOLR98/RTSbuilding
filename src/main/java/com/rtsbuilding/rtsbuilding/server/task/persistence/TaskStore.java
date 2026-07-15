@@ -22,7 +22,7 @@ import java.util.UUID;
  * 增量索引取任务；禁止从 PlayerList 扫描 Session Job 来“发现”运行任务。本类不执行磁盘 I/O，
  * 每次替换只维护受影响任务的索引。</p>
  */
-public final class TaskStore {
+final class TaskStore {
     private static final Comparator<TaskSnapshot> STABLE_ORDER = Comparator.comparing(TaskSnapshot::id);
 
     private final Map<TaskId, TaskSnapshot> tasks = new LinkedHashMap<>();
@@ -31,16 +31,25 @@ public final class TaskStore {
     private final Map<TaskWaitKey, LinkedHashSet<TaskId>> waitIndex = new LinkedHashMap<>();
     private final Map<SubmissionKey, TaskId> submissionIndex = new LinkedHashMap<>();
     private final Map<WorkflowKey, TaskId> workflowIndex = new LinkedHashMap<>();
+    private final Map<TaskId, TaskTombstone> receipts = new LinkedHashMap<>();
+    private final Map<SubmissionKey, TaskId> retiredSubmissionIndex = new LinkedHashMap<>();
 
     /**
      * 直接提交任务；相同 owner/submission 的网络重发返回已有任务，不创建第二份状态。
      */
-    public synchronized SubmissionResult submit(TaskSnapshot snapshot) {
+    synchronized TaskAdmissionResult submit(TaskSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
         SubmissionKey key = new SubmissionKey(snapshot.ownerId(), snapshot.submissionId());
+        if (receipts.containsKey(snapshot.id())) {
+            throw new TaskReplayException("TaskId 已有终态回执: " + snapshot.id());
+        }
+        TaskId retired = retiredSubmissionIndex.get(key);
+        if (retired != null) {
+            throw new TaskReplayException("submission 已终结，拒绝重放: " + snapshot.submissionId());
+        }
         TaskId submitted = submissionIndex.get(key);
         if (submitted != null) {
-            return new SubmissionResult(tasks.get(submitted), false);
+            return new TaskAdmissionResult(tasks.get(submitted), false);
         }
         if (tasks.containsKey(snapshot.id())) {
             throw new IllegalStateException("TaskId 已被另一个 submission 使用: " + snapshot.id());
@@ -48,16 +57,19 @@ public final class TaskStore {
         ensureUniqueWorkflow(snapshot, null);
         tasks.put(snapshot.id(), snapshot);
         addIndexes(snapshot);
-        return new SubmissionResult(snapshot, true);
+        return new TaskAdmissionResult(snapshot, true);
     }
 
     /** 从可靠 Repository 恢复快照；重复 submission 或 workflow 表示存档损坏，必须拒绝启动。 */
-    public synchronized void restore(TaskSnapshot snapshot) {
+    synchronized void restore(TaskSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
+        SubmissionKey submission = new SubmissionKey(snapshot.ownerId(), snapshot.submissionId());
+        if (receipts.containsKey(snapshot.id()) || retiredSubmissionIndex.containsKey(submission)) {
+            throw new IllegalStateException("Repository 同时包含任务和终态回执");
+        }
         if (tasks.containsKey(snapshot.id())) {
             throw new IllegalStateException("Repository 包含重复 TaskId: " + snapshot.id());
         }
-        SubmissionKey submission = new SubmissionKey(snapshot.ownerId(), snapshot.submissionId());
         if (submissionIndex.containsKey(submission)) {
             throw new IllegalStateException("Repository 包含重复 submission: " + snapshot.submissionId());
         }
@@ -69,7 +81,7 @@ public final class TaskStore {
     /**
      * 用严格递增一个 revision 的快照替换任务，并同步移动 wait/dimension 等索引。
      */
-    public synchronized void replace(TaskSnapshot snapshot) {
+    synchronized void replace(TaskSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
         TaskSnapshot previous = tasks.get(snapshot.id());
         if (previous == null) throw new IllegalArgumentException("任务不存在: " + snapshot.id());
@@ -86,34 +98,34 @@ public final class TaskStore {
         addIndexes(snapshot);
     }
 
-    public synchronized Optional<TaskSnapshot> get(TaskId taskId) {
+    synchronized Optional<TaskSnapshot> get(TaskId taskId) {
         return Optional.ofNullable(tasks.get(taskId));
     }
 
-    public synchronized Optional<TaskSnapshot> findBySubmission(UUID ownerId, SubmissionId submissionId) {
+    synchronized Optional<TaskSnapshot> findBySubmission(UUID ownerId, SubmissionId submissionId) {
         TaskId id = submissionIndex.get(new SubmissionKey(ownerId, submissionId));
         return id == null ? Optional.empty() : Optional.of(tasks.get(id));
     }
 
-    public synchronized Optional<TaskSnapshot> findByWorkflow(UUID ownerId, int workflowEntryId) {
-        TaskId id = workflowIndex.get(new WorkflowKey(ownerId, workflowEntryId));
+    synchronized Optional<TaskSnapshot> findByWorkflow(UUID ownerId, String dimensionId, int workflowEntryId) {
+        TaskId id = workflowIndex.get(new WorkflowKey(ownerId, dimensionId, workflowEntryId));
         return id == null ? Optional.empty() : Optional.of(tasks.get(id));
     }
 
-    public synchronized List<TaskSnapshot> ownedBy(UUID ownerId) {
+    synchronized List<TaskSnapshot> ownedBy(UUID ownerId) {
         return snapshots(ownerIndex.get(ownerId));
     }
 
-    public synchronized List<TaskSnapshot> inDimension(String dimensionId) {
+    synchronized List<TaskSnapshot> inDimension(String dimensionId) {
         return snapshots(dimensionIndex.get(dimensionId));
     }
 
-    public synchronized List<TaskSnapshot> waitingFor(TaskWaitKey waitKey) {
+    synchronized List<TaskSnapshot> waitingFor(TaskWaitKey waitKey) {
         return snapshots(waitIndex.get(waitKey));
     }
 
     /** 只遍历某玩家的索引桶，不遍历全服任务。 */
-    public synchronized List<TaskSnapshot> runnableFor(UUID ownerId, String dimensionId) {
+    synchronized List<TaskSnapshot> runnableFor(UUID ownerId, String dimensionId) {
         Set<TaskId> owned = ownerIndex.get(ownerId);
         Set<TaskId> inDimension = dimensionIndex.get(dimensionId);
         if (owned == null || inDimension == null) return List.of();
@@ -129,18 +141,18 @@ public final class TaskStore {
         return List.copyOf(result);
     }
 
-    public synchronized Optional<TaskSnapshot> remove(TaskId taskId) {
+    synchronized Optional<TaskSnapshot> remove(TaskId taskId) {
         TaskSnapshot removed = tasks.remove(taskId);
         if (removed == null) return Optional.empty();
         removeIndexes(removed);
         return Optional.of(removed);
     }
 
-    public synchronized int size() {
+    synchronized int size() {
         return tasks.size();
     }
 
-    public synchronized List<TaskSnapshot> snapshots() {
+    synchronized List<TaskSnapshot> snapshots() {
         List<TaskSnapshot> result = new ArrayList<>(tasks.values());
         result.sort(STABLE_ORDER);
         return List.copyOf(result);
@@ -162,7 +174,8 @@ public final class TaskStore {
         add(dimensionIndex, snapshot.dimensionId(), snapshot.id());
         submissionIndex.put(new SubmissionKey(snapshot.ownerId(), snapshot.submissionId()), snapshot.id());
         if (snapshot.workflowEntryId() >= 0) {
-            workflowIndex.put(new WorkflowKey(snapshot.ownerId(), snapshot.workflowEntryId()), snapshot.id());
+            workflowIndex.put(new WorkflowKey(
+                    snapshot.ownerId(), snapshot.dimensionId(), snapshot.workflowEntryId()), snapshot.id());
         }
         if (snapshot.waitKey() != null) add(waitIndex, snapshot.waitKey(), snapshot.id());
     }
@@ -172,14 +185,16 @@ public final class TaskStore {
         remove(dimensionIndex, snapshot.dimensionId(), snapshot.id());
         submissionIndex.remove(new SubmissionKey(snapshot.ownerId(), snapshot.submissionId()), snapshot.id());
         if (snapshot.workflowEntryId() >= 0) {
-            workflowIndex.remove(new WorkflowKey(snapshot.ownerId(), snapshot.workflowEntryId()), snapshot.id());
+            workflowIndex.remove(new WorkflowKey(
+                    snapshot.ownerId(), snapshot.dimensionId(), snapshot.workflowEntryId()), snapshot.id());
         }
         if (snapshot.waitKey() != null) remove(waitIndex, snapshot.waitKey(), snapshot.id());
     }
 
     private void ensureUniqueWorkflow(TaskSnapshot snapshot, TaskId replacing) {
         if (snapshot.workflowEntryId() < 0) return;
-        TaskId occupied = workflowIndex.get(new WorkflowKey(snapshot.ownerId(), snapshot.workflowEntryId()));
+        TaskId occupied = workflowIndex.get(new WorkflowKey(
+                snapshot.ownerId(), snapshot.dimensionId(), snapshot.workflowEntryId()));
         if (occupied != null && !occupied.equals(replacing)) {
             throw new IllegalStateException("同一玩家的 workflow 已绑定任务: " + snapshot.workflowEntryId());
         }
@@ -209,15 +224,53 @@ public final class TaskStore {
         if (ids.isEmpty()) index.remove(key);
     }
 
-    public record SubmissionResult(TaskSnapshot snapshot, boolean inserted) {
-        public SubmissionResult {
-            Objects.requireNonNull(snapshot, "snapshot");
+    synchronized void restoreReceipt(TaskTombstone receipt) {
+        Objects.requireNonNull(receipt, "receipt");
+        if (tasks.containsKey(receipt.taskId()) || receipts.containsKey(receipt.taskId())) {
+            throw new IllegalStateException("重复或冲突的终态回执: " + receipt.taskId());
         }
+        SubmissionKey key = new SubmissionKey(receipt.ownerId(), receipt.submissionId());
+        if (submissionIndex.containsKey(key) || retiredSubmissionIndex.containsKey(key)) {
+            throw new IllegalStateException("终态回执与 submission 冲突: " + receipt.submissionId());
+        }
+        receipts.put(receipt.taskId(), receipt);
+        retiredSubmissionIndex.put(key, receipt.taskId());
+    }
+
+    synchronized void retire(TaskTombstone receipt) {
+        TaskSnapshot snapshot = tasks.get(receipt.taskId());
+        if (snapshot == null) throw new IllegalStateException("终态回执找不到任务: " + receipt.taskId());
+        if (!snapshot.ownerId().equals(receipt.ownerId())
+                || !snapshot.submissionId().equals(receipt.submissionId())
+                || !snapshot.dimensionId().equals(receipt.dimensionId())
+                || snapshot.revision() >= receipt.revision()) {
+            throw new IllegalStateException("终态回执身份或 revision 与任务不匹配");
+        }
+        remove(receipt.taskId());
+        restoreReceipt(receipt);
+    }
+
+    synchronized void purgeReceipt(TaskId taskId) {
+        TaskTombstone removed = receipts.remove(taskId);
+        if (removed != null) {
+            retiredSubmissionIndex.remove(
+                    new SubmissionKey(removed.ownerId(), removed.submissionId()), taskId);
+        }
+    }
+
+    synchronized Optional<TaskTombstone> receipt(TaskId taskId) {
+        return Optional.ofNullable(receipts.get(taskId));
+    }
+
+    synchronized List<TaskTombstone> receipts() {
+        List<TaskTombstone> result = new ArrayList<>(receipts.values());
+        result.sort(Comparator.comparing(TaskTombstone::taskId));
+        return List.copyOf(result);
     }
 
     private record SubmissionKey(UUID ownerId, SubmissionId submissionId) {
     }
 
-    private record WorkflowKey(UUID ownerId, int workflowEntryId) {
+    private record WorkflowKey(UUID ownerId, String dimensionId, int workflowEntryId) {
     }
 }
