@@ -239,6 +239,23 @@ public final class TaskCodec {
         return addSaturated(metadataBytes, counter.bytes);
     }
 
+    /** 外置资产 codec 复用相同的深度、节点与 Modified UTF 校验；默认入口沿用 TaskSnapshot 预算。 */
+    public long estimatePayloadBytes(CompoundTag payload) {
+        return estimatePayloadBytes(payload, MAX_TASK_PAYLOAD_BYTES, MAX_NBT_NODES);
+    }
+
+    /** 大型不可变资产可复用遍历器，但必须显式给出独立的有限字节/节点预算。 */
+    public long estimatePayloadBytes(CompoundTag payload, long maxBytes, int maxNodes) {
+        if (payload == null) throw new TaskCodecException("payload 不能为空");
+        if (maxBytes <= 0L || maxNodes <= 0) throw new IllegalArgumentException("NBT 测量预算必须为正数");
+        SizeCounter counter = new SizeCounter(maxBytes, maxNodes);
+        measureTag(payload, counter, 0);
+        if (counter.exceeded()) {
+            throw new TaskCodecException("payload 超过指定字节/节点上限");
+        }
+        return counter.bytes;
+    }
+
     private static void measureTag(Tag tag, SizeCounter counter, int depth) {
         if (tag == null || counter.exceeded()) return;
         if (depth > MAX_NBT_DEPTH) throw new TaskCodecException("task payload NBT 嵌套过深");
