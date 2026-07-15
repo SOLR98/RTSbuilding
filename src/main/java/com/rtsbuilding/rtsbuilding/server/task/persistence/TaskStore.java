@@ -38,6 +38,21 @@ final class TaskStore {
      * 直接提交任务；相同 owner/submission 的网络重发返回已有任务，不创建第二份状态。
      */
     synchronized TaskAdmissionResult submit(TaskSnapshot snapshot) {
+        TaskAdmissionResult inspection = inspectAdmission(snapshot);
+        if (!inspection.inserted()) return inspection;
+        tasks.put(snapshot.id(), snapshot);
+        addIndexes(snapshot);
+        return inspection;
+    }
+
+    /**
+     * 只检查一次 admission 会命中已有任务、被拒绝，还是可以插入。
+     *
+     * <p>该方法只访问 TaskId、submission 与 workflow 的常数时间索引，不复制 TaskStore，
+     * 也不会写入任何任务或索引。外部资产的 reservation 因而可以先做冲突判定，等 Root ACK
+     * 后再把任务真正放进可查询的 active store。</p>
+     */
+    synchronized TaskAdmissionResult inspectAdmission(TaskSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
         SubmissionKey key = new SubmissionKey(snapshot.ownerId(), snapshot.submissionId());
         if (receipts.containsKey(snapshot.id())) {
@@ -55,8 +70,6 @@ final class TaskStore {
             throw new IllegalStateException("TaskId 已被另一个 submission 使用: " + snapshot.id());
         }
         ensureUniqueWorkflow(snapshot, null);
-        tasks.put(snapshot.id(), snapshot);
-        addIndexes(snapshot);
         return new TaskAdmissionResult(snapshot, true);
     }
 

@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.task.persistence.asset.blueprint;
 
 import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.TaskAssetId;
+import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.TaskAssetMetadata;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.storage.LevelResource;
 
@@ -20,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -32,13 +34,16 @@ import java.util.UUID;
 public final class AtomicBlueprintBlobRepository {
     public static final int MAX_SCAN_ENTRIES = 100_000;
     public static final long MAX_SCAN_COMPRESSED_BYTES = 4L * 1024L * 1024L * 1024L;
+    public static final int MAX_RECONCILE_ENTRIES = 200_000;
     private static final int LOCK_STRIPES = 256;
     private static final Object[] ASSET_LOCKS = createLockStripes();
 
     private final Path directory;
     private final BlueprintBlobCodec codec;
     private final AtomicMover atomicMover;
+    private final Object receiptIssuer = new Object();
     private volatile boolean writeAdmissionReadOnly;
+    private volatile Set<TaskAssetId> maintenanceLiveAssetIds;
 
     public AtomicBlueprintBlobRepository(MinecraftServer server, BlueprintBlobCodec codec) {
         this(Objects.requireNonNull(server, "server").getWorldPath(LevelResource.ROOT)
@@ -64,7 +69,48 @@ public final class AtomicBlueprintBlobRepository {
         }
     }
 
+    /**
+     * 完成 write-once、force 和回读校验后签发不可由调用方构造的 durable receipt。
+     * 上层只能使用同一个仓库实例签发的 receipt 建立 task root 引用。
+     */
+    public DurableBlueprintBlobReceipt writeDurably(BlueprintBlobRecord record) {
+        WriteOutcome outcome = writeOnce(record);
+        LoadResult.Found found = requireFoundResult(load(record.assetId()));
+        requireSame(found.record(), record);
+        TaskAssetMetadata metadata = new TaskAssetMetadata(
+                record.assetId(), record.taskId(), "blueprint", record.sha256(),
+                found.compressedBytes(), codec.logicalBytes(record));
+        return new DurableBlueprintBlobReceipt(receiptIssuer, metadata, outcome);
+    }
+
+    /** 拒绝另一世界/另一仓库实例签发或伪造的 receipt。 */
+    public VerifiedDurableBlueprintBlob requireIssued(DurableBlueprintBlobReceipt receipt) {
+        Objects.requireNonNull(receipt, "receipt");
+        if (receipt.issuer != receiptIssuer) {
+            throw new BlobRepositoryException("蓝图 blob receipt 不属于当前仓库实例");
+        }
+        TaskAssetMetadata metadata = receipt.metadata;
+        LoadResult.Found found = requireFoundResult(load(metadata.assetId()));
+        BlueprintBlobRecord record = found.record();
+        if (!record.taskId().equals(metadata.taskId())
+                || !record.sha256().equals(metadata.sha256())
+                || found.compressedBytes() != metadata.compressedBytes()
+                || codec.logicalBytes(record) != metadata.logicalBytes()) {
+            throw new BlobRepositoryException("蓝图 blob receipt 对应的磁盘实体已经变化: " + metadata.assetId());
+        }
+        return new VerifiedDurableBlueprintBlob(metadata, record.blockCount());
+    }
+
+    /** 新资产在启动 orphan 回收结束前保持只读，避免被旧 root 保护集误删。 */
+    public boolean reconciliationInProgress() {
+        return maintenanceLiveAssetIds != null;
+    }
+
     private WriteOutcome writeOnceLocked(BlueprintBlobRecord record) {
+        Set<TaskAssetId> maintenanceLive = maintenanceLiveAssetIds;
+        if (maintenanceLive != null && !maintenanceLive.contains(record.assetId())) {
+            throw new BlobRepositoryException("blob 目录正在按启动 root 维护，暂不接纳新蓝图资产");
+        }
         Path target = path(record.assetId());
         if (Files.exists(target)) {
             BlueprintBlobRecord existing = requireFound(load(record.assetId()));
@@ -158,6 +204,89 @@ public final class AtomicBlueprintBlobRepository {
         return scan(MAX_SCAN_ENTRIES, MAX_SCAN_COMPRESSED_BYTES);
     }
 
+    /**
+     * 以已经成功解码并完整校验的启动 manifest 作为保护集，关闭新资产写入并开始孤儿维护。
+     * 保护集在维护结束前不可改变；运行期 tombstone 只会让它成为安全超集。
+     */
+    public synchronized void beginReconciliation(Set<TaskAssetId> liveAssetIds) {
+        Objects.requireNonNull(liveAssetIds, "liveAssetIds");
+        if (maintenanceLiveAssetIds != null) throw new IllegalStateException("blob reconciliation 已在运行");
+        maintenanceLiveAssetIds = Set.copyOf(liveAssetIds);
+    }
+
+    /**
+     * 后台维护线程执行的一次有界 sweep。这里只按权威保护集删除明确 orphan，不解压正文。
+     * 未完成或任一异常都会保留维护门禁，等待下次启动继续。
+     */
+    public ReconcileResult reconcileOrphans() {
+        Set<TaskAssetId> live = maintenanceLiveAssetIds;
+        if (live == null) throw new IllegalStateException("必须先建立 reconciliation 保护集");
+        if (!Files.exists(directory)) {
+            return finishReconciliation(new ReconcileResult(0, 0, true, false));
+        }
+        int visited = 0;
+        int deleted = 0;
+        boolean complete = true;
+        try (var files = Files.list(directory)) {
+            var iterator = files.iterator();
+            while (iterator.hasNext()) {
+                if (visited >= MAX_RECONCILE_ENTRIES) {
+                    complete = false;
+                    break;
+                }
+                Path file = iterator.next();
+                visited++;
+                if (!Files.isRegularFile(file)) {
+                    throw new IOException("blob 目录包含未知非文件项: " + file.getFileName());
+                }
+                String name = file.getFileName().toString();
+                if (name.endsWith(".tmp")) {
+                    TaskAssetId temporaryAssetId = parseTemporaryAssetId(name);
+                    synchronized (assetLock(temporaryAssetId)) {
+                        if (Files.deleteIfExists(file)) deleted++;
+                    }
+                    continue;
+                }
+                if (!name.endsWith(".nbt")) {
+                    throw new IOException("blob 目录包含未知文件: " + name);
+                }
+                TaskAssetId assetId = TaskAssetId.parse(name.substring(0, name.length() - 4));
+                if (live.contains(assetId)) continue;
+                synchronized (assetLock(assetId)) {
+                    if (maintenanceLiveAssetIds == null || maintenanceLiveAssetIds.contains(assetId)) {
+                        continue;
+                    }
+                    if (Files.deleteIfExists(path(assetId))) deleted++;
+                }
+            }
+            return finishReconciliation(new ReconcileResult(visited, deleted, complete, false));
+        } catch (IOException | RuntimeException failure) {
+            writeAdmissionReadOnly = true;
+            return new ReconcileResult(visited, deleted, false, true);
+        }
+    }
+
+    private synchronized ReconcileResult finishReconciliation(ReconcileResult sweep) {
+        if (!sweep.complete() || sweep.failed()) {
+            writeAdmissionReadOnly = true;
+            return sweep;
+        }
+        ScanResult rescan;
+        try {
+            rescan = scan();
+        } catch (RuntimeException failure) {
+            writeAdmissionReadOnly = true;
+            return new ReconcileResult(sweep.visitedEntries(), sweep.deletedOrphans(), false, true);
+        }
+        if (!rescan.complete() || rescan.quotaExceeded()) {
+            writeAdmissionReadOnly = true;
+            return new ReconcileResult(sweep.visitedEntries(), sweep.deletedOrphans(), false, false);
+        }
+        maintenanceLiveAssetIds = null;
+        writeAdmissionReadOnly = false;
+        return sweep;
+    }
+
     ScanResult scan(int maxEntries, long maxCompressedBytes) {
         if (maxEntries <= 0 || maxCompressedBytes <= 0L) {
             throw new IllegalArgumentException("scan 配额必须为正数");
@@ -179,12 +308,12 @@ public final class AtomicBlueprintBlobRepository {
                 }
                 Path file = iterator.next();
                 visited++;
-                if (!Files.isRegularFile(file)) continue;
+                if (!Files.isRegularFile(file)) {
+                    throw new BlobRepositoryException("blob 目录包含未知非文件项: " + file.getFileName());
+                }
                 String name = file.getFileName().toString();
                 if (name.endsWith(".tmp")) {
-                    int marker = name.indexOf(".nbt.");
-                    if (marker <= 0) throw new BlobRepositoryException("发现未知临时 blob 文件: " + name);
-                    TaskAssetId temporaryAssetId = TaskAssetId.parse(name.substring(0, marker));
+                    TaskAssetId temporaryAssetId = parseTemporaryAssetId(name);
                     synchronized (assetLock(temporaryAssetId)) {
                         if (Files.deleteIfExists(file)) {
                             removedTemps++;
@@ -195,7 +324,9 @@ public final class AtomicBlueprintBlobRepository {
                     }
                     continue;
                 }
-                if (!name.endsWith(".nbt")) continue;
+                if (!name.endsWith(".nbt")) {
+                    throw new BlobRepositoryException("blob 目录包含未知文件: " + name);
+                }
                 long fileBytes = Files.size(file);
                 if (fileBytes > maxCompressedBytes - totalBytes) {
                     complete = false;
@@ -301,6 +432,30 @@ public final class AtomicBlueprintBlobRepository {
         throw new BlobRepositoryException("预期蓝图 blob 存在但文件缺失");
     }
 
+    /** 只承认本仓库真实写出的 assetId.nbt.UUID.tmp；任何近似名称都按未知文件 fail-closed。 */
+    private static TaskAssetId parseTemporaryAssetId(String name) {
+        int marker = name.indexOf(".nbt.");
+        if (marker <= 0 || !name.endsWith(".tmp")) {
+            throw new BlobRepositoryException("发现未知临时 blob 文件: " + name);
+        }
+        String token = name.substring(marker + ".nbt.".length(), name.length() - ".tmp".length());
+        try {
+            UUID writerTicket = UUID.fromString(token);
+            if (!writerTicket.toString().equals(token)) {
+                throw new IllegalArgumentException("UUID 非规范格式");
+            }
+            return TaskAssetId.parse(name.substring(0, marker));
+        } catch (IllegalArgumentException malformed) {
+            throw new BlobRepositoryException("发现未知临时 blob 文件: " + name, malformed);
+        }
+    }
+
+    private static LoadResult.Found requireFoundResult(LoadResult result) {
+        if (result instanceof LoadResult.Found found) return found;
+        requireFound(result);
+        throw new AssertionError("requireFound 应当已经抛出异常");
+    }
+
     private static void requireSame(BlueprintBlobRecord existing, BlueprintBlobRecord requested) {
         if (!existing.assetId().equals(requested.assetId())
                 || !existing.taskId().equals(requested.taskId())
@@ -311,6 +466,32 @@ public final class AtomicBlueprintBlobRepository {
     }
 
     public enum WriteOutcome { WRITTEN, ALREADY_PRESENT }
+
+    /** receipt 经当前仓库回读后的事实，供 root admission 同时校验任务规模。 */
+    public record VerifiedDurableBlueprintBlob(TaskAssetMetadata metadata, int blockCount) {
+        public VerifiedDurableBlueprintBlob {
+            Objects.requireNonNull(metadata, "metadata");
+            if (blockCount <= 0) throw new IllegalArgumentException("blockCount 必须为正数");
+        }
+    }
+
+    /** 仓库实例签发的证明；构造器故意私有，调用方只能交还给签发仓库验证。 */
+    public static final class DurableBlueprintBlobReceipt {
+        private final Object issuer;
+        private final TaskAssetMetadata metadata;
+        private final WriteOutcome outcome;
+
+        private DurableBlueprintBlobReceipt(
+                Object issuer, TaskAssetMetadata metadata, WriteOutcome outcome) {
+            this.issuer = issuer;
+            this.metadata = metadata;
+            this.outcome = outcome;
+        }
+
+        public WriteOutcome outcome() {
+            return outcome;
+        }
+    }
 
     public sealed interface LoadResult permits LoadResult.Found, LoadResult.Missing, LoadResult.Failed {
         record Found(BlueprintBlobRecord record, long compressedBytes) implements LoadResult { }
@@ -327,6 +508,10 @@ public final class AtomicBlueprintBlobRepository {
             boolean complete,
             boolean quotaExceeded) {
         public ScanResult { assetIds = List.copyOf(assetIds); }
+    }
+
+    public record ReconcileResult(
+            int visitedEntries, int deletedOrphans, boolean complete, boolean failed) {
     }
 
     @FunctionalInterface

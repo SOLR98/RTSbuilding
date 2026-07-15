@@ -10,8 +10,10 @@ import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.blueprint.Bluep
 import net.minecraft.server.MinecraftServer;
 
 import java.time.Duration;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -56,6 +58,9 @@ public final class TaskPersistenceRuntime {
     private Thread serverThread;
     private MinecraftServer server;
     private AtomicBlueprintBlobRepository blueprintBlobs;
+    private BlueprintAssetMaintenance assetMaintenance;
+    private final LinkedHashSet<TaskId> readyAssetAdmissions = new LinkedHashSet<>();
+    private TaskId assetAdmissionInFlight;
 
     /** 包内构造器用于故障注入测试；生产代码统一使用 {@link #INSTANCE}。 */
     TaskPersistenceRuntime(Supplier<ExecutorService> writerFactory) {
@@ -77,18 +82,29 @@ public final class TaskPersistenceRuntime {
         TaskCodec codec = new TaskCodec();
         BlueprintBlobCodec blobCodec = new BlueprintBlobCodec();
         AtomicBlueprintBlobRepository blobs = new AtomicBlueprintBlobRepository(server, blobCodec);
-        blobs.scan();
-        TaskPersistenceCoordinator opened = TaskPersistenceCoordinator.open(
+        TaskPersistenceCoordinator opened = openAndVerify(
                 new AtomicNbtTaskRepository(
                         new RtsStrictAtomicNbtStore(server, "rtsbuilding", "durable_tasks.dat"), codec),
-                codec);
-        verifyManifestAssets(opened, blobs, blobCodec);
+                codec, blobs, blobCodec);
         start(server, opened, blobs);
+        BlueprintAssetMaintenance maintenance = new BlueprintAssetMaintenance();
+        this.assetMaintenance = maintenance;
+        try {
+            maintenance.start(blobs, Set.copyOf(opened.assetManifest().entries().keySet()));
+        } catch (RuntimeException failure) {
+            // Root 与 live blob 已经验证成功；维护无法启动时保持资产只读，不阻断普通 task root。
+            RtsbuildingMod.LOGGER.error("无法启动 task asset 维护，蓝图资产接纳将保持只读", failure);
+        }
     }
 
     /** 包内启动入口使单元测试无需构造 MinecraftServer。 */
     void start(TaskPersistenceCoordinator coordinator) {
         start(null, coordinator, null);
+    }
+
+    /** 包内测试入口：启用真实 blob receipt 校验，但不启动独立维护线程。 */
+    void start(TaskPersistenceCoordinator coordinator, AtomicBlueprintBlobRepository blueprintBlobs) {
+        start(null, coordinator, Objects.requireNonNull(blueprintBlobs, "blueprintBlobs"));
     }
 
     private void start(MinecraftServer server, TaskPersistenceCoordinator coordinator,
@@ -107,7 +123,73 @@ public final class TaskPersistenceRuntime {
     /** 仅供领域 command gateway 在服务器主线程提交/替换快照。 */
     public TaskPersistenceCoordinator coordinator() {
         requireServerThread();
+        requireHealthy();
         return coordinator;
+    }
+
+    /**
+     * 接纳已经由当前世界 blob 仓库 durable 写入的蓝图任务。
+     * snapshot 在 root ACK 前只存在于隐藏 reservation 中，不会提前出现在调度器或工作流查询里。
+     */
+    public AssetAdmissionTicket submitDurableBlueprintAsset(
+            TaskSnapshot snapshot,
+            AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt receipt) {
+        requireServerThread();
+        requireHealthy();
+        Objects.requireNonNull(snapshot, "snapshot");
+        if (blueprintBlobs == null) {
+            throw new IllegalStateException("当前运行时未配置蓝图 blob 仓库");
+        }
+        if (blueprintBlobs.reconciliationInProgress()) {
+            throw new IllegalStateException("启动资产回收尚未结束，请稍后重试蓝图提交");
+        }
+        AtomicBlueprintBlobRepository.VerifiedDurableBlueprintBlob verified =
+                blueprintBlobs.requireIssued(receipt);
+        try {
+            if (verified.blockCount() != snapshot.totalUnits()) {
+                throw new IllegalArgumentException(
+                        "蓝图 blob blockCount 与 task totalUnits 不一致: "
+                                + verified.blockCount() + " != " + snapshot.totalUnits());
+            }
+            TaskAssetMetadata metadata = verified.metadata();
+            coordinator.reserveVerifiedAssetAdmission(snapshot, metadata);
+            boolean alreadyDurable = coordinator.query().get(snapshot.id()).isPresent();
+            if (!alreadyDurable) {
+                readyAssetAdmissions.add(snapshot.id());
+            }
+            return new AssetAdmissionTicket(snapshot.id(), alreadyDurable
+                    ? AssetAdmissionState.ALREADY_DURABLE
+                    : AssetAdmissionState.PENDING_DURABILITY);
+        } catch (RuntimeException admissionFailure) {
+            cleanupRejectedNewBlob(receipt, verified.metadata(), admissionFailure);
+            throw admissionFailure;
+        }
+    }
+
+    private void cleanupRejectedNewBlob(
+            AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt receipt,
+            TaskAssetMetadata metadata,
+            RuntimeException admissionFailure) {
+        if (receipt.outcome() != AtomicBlueprintBlobRepository.WriteOutcome.WRITTEN) return;
+        if (coordinator.isAssetActiveOrReserved(metadata)) return;
+        try {
+            blueprintBlobs.deleteIfMatches(metadata.assetId(), metadata.sha256());
+        } catch (RuntimeException cleanupFailure) {
+            admissionFailure.addSuppressed(cleanupFailure);
+        }
+    }
+
+    /** 调用方只能把 PENDING 当成“已排队”；玩家成功回执必须等待 query 中出现同一 TaskId。 */
+    public record AssetAdmissionTicket(TaskId taskId, AssetAdmissionState state) {
+        public AssetAdmissionTicket {
+            Objects.requireNonNull(taskId, "taskId");
+            Objects.requireNonNull(state, "state");
+        }
+    }
+
+    public enum AssetAdmissionState {
+        PENDING_DURABILITY,
+        ALREADY_DURABLE
     }
 
     /**
@@ -132,8 +214,13 @@ public final class TaskPersistenceRuntime {
         requireServerThread();
         requireHealthy();
         drainCompletedWrite();
+        if (assetMaintenance != null) assetMaintenance.poll();
         if (inFlight == null) {
-            schedule(coordinator.prepareCheckpoint(DEFAULT_CHECKPOINT_RECORDS, DEFAULT_CHECKPOINT_BYTES));
+            if (!readyAssetAdmissions.isEmpty()) {
+                scheduleNextAssetAdmission();
+            } else {
+                schedule(coordinator.prepareCheckpoint(DEFAULT_CHECKPOINT_RECORDS, DEFAULT_CHECKPOINT_BYTES));
+            }
         }
     }
 
@@ -158,11 +245,24 @@ public final class TaskPersistenceRuntime {
         requireServerThread();
         RuntimeException flushFailure = null;
         boolean writerTerminated = false;
+        boolean maintenanceTerminated = true;
         try {
+            flushReadyAssetAdmissions(maxRetries, flushTimeout);
+            if (coordinator.hasPendingAssetAdmissions()) {
+                throw new IllegalStateException(
+                        "仍有未完成的 asset admission reservation，禁止伪装成停服保存成功: "
+                                + coordinator.pendingAssetTaskIds());
+            }
             flushAll(maxRetries, flushTimeout);
         } catch (RuntimeException failure) {
             flushFailure = failure;
         } finally {
+            if (assetMaintenance != null) {
+                maintenanceTerminated = assetMaintenance.close(flushTimeout);
+                if (!maintenanceTerminated && flushFailure == null) {
+                    flushFailure = new IllegalStateException("task asset 维护线程未在停服期限内退出");
+                }
+            }
             writer.shutdown();
             try {
                 writerTerminated = writer.awaitTermination(
@@ -184,7 +284,7 @@ public final class TaskPersistenceRuntime {
                     flushFailure.addSuppressed(e);
                 }
             }
-            if (writerTerminated) {
+            if (flushFailure == null && writerTerminated && maintenanceTerminated) {
                 coordinator = null;
                 writer = null;
                 inFlight = null;
@@ -192,9 +292,12 @@ public final class TaskPersistenceRuntime {
                 serverThread = null;
                 server = null;
                 blueprintBlobs = null;
+                assetMaintenance = null;
+                readyAssetAdmissions.clear();
+                assetAdmissionInFlight = null;
             } else {
                 fatalFailure = flushFailure == null
-                        ? new IllegalStateException("旧 durable task writer 仍存活，禁止启动新世界")
+                        ? new IllegalStateException("旧 durable task/asset 后台线程仍存活，禁止启动新世界")
                         : flushFailure;
             }
         }
@@ -235,6 +338,71 @@ public final class TaskPersistenceRuntime {
         requireServerThread();
         requireHealthy();
         flushTargets(null, maxRetries, timeout);
+    }
+
+    private void flushReadyAssetAdmissions(int maxRetries, Duration timeout) {
+        if (maxRetries <= 0) throw new IllegalArgumentException("maxRetries 必须为正数");
+        Objects.requireNonNull(timeout, "timeout");
+        long deadline = System.nanoTime() + timeout.toNanos();
+        int failures = 0;
+        while (!readyAssetAdmissions.isEmpty() || assetAdmissionInFlight != null) {
+            if (inFlight != null) {
+                boolean awaitingAssetAdmission = assetAdmissionInFlight != null;
+                TaskPersistenceCoordinator.CommitAckResult ack = awaitInFlight(deadline);
+                if (awaitingAssetAdmission && ack != null
+                        && ack.outcome() != TaskPersistenceCoordinator.AckOutcome.ACKNOWLEDGED) {
+                    failures++;
+                    if (failures >= maxRetries) {
+                        throw new IllegalStateException(
+                                "蓝图 asset admission root 连续写盘失败，reservation 已保留", ack.failure());
+                    }
+                }
+                continue;
+            }
+            if (!scheduleNextAssetAdmission()) {
+                throw new IllegalStateException(
+                        "蓝图 asset admission 无法准备 root，reservation 已保留: " + readyAssetAdmissions);
+            }
+        }
+    }
+
+    /** 优先派发一个 ready asset；ALREADY_APPLIED 会从队列移除并继续检查下一项。 */
+    private boolean scheduleNextAssetAdmission() {
+        while (!readyAssetAdmissions.isEmpty()) {
+            TaskId taskId = readyAssetAdmissions.iterator().next();
+            TaskPersistenceCoordinator.PreparationResult preparation =
+                    coordinator.prepareReadyAssetAdmission(taskId);
+            switch (preparation.outcome()) {
+                case ALREADY_APPLIED -> {
+                    readyAssetAdmissions.remove(taskId);
+                    continue;
+                }
+                case PREPARED -> {
+                    UUID ticketId = preparation.preparedCommit().ticketId();
+                    assetAdmissionInFlight = taskId;
+                    try {
+                        schedule(preparation);
+                        return true;
+                    } catch (RuntimeException dispatchFailure) {
+                        assetAdmissionInFlight = null;
+                        try {
+                            coordinator.abortUndispatchedAssetAdmission(taskId, ticketId);
+                        } catch (RuntimeException abortFailure) {
+                            dispatchFailure.addSuppressed(abortFailure);
+                        }
+                        fatalFailure = dispatchFailure;
+                        throw new IllegalStateException(
+                                "蓝图 asset admission 已准备但 writer 拒绝派发，运行时 fail-closed",
+                                dispatchFailure);
+                    }
+                }
+                case IDLE, IN_FLIGHT, BUDGET_BLOCKED, FAILED -> {
+                    logPreparationFailure(preparation);
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private void flushTargets(List<TaskId> targets, int maxRetries, Duration timeout) {
@@ -302,6 +470,7 @@ public final class TaskPersistenceRuntime {
         }
         inFlight = null;
         TaskPersistenceCoordinator.CommitAckResult ack = coordinator.acceptCompletion(completion);
+        handleAssetAdmissionAck(ack);
         if (ack.outcome() == TaskPersistenceCoordinator.AckOutcome.REJECTED) {
             fatalFailure = ack.failure() == null
                     ? new IllegalStateException("durable task Repository 拒绝 ACK") : ack.failure();
@@ -311,7 +480,6 @@ public final class TaskPersistenceRuntime {
             RtsbuildingMod.LOGGER.error("durable task 后台写盘未 ACK，dirty 将在后续 tick 重试: {}",
                     ack.failure() == null ? ack.outcome() : ack.failure().getMessage());
         }
-        scheduleAssetCleanup(ack);
     }
 
     private TaskPersistenceCoordinator.CommitAckResult awaitInFlight(long deadlineNanos) {
@@ -332,37 +500,36 @@ public final class TaskPersistenceRuntime {
         }
         inFlight = null;
         TaskPersistenceCoordinator.CommitAckResult ack = coordinator.acceptCompletion(completion);
+        handleAssetAdmissionAck(ack);
         if (ack.outcome() == TaskPersistenceCoordinator.AckOutcome.REJECTED) {
             fatalFailure = ack.failure() == null
                     ? new IllegalStateException("durable task Repository 拒绝 ACK") : ack.failure();
             throw new IllegalStateException("durable task ACK 被拒绝，运行时已 fail-closed", fatalFailure);
         }
-        scheduleAssetCleanup(ack);
         return ack;
     }
 
-    private void scheduleAssetCleanup(TaskPersistenceCoordinator.CommitAckResult ack) {
-        if (ack.outcome() != TaskPersistenceCoordinator.AckOutcome.ACKNOWLEDGED
-                || ack.removedAssets().isEmpty() || blueprintBlobs == null) return;
-        List<TaskAssetMetadata> removed = List.copyOf(ack.removedAssets());
-        AtomicBlueprintBlobRepository blobRepository = blueprintBlobs;
-        try {
-            writer.execute(() -> {
-                for (TaskAssetMetadata metadata : removed) {
-                    try {
-                        if ("blueprint".equals(metadata.kind())) {
-                            blobRepository.deleteIfMatches(metadata.assetId(), metadata.sha256());
-                        }
-                    } catch (RuntimeException failure) {
-                        // Root 已 durable；这里只能保留安全 orphan，绝不能回滚或伪造失败 ACK。
-                        RtsbuildingMod.LOGGER.warn("删除已退役 task asset 失败，将保留为安全 orphan: {}",
-                                metadata.assetId(), failure);
-                    }
-                }
-            });
-        } catch (RuntimeException rejected) {
-            RtsbuildingMod.LOGGER.warn("task asset 后台清理未入队，将保留为安全 orphan", rejected);
+    /** ACK 才移除 ready；durable=false 保留原 TaskId，下一 tick 会重新 prepare。 */
+    private void handleAssetAdmissionAck(TaskPersistenceCoordinator.CommitAckResult ack) {
+        if (assetMaintenance != null
+                && ack.outcome() == TaskPersistenceCoordinator.AckOutcome.ACKNOWLEDGED
+                && !ack.removedAssets().isEmpty()) {
+            assetMaintenance.enqueueCleanup(ack.removedAssets());
         }
+        if (assetAdmissionInFlight == null) return;
+        TaskId completed = assetAdmissionInFlight;
+        assetAdmissionInFlight = null;
+        if (ack.outcome() == TaskPersistenceCoordinator.AckOutcome.ACKNOWLEDGED) {
+            readyAssetAdmissions.remove(completed);
+        }
+    }
+
+    /** 先 fail-closed 打开 root，再验证 live；任何失败都发生在目录扫描/删除之前。 */
+    static TaskPersistenceCoordinator openAndVerify(TaskRepository repository, TaskCodec codec,
+            AtomicBlueprintBlobRepository blobs, BlueprintBlobCodec blobCodec) {
+        TaskPersistenceCoordinator opened = TaskPersistenceCoordinator.open(repository, codec);
+        verifyManifestAssets(opened, blobs, blobCodec);
+        return opened;
     }
 
     private static TaskRepository.WriteCompletion joinCompletion(

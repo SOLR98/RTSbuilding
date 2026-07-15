@@ -37,6 +37,21 @@ class TaskStoreTest {
     }
 
     @Test
+    void inspectAdmissionUsesIndexesWithoutMutatingStore() {
+        TaskStore store = new TaskStore();
+        UUID owner = UUID.randomUUID();
+        TaskSnapshot candidate = snapshot(TaskId.create(), SubmissionId.create(), owner, 12,
+                TaskLifecycleState.QUEUED, null, 1L, "minecraft:overworld");
+
+        TaskAdmissionResult inspection = store.inspectAdmission(candidate);
+
+        assertTrue(inspection.inserted());
+        assertEquals(0, store.size());
+        assertTrue(store.findBySubmission(owner, candidate.submissionId()).isEmpty());
+        assertTrue(store.findByWorkflow(owner, candidate.dimensionId(), 12).isEmpty());
+    }
+
+    @Test
     void replacingOneTaskMovesOnlyItsIncrementalWaitIndex() {
         TaskStore store = new TaskStore();
         UUID owner = UUID.randomUUID();

@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -54,6 +55,132 @@ class AtomicBlueprintBlobRepositoryTest {
         assertArrayEquals(new byte[]{1, 2, 3},
                 found.record().structure().getByteArray("payload"));
         assertEquals(1, repository.scan().assetIds().size());
+    }
+
+    @Test
+    void durableReceiptIsBoundToIssuingRepositoryInstance() {
+        BlueprintBlobCodec codec = new BlueprintBlobCodec();
+        AtomicBlueprintBlobRepository issuer = repository(codec);
+        BlueprintBlobRecord record = codec.freeze(
+                TaskId.create(), 2, "receipt", "test", "VANILLA_NBT", structure(new byte[]{8, 9}));
+
+        var receipt = issuer.writeDurably(record);
+        var verified = issuer.requireIssued(receipt);
+        var metadata = verified.metadata();
+        assertEquals(record.assetId(), metadata.assetId());
+        assertEquals(record.taskId(), metadata.taskId());
+        assertEquals(record.sha256(), metadata.sha256());
+        assertEquals(record.blockCount(), verified.blockCount());
+        assertTrue(metadata.compressedBytes() > 0L);
+        assertTrue(metadata.logicalBytes() > 0L);
+
+        AtomicBlueprintBlobRepository foreign = new AtomicBlueprintBlobRepository(
+                temporaryDirectory.resolve("foreign"), codec);
+        assertThrows(AtomicBlueprintBlobRepository.BlobRepositoryException.class,
+                () -> foreign.requireIssued(receipt));
+    }
+
+    @Test
+    void durableReceiptIsRevalidatedAgainstPhysicalBlobBeforeRootAdmission() {
+        BlueprintBlobCodec codec = new BlueprintBlobCodec();
+        AtomicBlueprintBlobRepository repository = repository(codec);
+        BlueprintBlobRecord record = codec.freeze(
+                TaskId.create(), 1, "receipt-gc", "test", "VANILLA_NBT", structure(new byte[]{7}));
+        var receipt = repository.writeDurably(record);
+
+        assertTrue(repository.deleteIfMatches(record.assetId(), record.sha256()));
+
+        assertThrows(AtomicBlueprintBlobRepository.BlobRepositoryException.class,
+                () -> repository.requireIssued(receipt),
+                "仅持有旧 receipt 不能在 blob 已被删除后建立悬空 root 引用");
+    }
+
+    @Test
+    void reconciliationKeepsStartupLiveSetDeletesOrphansAndReopensAdmission() {
+        BlueprintBlobCodec codec = new BlueprintBlobCodec();
+        AtomicBlueprintBlobRepository repository = repository(codec);
+        BlueprintBlobRecord live = codec.freeze(
+                TaskId.create(), 1, "live", "test", "VANILLA_NBT", structure(new byte[]{1}));
+        BlueprintBlobRecord orphan = codec.freeze(
+                TaskId.create(), 1, "orphan", "test", "VANILLA_NBT", structure(new byte[]{2}));
+        BlueprintBlobRecord after = codec.freeze(
+                TaskId.create(), 1, "after", "test", "VANILLA_NBT", structure(new byte[]{3}));
+        repository.writeOnce(live);
+        repository.writeOnce(orphan);
+
+        repository.beginReconciliation(Set.of(live.assetId()));
+        assertEquals(AtomicBlueprintBlobRepository.WriteOutcome.ALREADY_PRESENT,
+                repository.writeOnce(live), "保护集中的幂等写仍可用");
+        assertThrows(AtomicBlueprintBlobRepository.BlobRepositoryException.class,
+                () -> repository.writeOnce(orphan), "旧 orphan 不能在维护中被重新接纳");
+        assertThrows(AtomicBlueprintBlobRepository.BlobRepositoryException.class,
+                () -> repository.writeOnce(after), "维护期间必须关闭新资产 admission");
+
+        var reconciled = repository.reconcileOrphans();
+        assertTrue(reconciled.complete());
+        assertFalse(reconciled.failed());
+        assertEquals(1, reconciled.deletedOrphans());
+        assertInstanceOf(AtomicBlueprintBlobRepository.LoadResult.Found.class,
+                repository.load(live.assetId()));
+        assertInstanceOf(AtomicBlueprintBlobRepository.LoadResult.Missing.class,
+                repository.load(orphan.assetId()));
+        assertEquals(AtomicBlueprintBlobRepository.WriteOutcome.WRITTEN,
+                repository.writeOnce(after), "完整 rescan 后应恢复 admission");
+    }
+
+    @Test
+    void reconciliationFailureKeepsAdmissionClosedWithoutDeletingLiveBlob() throws IOException {
+        BlueprintBlobCodec codec = new BlueprintBlobCodec();
+        AtomicBlueprintBlobRepository repository = repository(codec);
+        BlueprintBlobRecord live = codec.freeze(
+                TaskId.create(), 1, "live", "test", "VANILLA_NBT", structure(new byte[]{4}));
+        BlueprintBlobRecord after = codec.freeze(
+                TaskId.create(), 1, "after", "test", "VANILLA_NBT", structure(new byte[]{5}));
+        repository.writeOnce(live);
+        Files.writeString(temporaryDirectory.resolve("unknown.txt"), "do not guess");
+
+        repository.beginReconciliation(Set.of(live.assetId()));
+        var reconciled = repository.reconcileOrphans();
+        assertTrue(reconciled.failed());
+        assertFalse(reconciled.complete());
+        assertInstanceOf(AtomicBlueprintBlobRepository.LoadResult.Found.class,
+                repository.load(live.assetId()));
+        assertThrows(AtomicBlueprintBlobRepository.BlobRepositoryException.class,
+                () -> repository.writeOnce(after));
+    }
+
+    @Test
+    void reconciliationDeletesRecognizedCrashTempsSoMaintenanceCanMakeBoundedProgress() throws IOException {
+        BlueprintBlobCodec codec = new BlueprintBlobCodec();
+        AtomicBlueprintBlobRepository repository = repository(codec);
+        TaskAssetId assetId = TaskAssetId.forTask(TaskId.create(), "blueprint");
+        Files.createDirectories(temporaryDirectory);
+        Path crashTemp = temporaryDirectory.resolve(assetId + ".nbt." + java.util.UUID.randomUUID() + ".tmp");
+        Files.write(crashTemp, new byte[]{1});
+
+        repository.beginReconciliation(Set.of());
+        var result = repository.reconcileOrphans();
+
+        assertTrue(result.complete());
+        assertFalse(result.failed());
+        assertEquals(1, result.deletedOrphans());
+        assertFalse(Files.exists(crashTemp));
+    }
+
+    @Test
+    void reconciliationKeepsLookalikeUnknownTempAndFailsClosed() throws IOException {
+        BlueprintBlobCodec codec = new BlueprintBlobCodec();
+        AtomicBlueprintBlobRepository repository = repository(codec);
+        TaskAssetId assetId = TaskAssetId.forTask(TaskId.create(), "blueprint");
+        Path lookalike = temporaryDirectory.resolve(assetId + ".nbt.crash.tmp");
+        Files.write(lookalike, new byte[]{1});
+
+        repository.beginReconciliation(Set.of());
+        var result = repository.reconcileOrphans();
+
+        assertTrue(result.failed());
+        assertFalse(result.complete());
+        assertTrue(Files.exists(lookalike), "未知近似文件不能被猜测为本仓库临时文件而删除");
     }
 
     @Test

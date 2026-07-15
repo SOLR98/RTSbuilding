@@ -20,13 +20,17 @@ public final class TaskAssetManifest {
     public static final long MAX_COMPRESSED_BYTES = 4L * 1024L * 1024L * 1024L;
     public static final long MAX_LOGICAL_BYTES = 16L * 1024L * 1024L * 1024L;
 
+    private static final TaskAssetManifest EMPTY = new TaskAssetManifest(Map.of());
+
     private final Map<TaskAssetId, TaskAssetMetadata> entries;
+    private final Map<TaskId, Set<TaskAssetId>> assetsByTask;
     private final long compressedBytes;
     private final long logicalBytes;
 
     public TaskAssetManifest(Map<TaskAssetId, TaskAssetMetadata> entries) {
         Objects.requireNonNull(entries, "entries");
         LinkedHashMap<TaskAssetId, TaskAssetMetadata> copy = new LinkedHashMap<>();
+        LinkedHashMap<TaskId, LinkedHashSet<TaskAssetId>> byTask = new LinkedHashMap<>();
         long compressed = 0L;
         long logical = 0L;
         for (Map.Entry<TaskAssetId, TaskAssetMetadata> entry : entries.entrySet()) {
@@ -34,6 +38,7 @@ public final class TaskAssetManifest {
             TaskAssetMetadata metadata = Objects.requireNonNull(entry.getValue(), "assetMetadata");
             if (!id.equals(metadata.assetId())) throw new IllegalArgumentException("manifest key 与 assetId 不一致");
             if (copy.putIfAbsent(id, metadata) != null) throw new IllegalArgumentException("重复 assetId: " + id);
+            byTask.computeIfAbsent(metadata.taskId(), ignored -> new LinkedHashSet<>()).add(id);
             compressed = addBounded(compressed, metadata.compressedBytes(), MAX_COMPRESSED_BYTES,
                     "活动资产压缩总量超过 4 GiB");
             logical = addBounded(logical, metadata.logicalBytes(), MAX_LOGICAL_BYTES,
@@ -41,12 +46,15 @@ public final class TaskAssetManifest {
         }
         if (copy.size() > MAX_ASSETS) throw new IllegalArgumentException("活动资产数量超过 100000");
         this.entries = Map.copyOf(copy);
+        LinkedHashMap<TaskId, Set<TaskAssetId>> frozenByTask = new LinkedHashMap<>();
+        byTask.forEach((taskId, assetIds) -> frozenByTask.put(taskId, Set.copyOf(assetIds)));
+        this.assetsByTask = Map.copyOf(frozenByTask);
         this.compressedBytes = compressed;
         this.logicalBytes = logical;
     }
 
     public static TaskAssetManifest empty() {
-        return new TaskAssetManifest(Map.of());
+        return EMPTY;
     }
 
     public Map<TaskAssetId, TaskAssetMetadata> entries() {
@@ -61,10 +69,17 @@ public final class TaskAssetManifest {
         return logicalBytes;
     }
 
+    /** 按任务反向查询资产 ID；终态提交不得再全量扫描整个 manifest。 */
+    public Set<TaskAssetId> assetIdsForTask(TaskId taskId) {
+        Objects.requireNonNull(taskId, "taskId");
+        return assetsByTask.getOrDefault(taskId, Set.of());
+    }
+
     public TaskAssetManifest apply(
             Collection<TaskAssetMetadata> upserts, Collection<TaskAssetId> removals) {
         Objects.requireNonNull(upserts, "upserts");
         Objects.requireNonNull(removals, "removals");
+        if (upserts.isEmpty() && removals.isEmpty()) return this;
         Set<TaskAssetId> removed = new LinkedHashSet<>(removals);
         LinkedHashMap<TaskAssetId, TaskAssetMetadata> next = new LinkedHashMap<>(entries);
         for (TaskAssetId assetId : removed) next.remove(Objects.requireNonNull(assetId, "removedAssetId"));

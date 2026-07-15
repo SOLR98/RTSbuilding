@@ -31,6 +31,8 @@ public final class TaskPersistenceCoordinator {
     public static final long MAX_DEDICATED_RECORD_BYTES = TaskCodec.MAX_TASK_PAYLOAD_BYTES + 4_096L;
 
     private final TaskStore store;
+    /** ACK 前只用于占住身份索引；它从不通过 TaskQuery 暴露。 */
+    private final TaskStore assetReservations = new TaskStore();
     private final TaskQuery query;
     private final TaskRepository repository;
     private final TaskCodec codec;
@@ -38,6 +40,10 @@ public final class TaskPersistenceCoordinator {
     private final Map<TaskId, TaskTombstone> pendingTombstones = new LinkedHashMap<>();
     private final Map<TaskId, Long> durableRevisions = new LinkedHashMap<>();
     private final Set<String> completedMigrations = new LinkedHashSet<>();
+    private final Map<TaskId, TaskAssetMetadata> verifiedAssetAdmissions = new LinkedHashMap<>();
+    private final Map<TaskAssetId, TaskId> pendingAssetOwners = new LinkedHashMap<>();
+    private long pendingAssetCompressedBytes;
+    private long pendingAssetLogicalBytes;
     private TaskAssetManifest assets = TaskAssetManifest.empty();
     private PendingCommit inFlight;
     private int rotationCursor;
@@ -71,6 +77,9 @@ public final class TaskPersistenceCoordinator {
                         });
                 coordinator.completedMigrations.addAll(found.image().completedMigrations());
                 coordinator.assets = found.image().assets();
+                coordinator.assets.requireOwnedBy(
+                        found.image().tasks().keySet());
+                found.image().tasks().values().forEach(coordinator::requireExistingAssetReference);
             }
             case TaskRepository.LoadResult.Missing ignored -> {
             }
@@ -84,7 +93,11 @@ public final class TaskPersistenceCoordinator {
     public synchronized TaskAdmissionResult submit(TaskSnapshot snapshot) {
         requireMigrationSettled();
         if (snapshotAssetId(snapshot).isPresent()) {
-            throw new IllegalArgumentException("带 asset_id 的任务必须走 prepareAssetAdmission durability barrier");
+            throw new IllegalArgumentException("带 asset_id 的任务必须走 asset admission durability barrier");
+        }
+        TaskAdmissionResult reservationInspection = assetReservations.inspectAdmission(snapshot);
+        if (!reservationInspection.inserted()) {
+            throw new IllegalStateException("任务身份已被外部资产 admission 预留: " + snapshot.id());
         }
         long estimatedBytes = codec.estimateSnapshotBytes(snapshot);
         TaskAdmissionResult result = store.submit(snapshot);
@@ -96,35 +109,104 @@ public final class TaskPersistenceCoordinator {
      * 外置蓝图资产的专用 durability barrier：blob 已在后台 durable 后，才原子提交 task + metadata。
      * ACK 前 snapshot 不进入 TaskStore，因此 Scheduler、Workflow 与玩家查询都不可见。
      */
-    public synchronized PreparationResult prepareAssetAdmission(
+    private synchronized TaskAdmissionResult reserveAssetAdmission(TaskSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        requireMigrationSettled();
+        if (snapshot.type() != TaskType.BLUEPRINT || snapshotAssetId(snapshot).isEmpty()) {
+            throw new IllegalArgumentException("阶段 A 只允许预留带 asset_id 的 BLUEPRINT 任务");
+        }
+
+        TaskAdmissionResult active = store.inspectAdmission(snapshot);
+        if (!active.inserted()) {
+            if (!active.snapshot().equals(snapshot)) {
+                throw new IllegalStateException("asset admission 与现有 submission 不是同一请求");
+            }
+            return active;
+        }
+        TaskAdmissionResult reserved = assetReservations.submit(snapshot);
+        if (!reserved.inserted() && !reserved.snapshot().equals(snapshot)) {
+            throw new IllegalStateException("asset admission 与现有 reservation 不是同一请求");
+        }
+        return reserved;
+    }
+
+    /**
+     * 对已 durable 的外置资产执行单锁原子接纳：先验证双向引用和 active+pending 配额，
+     * 再占用所有任务身份并绑定 metadata。任何异常都不能留下半条隐藏 reservation。
+     */
+    synchronized TaskAdmissionResult reserveVerifiedAssetAdmission(
             TaskSnapshot snapshot, TaskAssetMetadata metadata) {
         Objects.requireNonNull(snapshot, "snapshot");
         Objects.requireNonNull(metadata, "metadata");
-        if (inFlight != null) return PreparationResult.inFlight(allDirtyTaskIds());
-        if (snapshot.type() != TaskType.BLUEPRINT || !"blueprint".equals(metadata.kind())) {
-            return PreparationResult.failed(List.of(snapshot.id()),
-                    new IllegalArgumentException("阶段 A 只允许 BLUEPRINT + blueprint 外置资产"));
-        }
-        Optional<TaskAssetId> referenced = snapshotAssetId(snapshot);
-        if (referenced.isEmpty() || !referenced.get().equals(metadata.assetId())
-                || !metadata.taskId().equals(snapshot.id())) {
-            return PreparationResult.failed(List.of(snapshot.id()),
-                    new IllegalArgumentException("snapshot.asset_id 与 metadata/taskId 不一致"));
-        }
+        validateAssetAdmission(snapshot, metadata);
+        requirePendingAssetQuota(metadata);
 
+        TaskAdmissionResult admission = reserveAssetAdmission(snapshot);
         try {
-            TaskStore probe = new TaskStore();
-            store.snapshots().forEach(probe::restore);
-            store.receipts().forEach(probe::restoreReceipt);
-            TaskAdmissionResult admission = probe.submit(snapshot);
-            if (!admission.inserted()) {
-                TaskAssetMetadata existing = assets.entries().get(metadata.assetId());
-                return admission.snapshot().id().equals(snapshot.id()) && metadata.equals(existing)
-                        ? PreparationResult.alreadyApplied()
-                        : PreparationResult.failed(List.of(snapshot.id()),
-                                new IllegalStateException("asset admission 与现有 submission 冲突"));
+            attachVerifiedAssetMetadata(snapshot.id(), metadata);
+            return admission;
+        } catch (RuntimeException failure) {
+            if (admission.inserted()) {
+                assetReservations.remove(snapshot.id());
+                removeVerifiedAssetAdmission(snapshot.id());
             }
-            assets.apply(List.of(metadata), Set.of());
+            throw failure;
+        }
+    }
+
+    /** 绑定已经由 blob 仓库验证并落盘的 metadata；重复绑定同一份 metadata 是幂等的。 */
+    private synchronized void attachVerifiedAssetMetadata(TaskId taskId, TaskAssetMetadata metadata) {
+        Objects.requireNonNull(taskId, "taskId");
+        Objects.requireNonNull(metadata, "metadata");
+        TaskSnapshot snapshot = assetReservations.get(taskId).orElse(null);
+        if (snapshot == null) {
+            TaskSnapshot active = store.get(taskId)
+                    .orElseThrow(() -> new IllegalStateException("找不到 asset admission reservation: " + taskId));
+            validateAssetAdmission(active, metadata);
+            if (!metadata.equals(assets.entries().get(metadata.assetId()))) {
+                throw new IllegalStateException("已完成的 asset admission metadata 不一致");
+            }
+            return;
+        }
+        validateAssetAdmission(snapshot, metadata);
+        requirePendingAssetQuota(metadata);
+        TaskAssetMetadata previous = verifiedAssetAdmissions.get(taskId);
+        if (previous != null) {
+            if (!previous.equals(metadata)) {
+                throw new IllegalStateException("同一 reservation 不能替换为另一份 metadata");
+            }
+            return;
+        }
+        TaskId previousOwner = pendingAssetOwners.putIfAbsent(metadata.assetId(), taskId);
+        if (previousOwner != null && !previousOwner.equals(taskId)) {
+            throw new IllegalStateException("同一 reservation 不能替换为另一份 metadata");
+        }
+        verifiedAssetAdmissions.put(taskId, metadata);
+        pendingAssetCompressedBytes += metadata.compressedBytes();
+        pendingAssetLogicalBytes += metadata.logicalBytes();
+    }
+
+    /**
+     * 为已经 reserve 且附加 verified metadata 的任务准备 Root commit。
+     * prepare/write 失败均不清除 reservation 与 ready 状态，下一 tick 可直接重试。
+     */
+    synchronized PreparationResult prepareReadyAssetAdmission(TaskId taskId) {
+        Objects.requireNonNull(taskId, "taskId");
+        if (inFlight != null) return PreparationResult.inFlight(List.of(taskId));
+        TaskSnapshot snapshot = assetReservations.get(taskId).orElse(null);
+        if (snapshot == null) {
+            return store.get(taskId).isPresent()
+                    ? PreparationResult.alreadyApplied()
+                    : PreparationResult.failed(List.of(taskId),
+                            new IllegalStateException("找不到 asset admission reservation"));
+        }
+        TaskAssetMetadata metadata = verifiedAssetAdmissions.get(taskId);
+        if (metadata == null) {
+            return PreparationResult.failed(List.of(taskId),
+                    new IllegalStateException("asset admission 尚未附加 verified metadata"));
+        }
+        try {
+            validateAssetAdmission(snapshot, metadata);
             long estimated = addSaturated(codec.estimateSnapshotBytes(snapshot), 256L);
             return prepare(new TaskRepository.Commit(
                             List.of(snapshot), List.of(), Set.of(), Set.of(),
@@ -132,11 +214,109 @@ public final class TaskPersistenceCoordinator {
                     CommitKind.ASSET_ADMISSION, List.of(snapshot), List.of(), Set.of(), null,
                     List.of(snapshot), estimated, new LinkedHashSet<>());
         } catch (RuntimeException failure) {
-            return PreparationResult.failed(List.of(snapshot.id()), failure);
+            return PreparationResult.failed(List.of(taskId), failure);
         }
     }
 
-    /** tombstone 一旦请求便冻结 snapshot revision，消除 upsert 与墓碑互相追赶。 */
+    /**
+     * writer 拒绝接收任务时撤销“仅准备、尚未派发”的精确 ticket。
+     * reservation 与 verified metadata 必须保留，下一次调度可重新 prepare；任何 ticket/task 不匹配都 fail-closed。
+     */
+    synchronized void abortUndispatchedAssetAdmission(TaskId taskId, UUID ticketId) {
+        Objects.requireNonNull(taskId, "taskId");
+        Objects.requireNonNull(ticketId, "ticketId");
+        if (inFlight == null
+                || inFlight.kind() != CommitKind.ASSET_ADMISSION
+                || !inFlight.prepared().ticketId().equals(ticketId)
+                || inFlight.postAckSnapshots().size() != 1
+                || !inFlight.postAckSnapshots().getFirst().id().equals(taskId)) {
+            throw new IllegalStateException("拒绝撤销不匹配的 asset admission ticket");
+        }
+        inFlight = null;
+    }
+
+    /**
+     * 放弃尚未提交 Root 的 reservation。用于 blob 不可恢复失败或玩家显式取消；
+     * 一旦存在 Root in-flight，必须先消费 completion，不能猜测磁盘最终状态。
+     */
+    synchronized boolean cancelAssetReservation(TaskId taskId) {
+        Objects.requireNonNull(taskId, "taskId");
+        if (inFlight != null && inFlight.kind() == CommitKind.ASSET_ADMISSION
+                && inFlight.postAckSnapshots().stream().anyMatch(snapshot -> snapshot.id().equals(taskId))) {
+            throw new IllegalStateException("Root in-flight 期间不能取消 asset reservation");
+        }
+        TaskSnapshot removed = assetReservations.remove(taskId).orElse(null);
+        if (removed == null) return false;
+        removeVerifiedAssetAdmission(taskId);
+        return true;
+    }
+
+    synchronized boolean hasPendingAssetAdmissions() {
+        return assetReservations.size() > 0;
+    }
+
+    synchronized List<TaskId> pendingAssetTaskIds() {
+        return assetReservations.snapshots().stream().map(TaskSnapshot::id).toList();
+    }
+
+    /** 主线程精确清理 blob 前的保护事实：同一 assetId 只要已 active 或 pending 就绝不能删除。 */
+    synchronized boolean isAssetActiveOrReserved(TaskAssetMetadata metadata) {
+        Objects.requireNonNull(metadata, "metadata");
+        if (assets.entries().containsKey(metadata.assetId())) return true;
+        return pendingAssetOwners.containsKey(metadata.assetId());
+    }
+
+    private void requirePendingAssetQuota(TaskAssetMetadata metadata) {
+        TaskAssetMetadata existingPending = verifiedAssetAdmissions.get(metadata.taskId());
+        if (existingPending != null) {
+            if (!existingPending.equals(metadata)) {
+                throw new IllegalStateException("同一 reservation 不能替换为另一份 metadata");
+            }
+            return;
+        }
+        TaskId existingPendingOwner = pendingAssetOwners.get(metadata.assetId());
+        if (existingPendingOwner != null && !existingPendingOwner.equals(metadata.taskId())) {
+            throw new IllegalStateException("pending assetId 已属于另一任务");
+        }
+        TaskAssetMetadata active = assets.entries().get(metadata.assetId());
+        if (active != null) {
+            if (!active.equals(metadata)) {
+                throw new IllegalStateException("active assetId 已绑定不同 metadata");
+            }
+            return;
+        }
+        long projectedCount = (long) assets.entries().size() + verifiedAssetAdmissions.size() + 1L;
+        if (projectedCount > TaskAssetManifest.MAX_ASSETS) {
+            throw new IllegalArgumentException("活动与待接纳资产数量超过 100000");
+        }
+        requireWithinAssetBudget(
+                assets.compressedBytes(), pendingAssetCompressedBytes, metadata.compressedBytes(),
+                TaskAssetManifest.MAX_COMPRESSED_BYTES, "活动与待接纳资产压缩总量超过 4 GiB");
+        requireWithinAssetBudget(
+                assets.logicalBytes(), pendingAssetLogicalBytes, metadata.logicalBytes(),
+                TaskAssetManifest.MAX_LOGICAL_BYTES, "活动与待接纳资产逻辑总量超过 16 GiB");
+    }
+
+    private void removeVerifiedAssetAdmission(TaskId taskId) {
+        TaskAssetMetadata removed = verifiedAssetAdmissions.remove(taskId);
+        if (removed == null) return;
+        pendingAssetOwners.remove(removed.assetId(), taskId);
+        pendingAssetCompressedBytes -= removed.compressedBytes();
+        pendingAssetLogicalBytes -= removed.logicalBytes();
+        if (pendingAssetCompressedBytes < 0L || pendingAssetLogicalBytes < 0L) {
+            throw new IllegalStateException("pending asset 配额计数下溢");
+        }
+    }
+
+    private static void requireWithinAssetBudget(
+            long active, long pending, long candidate, long maximum, String message) {
+        if (active < 0L || pending < 0L || candidate <= 0L
+                || active > maximum || pending > maximum - active
+                || candidate > maximum - active - pending) {
+            throw new IllegalArgumentException(message);
+        }
+    }
+
     public synchronized void replace(TaskSnapshot snapshot) {
         requireMigrationSettled();
         requireExistingAssetReference(snapshot);
@@ -148,6 +328,7 @@ public final class TaskPersistenceCoordinator {
         dirtySnapshots.put(snapshot.id(), new PendingSnapshot(snapshot, estimatedBytes));
     }
 
+    /** tombstone 一旦请求便冻结 snapshot revision，消除 upsert 与墓碑互相追赶。 */
     public synchronized void requestTombstone(TaskId taskId, long completedGameTime) {
         requestTombstone(taskId, completedGameTime, DEFAULT_RECEIPT_RETENTION_TICKS);
     }
@@ -249,6 +430,10 @@ public final class TaskPersistenceCoordinator {
         Objects.requireNonNull(snapshots, "snapshots");
         if (completedMigrations.contains(migrationId)) return PreparationResult.alreadyApplied();
         if (inFlight != null) return PreparationResult.inFlight(allDirtyTaskIds());
+        if (assetReservations.size() > 0) {
+            return PreparationResult.failed(pendingAssetTaskIds(),
+                    new IllegalStateException("存在 asset admission reservation 时禁止启动 legacy 迁移"));
+        }
         if (!dirtySnapshots.isEmpty() || !pendingTombstones.isEmpty()) {
             return PreparationResult.failed(allDirtyTaskIds(),
                     new IllegalStateException("迁移必须在普通任务 admission 前完成"));
@@ -323,6 +508,15 @@ public final class TaskPersistenceCoordinator {
                 TaskAdmissionResult restored = store.submit(snapshot);
                 if (!restored.inserted() || !restored.snapshot().id().equals(snapshot.id())) {
                     throw new IllegalStateException("durable ACK 后 TaskStore admission 与 root 镜像漂移");
+                }
+                if (pending.kind() == CommitKind.ASSET_ADMISSION) {
+                    TaskSnapshot reservation = assetReservations.remove(snapshot.id())
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "durable ACK 后找不到 asset admission reservation"));
+                    if (!reservation.equals(snapshot)) {
+                        throw new IllegalStateException("durable ACK 与 asset reservation 快照不一致");
+                    }
+                    removeVerifiedAssetAdmission(snapshot.id());
                 }
                 durableRevisions.put(snapshot.id(), snapshot.revision());
                 acknowledged.put(snapshot.id(), snapshot.revision());
@@ -424,13 +618,7 @@ public final class TaskPersistenceCoordinator {
     }
 
     private Set<TaskAssetId> assetIdsForTask(TaskId taskId) {
-        LinkedHashSet<TaskAssetId> result = new LinkedHashSet<>();
-        assets.entries().values().stream()
-                .filter(metadata -> metadata.taskId().equals(taskId))
-                .map(TaskAssetMetadata::assetId)
-                .sorted()
-                .forEach(result::add);
-        return Set.copyOf(result);
+        return assets.assetIdsForTask(taskId);
     }
 
     private List<TaskId> allDirtyTaskIds() {
@@ -575,10 +763,26 @@ public final class TaskPersistenceCoordinator {
 
     private void requireExistingAssetReference(TaskSnapshot snapshot) {
         Optional<TaskAssetId> referenced = snapshotAssetId(snapshot);
-        if (referenced.isEmpty()) return;
+        Set<TaskAssetId> owned = assets.assetIdsForTask(snapshot.id());
+        if (owned.isEmpty() && referenced.isEmpty()) return;
+        if (snapshot.type() != TaskType.BLUEPRINT || owned.size() != 1
+                || referenced.isEmpty() || !owned.contains(referenced.get())) {
+            throw new IllegalArgumentException("task 与 durable asset manifest 的双向引用不一致: " + snapshot.id());
+        }
         TaskAssetMetadata metadata = assets.entries().get(referenced.get());
         if (metadata == null || !metadata.taskId().equals(snapshot.id())) {
             throw new IllegalArgumentException("任务引用的 asset_id 不在 durable manifest 中");
+        }
+    }
+
+    private static void validateAssetAdmission(TaskSnapshot snapshot, TaskAssetMetadata metadata) {
+        if (snapshot.type() != TaskType.BLUEPRINT || !"blueprint".equals(metadata.kind())) {
+            throw new IllegalArgumentException("阶段 A 只允许 BLUEPRINT + blueprint 外置资产");
+        }
+        Optional<TaskAssetId> referenced = snapshotAssetId(snapshot);
+        if (referenced.isEmpty() || !referenced.get().equals(metadata.assetId())
+                || !metadata.taskId().equals(snapshot.id())) {
+            throw new IllegalArgumentException("snapshot.asset_id 与 metadata/taskId 不一致");
         }
     }
 

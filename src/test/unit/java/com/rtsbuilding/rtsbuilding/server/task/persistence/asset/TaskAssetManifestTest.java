@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class TaskAssetManifestTest {
@@ -42,6 +43,23 @@ class TaskAssetManifestTest {
                 () -> manifest.apply(List.of(first), Set.of(first.assetId())));
         assertEquals(10L, manifest.compressedBytes());
         assertEquals(20L, manifest.logicalBytes());
+    }
+
+    @Test
+    void emptyDeltaReusesManifestAndTaskReverseIndexIsIncremental() {
+        TaskAssetMetadata first = metadata(TaskId.create(), 10L, 20L);
+        TaskAssetMetadata second = metadata(TaskId.create(), 30L, 40L);
+        TaskAssetManifest manifest = new TaskAssetManifest(Map.of(
+                first.assetId(), first, second.assetId(), second));
+
+        assertSame(manifest, manifest.apply(List.of(), Set.of()));
+        assertEquals(Set.of(first.assetId()), manifest.assetIdsForTask(first.taskId()));
+        assertEquals(Set.of(second.assetId()), manifest.assetIdsForTask(second.taskId()));
+        assertEquals(Set.of(), manifest.assetIdsForTask(TaskId.create()));
+
+        TaskAssetManifest removed = manifest.apply(List.of(), Set.of(first.assetId()));
+        assertEquals(Set.of(), removed.assetIdsForTask(first.taskId()));
+        assertEquals(Set.of(second.assetId()), removed.assetIdsForTask(second.taskId()));
     }
 
     private static TaskAssetMetadata metadata(TaskId taskId, long compressed, long logical) {

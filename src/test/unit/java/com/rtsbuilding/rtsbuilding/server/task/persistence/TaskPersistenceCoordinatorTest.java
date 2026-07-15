@@ -4,6 +4,7 @@ import com.rtsbuilding.rtsbuilding.server.task.identity.SubmissionId;
 import com.rtsbuilding.rtsbuilding.server.task.identity.TaskId;
 import com.rtsbuilding.rtsbuilding.server.task.TaskType;
 import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.TaskAssetId;
+import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.TaskAssetManifest;
 import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.TaskAssetMetadata;
 import net.minecraft.nbt.CompoundTag;
 import org.junit.jupiter.api.Test;
@@ -60,7 +61,7 @@ class TaskPersistenceCoordinatorTest {
 
         assertThrows(IllegalArgumentException.class, () -> coordinator.submit(task));
         TaskPersistenceCoordinator.PreparationResult prepared =
-                coordinator.prepareAssetAdmission(task, metadata);
+                prepareAssetAdmission(coordinator, task, metadata);
         assertEquals(TaskPersistenceCoordinator.PreparationOutcome.PREPARED, prepared.outcome());
         assertTrue(coordinator.query().get(task.id()).isEmpty());
 
@@ -74,12 +75,75 @@ class TaskPersistenceCoordinatorTest {
     }
 
     @Test
+    void assetReservationBlocksAllIdentityCollisionsAndSurvivesWriteFailure() {
+        FaultRepository repository = new FaultRepository();
+        TaskPersistenceCoordinator coordinator = open(repository);
+        TaskSnapshot task = assetTask(TaskLifecycleState.QUEUED, 17);
+        TaskAssetMetadata metadata = metadata(task);
+
+        assertTrue(coordinator.reserveVerifiedAssetAdmission(task, metadata).inserted());
+        assertFalse(coordinator.reserveVerifiedAssetAdmission(task, metadata).inserted(),
+                "相同重试必须复用原 reservation");
+
+        TaskSnapshot taskIdCollision = normalTaskWithIdentity(
+                task.id(), SubmissionId.create(), UUID.randomUUID(), 31, "minecraft:the_nether");
+        TaskSnapshot submissionCollision = normalTaskWithIdentity(
+                TaskId.create(), task.submissionId(), task.ownerId(), 32, task.dimensionId());
+        TaskSnapshot workflowCollision = normalTaskWithIdentity(
+                TaskId.create(), SubmissionId.create(), task.ownerId(), 17, task.dimensionId());
+        assertThrows(IllegalStateException.class, () -> coordinator.submit(taskIdCollision));
+        assertThrows(IllegalStateException.class, () -> coordinator.submit(submissionCollision));
+        assertThrows(IllegalStateException.class, () -> coordinator.submit(workflowCollision));
+
+        repository.failWrites = true;
+        TaskPersistenceCoordinator.CommitAckResult failed = complete(
+                coordinator, coordinator.prepareReadyAssetAdmission(task.id()));
+        assertEquals(TaskPersistenceCoordinator.AckOutcome.FAILED, failed.outcome());
+        assertTrue(coordinator.query().get(task.id()).isEmpty());
+        assertFalse(coordinator.reserveVerifiedAssetAdmission(task, metadata).inserted(),
+                "Root 失败后 reservation 必须保留给下一次重试");
+
+        repository.failWrites = false;
+        TaskPersistenceCoordinator.CommitAckResult ack = complete(
+                coordinator, coordinator.prepareReadyAssetAdmission(task.id()));
+        assertEquals(TaskPersistenceCoordinator.AckOutcome.ACKNOWLEDGED, ack.outcome());
+        assertEquals(task, coordinator.query().get(task.id()).orElseThrow());
+        assertFalse(coordinator.reserveVerifiedAssetAdmission(task, metadata).inserted(),
+                "ACK 后同一请求必须命中 active task 而不是创建第二份任务");
+        assertEquals(TaskPersistenceCoordinator.PreparationOutcome.ALREADY_APPLIED,
+                coordinator.prepareReadyAssetAdmission(task.id()).outcome());
+    }
+
+    @Test
+    void assetReservationCanOnlyBeCancelledWithoutRootInFlight() {
+        FaultRepository repository = new FaultRepository();
+        TaskPersistenceCoordinator coordinator = open(repository);
+        TaskSnapshot task = assetTask(TaskLifecycleState.QUEUED);
+        TaskAssetMetadata metadata = metadata(task);
+        coordinator.reserveVerifiedAssetAdmission(task, metadata);
+
+        assertTrue(coordinator.hasPendingAssetAdmissions());
+        assertEquals(List.of(task.id()), coordinator.pendingAssetTaskIds());
+        TaskPersistenceCoordinator.PreparationResult prepared =
+                coordinator.prepareReadyAssetAdmission(task.id());
+        assertThrows(IllegalStateException.class, () -> coordinator.cancelAssetReservation(task.id()));
+
+        repository.failWrites = true;
+        TaskPersistenceCoordinator.CommitAckResult failed = complete(coordinator, prepared);
+        assertEquals(TaskPersistenceCoordinator.AckOutcome.FAILED, failed.outcome());
+        assertTrue(coordinator.cancelAssetReservation(task.id()));
+        assertFalse(coordinator.hasPendingAssetAdmissions());
+        assertTrue(coordinator.pendingAssetTaskIds().isEmpty());
+        assertFalse(coordinator.cancelAssetReservation(task.id()));
+    }
+
+    @Test
     void terminalAssetTaskRemovesMetadataInSameRootAndAckReturnsCleanupReceipt() {
         FaultRepository repository = new FaultRepository();
         TaskPersistenceCoordinator coordinator = open(repository);
         TaskSnapshot terminal = assetTask(TaskLifecycleState.COMPLETED);
         TaskAssetMetadata metadata = metadata(terminal);
-        complete(coordinator, coordinator.prepareAssetAdmission(terminal, metadata));
+        complete(coordinator, prepareAssetAdmission(coordinator, terminal, metadata));
 
         coordinator.requestTombstone(terminal.id(), 100L, 500L);
         TaskPersistenceCoordinator.CommitAckResult ack = complete(
@@ -281,6 +345,95 @@ class TaskPersistenceCoordinatorTest {
         return coordinator.acceptCompletion(completion);
     }
 
+    @Test
+    void migrationCannotBypassPendingAssetIdentityReservation() {
+        FaultRepository repository = new FaultRepository();
+        TaskPersistenceCoordinator coordinator = open(repository);
+        TaskSnapshot reserved = assetTask(TaskLifecycleState.QUEUED, 66);
+        coordinator.reserveVerifiedAssetAdmission(reserved, metadata(reserved));
+
+        TaskSnapshot sameSubmission = TaskStoreTest.snapshot(
+                TaskId.create(), reserved.submissionId(), reserved.ownerId(), 67,
+                TaskLifecycleState.QUEUED, null, 1L, reserved.dimensionId());
+        TaskPersistenceCoordinator.PreparationResult blocked = coordinator.prepareMigrationOnce(
+                "legacy-conflict", List.of(sameSubmission));
+
+        assertEquals(TaskPersistenceCoordinator.PreparationOutcome.FAILED, blocked.outcome());
+        assertEquals(List.of(reserved.id()), blocked.deferredTaskIds());
+        assertTrue(coordinator.query().snapshots().isEmpty());
+        assertEquals(0, repository.prepareAttempts, "被 reservation 阻止的迁移不能生成 root candidate");
+    }
+
+    @Test
+    void verifiedAssetAdmissionFailureLeavesNoHiddenReservation() {
+        TaskPersistenceCoordinator coordinator = open(new FaultRepository());
+        TaskSnapshot snapshot = assetTask(TaskLifecycleState.QUEUED, 68);
+        TaskSnapshot foreign = assetTask(TaskLifecycleState.QUEUED, 69);
+        TaskAssetMetadata mismatched = metadata(foreign);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> coordinator.reserveVerifiedAssetAdmission(snapshot, mismatched));
+
+        assertFalse(coordinator.hasPendingAssetAdmissions());
+        assertTrue(coordinator.query().snapshots().isEmpty());
+    }
+
+    @Test
+    void activeAndPendingAssetQuotaIsCheckedBeforeReservingIdentity() {
+        TaskPersistenceCoordinator coordinator = open(new FaultRepository());
+        long slice = TaskAssetManifest.MAX_COMPRESSED_BYTES / 128L;
+        TaskSnapshot first = null;
+        for (int i = 0; i < 128; i++) {
+            TaskSnapshot snapshot = assetTask(TaskLifecycleState.QUEUED);
+            if (first == null) first = snapshot;
+            TaskAssetMetadata metadata = new TaskAssetMetadata(
+                    new TaskAssetId(snapshot.payloadView().getUUID("asset_id")), snapshot.id(),
+                    "blueprint", "e".repeat(64), slice, 1L);
+            coordinator.reserveVerifiedAssetAdmission(snapshot, metadata);
+        }
+        TaskSnapshot overflow = assetTask(TaskLifecycleState.QUEUED);
+        TaskAssetMetadata overflowMetadata = new TaskAssetMetadata(
+                new TaskAssetId(overflow.payloadView().getUUID("asset_id")), overflow.id(),
+                "blueprint", "f".repeat(64), 1L, 1L);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> coordinator.reserveVerifiedAssetAdmission(overflow, overflowMetadata));
+
+        assertFalse(coordinator.pendingAssetTaskIds().contains(overflow.id()),
+                "永久超额项不能进入 FIFO 并饿死 checkpoint");
+        assertTrue(coordinator.cancelAssetReservation(first.id()));
+        assertTrue(coordinator.reserveVerifiedAssetAdmission(overflow, overflowMetadata).inserted(),
+                "取消 reservation 必须精确归还 O(1) pending 配额");
+    }
+
+    @Test
+    void assetTaskCannotDropItsManifestReferenceOnReplaceOrReload() {
+        FaultRepository repository = new FaultRepository();
+        TaskPersistenceCoordinator coordinator = open(repository);
+        TaskSnapshot snapshot = assetTask(TaskLifecycleState.QUEUED, 70);
+        TaskAssetMetadata metadata = metadata(snapshot);
+        complete(coordinator, prepareAssetAdmission(coordinator, snapshot, metadata));
+        TaskSnapshot detached = withPayload(new TaskSnapshot(
+                snapshot.id(), snapshot.submissionId(), snapshot.ownerId(), snapshot.dimensionId(),
+                snapshot.type(), snapshot.state(), snapshot.workflowEntryId(), snapshot.waitKey(),
+                snapshot.revision() + 1L, snapshot.createdGameTime(), snapshot.updatedGameTime() + 1L,
+                snapshot.totalUnits(), snapshot.cursorUnits(), snapshot.succeededUnits(),
+                snapshot.failedUnits(), snapshot.payload()), new CompoundTag());
+
+        assertThrows(IllegalArgumentException.class, () -> coordinator.replace(detached));
+
+        assertThrows(IllegalArgumentException.class, () -> new TaskRepository.Image(
+                        Map.of(snapshot.id(), detached), Map.of(), Set.of(),
+                        new TaskAssetManifest(Map.of(metadata.assetId(), metadata))),
+                "Repository 镜像边界就必须拒绝下次启动会失败的反向引用");
+    }
+
+    private static TaskPersistenceCoordinator.PreparationResult prepareAssetAdmission(
+            TaskPersistenceCoordinator coordinator, TaskSnapshot snapshot, TaskAssetMetadata metadata) {
+        coordinator.reserveVerifiedAssetAdmission(snapshot, metadata);
+        return coordinator.prepareReadyAssetAdmission(snapshot.id());
+    }
+
     private static TaskSnapshot task(int workflow, TaskLifecycleState state) {
         return TaskStoreTest.snapshot(TaskId.create(), SubmissionId.create(), UUID.randomUUID(), workflow,
                 state, null, 1L, "minecraft:overworld");
@@ -300,14 +453,27 @@ class TaskPersistenceCoordinatorTest {
     }
 
     private static TaskSnapshot assetTask(TaskLifecycleState state) {
+        return assetTask(state, -1);
+    }
+
+    private static TaskSnapshot assetTask(TaskLifecycleState state, int workflowEntryId) {
         TaskId taskId = TaskId.create();
         TaskAssetId assetId = TaskAssetId.forTask(taskId, "blueprint");
         CompoundTag payload = new CompoundTag();
         payload.putUUID("asset_id", assetId.value());
         int cursor = state.terminal() ? 1 : 0;
         return new TaskSnapshot(taskId, SubmissionId.create(), UUID.randomUUID(), "minecraft:overworld",
-                TaskType.BLUEPRINT, state, -1, null, 1L, 0L, 0L,
+                TaskType.BLUEPRINT, state, workflowEntryId, null, 1L, 0L, 0L,
                 1, cursor, cursor, 0, payload);
+    }
+
+    private static TaskSnapshot normalTaskWithIdentity(TaskId id, SubmissionId submissionId,
+            UUID ownerId, int workflowEntryId, String dimensionId) {
+        CompoundTag payload = new CompoundTag();
+        payload.putString("plan_ref", "reservation-conflict");
+        return new TaskSnapshot(id, submissionId, ownerId, dimensionId, TaskType.PLACEMENT,
+                TaskLifecycleState.QUEUED, workflowEntryId, null, 1L, 0L, 0L,
+                1, 0, 0, 0, payload);
     }
 
     private static TaskAssetMetadata metadata(TaskSnapshot task) {

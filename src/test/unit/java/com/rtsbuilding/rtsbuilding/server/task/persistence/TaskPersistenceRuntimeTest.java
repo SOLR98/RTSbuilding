@@ -2,6 +2,13 @@ package com.rtsbuilding.rtsbuilding.server.task.persistence;
 
 import com.rtsbuilding.rtsbuilding.server.task.identity.SubmissionId;
 import com.rtsbuilding.rtsbuilding.server.task.identity.TaskId;
+import com.rtsbuilding.rtsbuilding.server.task.TaskType;
+import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.TaskAssetId;
+import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.TaskAssetManifest;
+import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.TaskAssetMetadata;
+import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.blueprint.AtomicBlueprintBlobRepository;
+import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.blueprint.BlueprintBlobCodec;
+import net.minecraft.nbt.CompoundTag;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -16,12 +23,18 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 class TaskPersistenceRuntimeTest {
 
@@ -29,6 +42,190 @@ class TaskPersistenceRuntimeTest {
     void productionSingletonInitializesAfterDefaultConstants() {
         assertNotNull(TaskPersistenceRuntime.INSTANCE);
         assertNotNull(TaskPersistenceRuntime.DEFAULT_FLUSH_TIMEOUT);
+    }
+
+    @Test
+    void corruptRootFailsBeforeTouchingBlobDirectory() {
+        RecordingRepository repository = new RecordingRepository();
+        repository.loadResult = new TaskRepository.LoadResult.Failed(new IOException("corrupt root"));
+        AtomicBlueprintBlobRepository blobs = mock(AtomicBlueprintBlobRepository.class);
+
+        assertThrows(IllegalStateException.class, () -> TaskPersistenceRuntime.openAndVerify(
+                repository, new TaskCodec(), blobs, new BlueprintBlobCodec()));
+        verifyNoInteractions(blobs);
+    }
+
+    @Test
+    void missingLiveBlobFailsBeforeAnyScanOrDeletion() {
+        RecordingRepository repository = new RecordingRepository();
+        TaskId taskId = TaskId.create();
+        TaskAssetId assetId = TaskAssetId.forTask(taskId, "blueprint");
+        CompoundTag payload = new CompoundTag();
+        payload.putUUID("asset_id", assetId.value());
+        TaskSnapshot snapshot = new TaskSnapshot(
+                taskId, SubmissionId.create(), UUID.randomUUID(), "minecraft:overworld",
+                TaskType.BLUEPRINT, TaskLifecycleState.QUEUED, 7, null,
+                1L, 1L, 1L, 1, 0, 0, 0, payload);
+        TaskAssetMetadata metadata = new TaskAssetMetadata(
+                assetId, taskId, "blueprint", "a".repeat(64), 1L, 1L);
+        repository.loadResult = new TaskRepository.LoadResult.Found(new TaskRepository.Image(
+                Map.of(taskId, snapshot), Map.of(), java.util.Set.of(),
+                new TaskAssetManifest(Map.of(assetId, metadata))));
+        AtomicBlueprintBlobRepository blobs = mock(AtomicBlueprintBlobRepository.class);
+        when(blobs.load(assetId)).thenReturn(new AtomicBlueprintBlobRepository.LoadResult.Missing());
+
+        assertThrows(IllegalStateException.class, () -> TaskPersistenceRuntime.openAndVerify(
+                repository, new TaskCodec(), blobs, new BlueprintBlobCodec()));
+        verify(blobs).load(assetId);
+        verifyNoMoreInteractions(blobs);
+    }
+
+    @Test
+    void stopNeverReportsSuccessWhileAssetReservationIsUnfinished() {
+        TaskPersistenceCoordinator coordinator = open(new RecordingRepository());
+        TaskSnapshot snapshot = blueprintTask(TaskId.create(), UUID.randomUUID(), 9);
+        TaskAssetId assetId = new TaskAssetId(snapshot.payloadView().getUUID("asset_id"));
+        coordinator.reserveVerifiedAssetAdmission(snapshot, new TaskAssetMetadata(
+                assetId, snapshot.id(), "blueprint", "a".repeat(64), 128L, 64L));
+        TaskPersistenceRuntime runtime = new TaskPersistenceRuntime(Executors::newSingleThreadExecutor);
+        runtime.start(coordinator);
+
+        assertThrows(IllegalStateException.class, runtime::stop);
+        assertTrue(runtime.started(), "flush 失败后必须保留 reservation 诊断状态并阻止同进程换世界");
+        assertThrows(IllegalStateException.class, runtime::coordinator,
+                "writer 已关闭后领域 gateway 不能继续制造无法持久化的新状态");
+        assertThrows(IllegalStateException.class,
+                () -> runtime.start(open(new RecordingRepository())));
+    }
+
+    @Test
+    void assetAdmissionRootFailureIsRetriedBeforeStopSucceeds() {
+        RecordingRepository repository = new RecordingRepository();
+        repository.remainingWriteFailures = 1;
+        TaskPersistenceCoordinator coordinator = open(repository);
+        TaskSnapshot snapshot = blueprintTask(TaskId.create(), UUID.randomUUID(), 10);
+        TaskAssetId assetId = new TaskAssetId(snapshot.payloadView().getUUID("asset_id"));
+        TaskAssetMetadata metadata = new TaskAssetMetadata(
+                assetId, snapshot.id(), "blueprint", "b".repeat(64), 128L, 64L);
+        AtomicBlueprintBlobRepository blobs = mock(AtomicBlueprintBlobRepository.class);
+        AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt receipt =
+                mock(AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt.class);
+        when(blobs.requireIssued(receipt)).thenReturn(
+                new AtomicBlueprintBlobRepository.VerifiedDurableBlueprintBlob(metadata, snapshot.totalUnits()));
+
+        TaskPersistenceRuntime runtime = new TaskPersistenceRuntime(Executors::newSingleThreadExecutor);
+        runtime.start(coordinator, blobs);
+        TaskPersistenceRuntime.AssetAdmissionTicket first =
+                runtime.submitDurableBlueprintAsset(snapshot, receipt);
+        TaskPersistenceRuntime.AssetAdmissionTicket retried =
+                runtime.submitDurableBlueprintAsset(snapshot, receipt);
+
+        assertEquals(TaskPersistenceRuntime.AssetAdmissionState.PENDING_DURABILITY, first.state());
+        assertEquals(TaskPersistenceRuntime.AssetAdmissionState.PENDING_DURABILITY, retried.state(),
+                "同一 pending 请求重发不能伪装成已经 durable");
+        assertTrue(coordinator.query().get(snapshot.id()).isEmpty(),
+                "root ACK 前任务不能对执行器和工作流可见");
+        runtime.stop();
+
+        assertEquals(2, repository.writeAttempts, "首轮 root 失败后停服必须重试同一 reservation");
+        assertEquals(snapshot, coordinator.query().get(snapshot.id()).orElseThrow());
+        assertEquals(metadata, coordinator.assetManifest().entries().get(assetId));
+        assertFalse(coordinator.hasPendingAssetAdmissions());
+        assertFalse(runtime.started());
+    }
+
+    @Test
+    void blueprintBlockCountMismatchIsRejectedBeforeIdentityReservation() {
+        TaskPersistenceCoordinator coordinator = open(new RecordingRepository());
+        TaskSnapshot snapshot = blueprintTask(TaskId.create(), UUID.randomUUID(), 12);
+        TaskAssetId assetId = new TaskAssetId(snapshot.payloadView().getUUID("asset_id"));
+        TaskAssetMetadata metadata = new TaskAssetMetadata(
+                assetId, snapshot.id(), "blueprint", "d".repeat(64), 128L, 64L);
+        AtomicBlueprintBlobRepository blobs = mock(AtomicBlueprintBlobRepository.class);
+        AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt receipt =
+                mock(AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt.class);
+        when(blobs.requireIssued(receipt)).thenReturn(
+                new AtomicBlueprintBlobRepository.VerifiedDurableBlueprintBlob(
+                        metadata, snapshot.totalUnits() + 1));
+        when(receipt.outcome()).thenReturn(AtomicBlueprintBlobRepository.WriteOutcome.WRITTEN);
+        TaskPersistenceRuntime runtime = new TaskPersistenceRuntime(Executors::newSingleThreadExecutor);
+        runtime.start(coordinator, blobs);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> runtime.submitDurableBlueprintAsset(snapshot, receipt));
+        assertFalse(coordinator.hasPendingAssetAdmissions(),
+                "规模不一致必须在占用 TaskId/submission/workflow 身份前失败");
+        assertTrue(coordinator.query().get(snapshot.id()).isEmpty());
+        verify(blobs).deleteIfMatches(assetId, metadata.sha256());
+        runtime.stop();
+    }
+
+    @Test
+    void rejectedWrittenReceiptCannotDeleteBlobClaimedByAnotherPendingReceipt() {
+        TaskPersistenceCoordinator coordinator = open(new RecordingRepository());
+        TaskSnapshot accepted = blueprintTask(TaskId.create(), UUID.randomUUID(), 13);
+        TaskSnapshot conflicting = new TaskSnapshot(
+                accepted.id(), accepted.submissionId(), accepted.ownerId(), accepted.dimensionId(),
+                accepted.type(), accepted.state(), accepted.workflowEntryId() + 1, accepted.waitKey(),
+                accepted.revision(), accepted.createdGameTime(), accepted.updatedGameTime(),
+                accepted.totalUnits(), accepted.cursorUnits(), accepted.succeededUnits(),
+                accepted.failedUnits(), accepted.payload());
+        TaskAssetId assetId = new TaskAssetId(accepted.payloadView().getUUID("asset_id"));
+        TaskAssetMetadata metadata = new TaskAssetMetadata(
+                assetId, accepted.id(), "blueprint", "9".repeat(64), 128L, 64L);
+        AtomicBlueprintBlobRepository blobs = mock(AtomicBlueprintBlobRepository.class);
+        AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt firstWriter =
+                mock(AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt.class);
+        AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt idempotentWriter =
+                mock(AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt.class);
+        var verified = new AtomicBlueprintBlobRepository.VerifiedDurableBlueprintBlob(
+                metadata, accepted.totalUnits());
+        when(blobs.requireIssued(firstWriter)).thenReturn(verified);
+        when(blobs.requireIssued(idempotentWriter)).thenReturn(verified);
+        when(firstWriter.outcome()).thenReturn(AtomicBlueprintBlobRepository.WriteOutcome.WRITTEN);
+        when(idempotentWriter.outcome()).thenReturn(
+                AtomicBlueprintBlobRepository.WriteOutcome.ALREADY_PRESENT);
+        TaskPersistenceRuntime runtime = new TaskPersistenceRuntime(Executors::newSingleThreadExecutor);
+        runtime.start(coordinator, blobs);
+
+        runtime.submitDurableBlueprintAsset(accepted, idempotentWriter);
+        assertThrows(IllegalStateException.class,
+                () -> runtime.submitDurableBlueprintAsset(conflicting, firstWriter));
+
+        verify(blobs, never()).deleteIfMatches(assetId, metadata.sha256());
+        runtime.stop();
+        assertEquals(accepted, coordinator.query().get(accepted.id()).orElseThrow());
+    }
+
+    @Test
+    void rejectedWriterDispatchAbortsOnlyPreparedTicketAndKeepsReservationRetryable() {
+        RecordingRepository repository = new RecordingRepository();
+        TaskPersistenceCoordinator coordinator = open(repository);
+        TaskSnapshot snapshot = blueprintTask(TaskId.create(), UUID.randomUUID(), 11);
+        TaskAssetId assetId = new TaskAssetId(snapshot.payloadView().getUUID("asset_id"));
+        TaskAssetMetadata metadata = new TaskAssetMetadata(
+                assetId, snapshot.id(), "blueprint", "c".repeat(64), 128L, 64L);
+        AtomicBlueprintBlobRepository blobs = mock(AtomicBlueprintBlobRepository.class);
+        AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt receipt =
+                mock(AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt.class);
+        when(blobs.requireIssued(receipt)).thenReturn(
+                new AtomicBlueprintBlobRepository.VerifiedDurableBlueprintBlob(metadata, snapshot.totalUnits()));
+        ExecutorService rejectedWriter = Executors.newSingleThreadExecutor();
+        rejectedWriter.shutdown();
+        TaskPersistenceRuntime runtime = new TaskPersistenceRuntime(() -> rejectedWriter);
+        runtime.start(coordinator, blobs);
+        runtime.submitDurableBlueprintAsset(snapshot, receipt);
+
+        assertThrows(IllegalStateException.class, runtime::tick);
+        TaskPersistenceCoordinator.PreparationResult retry =
+                coordinator.prepareReadyAssetAdmission(snapshot.id());
+        assertEquals(TaskPersistenceCoordinator.PreparationOutcome.PREPARED, retry.outcome(),
+                "writer 拒绝派发后不能把 Coordinator 永久卡在幽灵 in-flight");
+        coordinator.abortUndispatchedAssetAdmission(snapshot.id(), retry.preparedCommit().ticketId());
+        assertTrue(coordinator.hasPendingAssetAdmissions(), "reservation 与 verified metadata 必须保留供重试");
+
+        assertThrows(IllegalStateException.class, runtime::stop);
+        assertTrue(runtime.started());
     }
 
     @Test
@@ -78,7 +275,7 @@ class TaskPersistenceRuntimeTest {
     }
 
     @Test
-    void exceptionalWriterMakesRuntimeFailClosedButStopStillResetsAfterThreadTerminates() {
+    void exceptionalWriterKeepsRuntimeFailClosedEvenAfterThreadTerminates() {
         RecordingRepository broken = new RecordingRepository();
         broken.throwFromWriter = true;
         TaskPersistenceCoordinator coordinator = open(broken);
@@ -90,11 +287,11 @@ class TaskPersistenceRuntimeTest {
 
         assertThrows(IllegalStateException.class, runtime::stop);
         assertTrue(executor.isTerminated(), "异常路径也必须关闭 writer");
-        assertFalse(runtime.started(), "writer 已终止后 singleton 必须允许下一世界重新初始化");
+        assertTrue(runtime.started(), "flush 失败不能清掉尚未持久化的任务与诊断状态");
 
         RecordingRepository healthy = new RecordingRepository();
-        assertDoesNotThrow(() -> runtime.start(open(healthy)));
-        assertDoesNotThrow(runtime::stop);
+        assertThrows(IllegalStateException.class, () -> runtime.start(open(healthy)),
+                "失败世界必须保持 fail-closed，不能在同一进程静默切到新世界");
     }
 
     @Test
@@ -112,7 +309,7 @@ class TaskPersistenceRuntimeTest {
         assertThrows(IllegalStateException.class, runtime::tick,
                 "被拒绝的 completion 必须进入可诊断 fail-closed，而不是永久空转");
         assertThrows(IllegalStateException.class, runtime::stop);
-        assertFalse(runtime.started());
+        assertTrue(runtime.started());
     }
 
     @Test
@@ -144,6 +341,16 @@ class TaskPersistenceRuntimeTest {
                 TaskLifecycleState.QUEUED, null, 1L, "minecraft:overworld");
     }
 
+    private static TaskSnapshot blueprintTask(TaskId taskId, UUID owner, int workflow) {
+        TaskAssetId assetId = TaskAssetId.forTask(taskId, "blueprint");
+        CompoundTag payload = new CompoundTag();
+        payload.putUUID("asset_id", assetId.value());
+        return new TaskSnapshot(
+                taskId, SubmissionId.create(), owner, "minecraft:overworld",
+                TaskType.BLUEPRINT, TaskLifecycleState.QUEUED, workflow, null,
+                1L, 1L, 1L, 1, 0, 0, 0, payload);
+    }
+
     private static final class RecordingRepository implements TaskRepository {
         private final Map<UUID, Prepared> prepared = new java.util.LinkedHashMap<>();
         private final Map<UUID, WriteCompletion> canonical = new java.util.LinkedHashMap<>();
@@ -152,10 +359,11 @@ class TaskPersistenceRuntimeTest {
         private boolean throwFromWriter;
         private boolean rejectAck;
         private Thread writeThread;
+        private LoadResult loadResult = new LoadResult.Missing();
 
         @Override
         public LoadResult load() {
-            return new LoadResult.Missing();
+            return loadResult;
         }
 
         @Override
