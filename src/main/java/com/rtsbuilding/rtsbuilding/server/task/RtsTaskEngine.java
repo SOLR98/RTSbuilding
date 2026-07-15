@@ -93,8 +93,11 @@ public final class RtsTaskEngine {
         return new TaskDiagnostics(java.util.Map.copyOf(active), java.util.Map.copyOf(waiting));
     }
 
-    public void onPlayerLogout(UUID playerId) {
-        scheduler.cancelOwner(playerId, System.nanoTime());
+    public void detachPlayer(UUID playerId) {
+        long now = System.nanoTime();
+        for (TaskRecord detached : scheduler.detachOwner(playerId)) {
+            if (!isPhaseOneDurable(detached.type())) detached.cancel(now);
+        }
         java.util.Set<UUID> removedTaskIds = new java.util.HashSet<>();
         placementRecords.values().stream().filter(record -> record.ownerId().equals(playerId))
                 .map(TaskRecord::id).forEach(removedTaskIds::add);
@@ -104,6 +107,10 @@ public final class RtsTaskEngine {
                 .map(TaskRecord::id).forEach(removedTaskIds::add);
         blueprintRecords.values().stream().filter(record -> record.ownerId().equals(playerId))
                 .map(TaskRecord::id).forEach(removedTaskIds::add);
+        TaskRecord funnel = funnelRecords.get(playerId);
+        if (funnel != null) removedTaskIds.add(funnel.id());
+        TaskRecord recovery = recoveryRecords.get(playerId);
+        if (recovery != null) removedTaskIds.add(recovery.id());
         placementRecords.entrySet().removeIf(entry -> entry.getValue().ownerId().equals(playerId));
         destructionRecords.entrySet().removeIf(entry -> entry.getValue().ownerId().equals(playerId));
         miningRecords.entrySet().removeIf(entry -> entry.getKey().playerId().equals(playerId));
@@ -114,6 +121,10 @@ public final class RtsTaskEngine {
         recoveryRecords.remove(playerId);
         workflowPauseOverrides.keySet().removeIf(key -> key.playerId().equals(playerId));
         projectedTaskStatuses.keySet().removeAll(removedTaskIds);
+    }
+
+    private static boolean isPhaseOneDurable(TaskType type) {
+        return type == TaskType.BLUEPRINT || type == TaskType.FUNNEL || type == TaskType.PLACED_RECOVERY;
     }
 
     /** 玩家暂停/恢复命令的唯一执行入口；WorkflowToken 只负责展示投影。 */

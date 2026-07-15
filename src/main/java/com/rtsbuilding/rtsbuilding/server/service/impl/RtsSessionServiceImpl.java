@@ -103,7 +103,8 @@ public final class RtsSessionServiceImpl implements SessionService {
 
     @Override
     public void onPlayerLogout(ServerPlayer player) {
-        RtsTaskEngine.INSTANCE.onPlayerLogout(player.getUUID());
+        // 网络会话结束只摘除在线执行载荷；durable task 由 TaskStore 保留，不能误记为取消。
+        RtsTaskEngine.INSTANCE.detachPlayer(player.getUUID());
         registry.pathfinding().cancel(player);
         RtsStorageSession session = sessions.get(player.getUUID());
 

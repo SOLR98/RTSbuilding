@@ -168,6 +168,21 @@ class TaskSchedulerTest {
         assertTrue(stats.unitBudgetExhausted());
     }
 
+    @Test
+    void detachOwnerRemovesOnlineLaneWithoutCancellingDurableLifecycle() {
+        TaskScheduler scheduler = new TaskScheduler(() -> 0L);
+        UUID owner = UUID.randomUUID();
+        TaskRecord record = task(owner);
+        scheduler.submit(record);
+
+        List<TaskRecord> detached = scheduler.detachOwner(owner);
+
+        assertEquals(List.of(record), detached);
+        assertEquals(TaskStatus.QUEUED, record.status());
+        assertEquals(0, scheduler.activeTaskCount());
+        assertTrue(scheduler.detachOwner(owner).isEmpty());
+    }
+
     private static TaskRecord task(UUID owner) {
         return new TaskRecord(UUID.randomUUID(), owner, TaskType.BLUEPRINT, EMPTY, 100, 0L);
     }
