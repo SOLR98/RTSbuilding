@@ -66,7 +66,8 @@ final class BlueprintAssetMaintenance {
             executor.execute(() -> {
                 for (TaskAssetMetadata metadata : batch) {
                     try {
-                        repository.deleteIfMatches(metadata.assetId(), metadata.sha256());
+                        repository.deleteAfterRootRemovalIfMatches(
+                                metadata.assetId(), metadata.sha256());
                     } catch (RuntimeException failure) {
                         // Root 已不再引用该文件；删除失败只留下安全 orphan，下一次启动继续回收。
                         RtsbuildingMod.LOGGER.warn("运行期回收 task asset 失败，将留待下次启动: {}",

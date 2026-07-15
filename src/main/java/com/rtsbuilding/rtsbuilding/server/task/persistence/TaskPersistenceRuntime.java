@@ -7,11 +7,14 @@ import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.TaskAssetMetada
 import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.blueprint.AtomicBlueprintBlobRepository;
 import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.blueprint.BlueprintBlobCodec;
 import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.blueprint.BlueprintBlobRecord;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -22,6 +25,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Supplier;
 
 /**
@@ -59,7 +63,10 @@ public final class TaskPersistenceRuntime {
     private MinecraftServer server;
     private AtomicBlueprintBlobRepository blueprintBlobs;
     private BlueprintAssetMaintenance assetMaintenance;
+    private BlueprintBlobAdmissionQueue blueprintAdmissionQueue;
     private final LinkedHashSet<TaskId> readyAssetAdmissions = new LinkedHashSet<>();
+    private final Map<TaskId, AtomicBlueprintBlobRepository.DurableBlueprintAdmissionProof>
+            admissionProofsAwaitingRootAck = new LinkedHashMap<>();
     private TaskId assetAdmissionInFlight;
 
     /** 包内构造器用于故障注入测试；生产代码统一使用 {@link #INSTANCE}。 */
@@ -118,6 +125,10 @@ public final class TaskPersistenceRuntime {
         this.serverThread = Thread.currentThread();
         this.server = server;
         this.blueprintBlobs = blueprintBlobs;
+        if (blueprintBlobs != null) {
+            this.blueprintAdmissionQueue = new BlueprintBlobAdmissionQueue(
+                    blueprintBlobs, new BlueprintBlobCodec());
+        }
     }
 
     /** 仅供领域 command gateway 在服务器主线程提交/替换快照。 */
@@ -131,7 +142,7 @@ public final class TaskPersistenceRuntime {
      * 接纳已经由当前世界 blob 仓库 durable 写入的蓝图任务。
      * snapshot 在 root ACK 前只存在于隐藏 reservation 中，不会提前出现在调度器或工作流查询里。
      */
-    public AssetAdmissionTicket submitDurableBlueprintAsset(
+    AssetAdmissionTicket submitDurableBlueprintAsset(
             TaskSnapshot snapshot,
             AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt receipt) {
         requireServerThread();
@@ -146,24 +157,63 @@ public final class TaskPersistenceRuntime {
         AtomicBlueprintBlobRepository.VerifiedDurableBlueprintBlob verified =
                 blueprintBlobs.requireIssued(receipt);
         try {
-            if (verified.blockCount() != snapshot.totalUnits()) {
-                throw new IllegalArgumentException(
-                        "蓝图 blob blockCount 与 task totalUnits 不一致: "
-                                + verified.blockCount() + " != " + snapshot.totalUnits());
-            }
-            TaskAssetMetadata metadata = verified.metadata();
-            coordinator.reserveVerifiedAssetAdmission(snapshot, metadata);
-            boolean alreadyDurable = coordinator.query().get(snapshot.id()).isPresent();
-            if (!alreadyDurable) {
-                readyAssetAdmissions.add(snapshot.id());
-            }
-            return new AssetAdmissionTicket(snapshot.id(), alreadyDurable
-                    ? AssetAdmissionState.ALREADY_DURABLE
-                    : AssetAdmissionState.PENDING_DURABILITY);
+            return admitVerifiedBlueprintAsset(snapshot, verified);
         } catch (RuntimeException admissionFailure) {
             cleanupRejectedNewBlob(receipt, verified.metadata(), admissionFailure);
             throw admissionFailure;
         }
+    }
+
+    /** 异步队列专用 O(1) 主线程入口；proof 的物理回读已在 blob writer 完成。 */
+    private AssetAdmissionTicket submitDurableBlueprintAsset(
+            TaskSnapshot snapshot,
+            AtomicBlueprintBlobRepository.DurableBlueprintAdmissionProof proof) {
+        requireServerThread();
+        requireHealthy();
+        Objects.requireNonNull(snapshot, "snapshot");
+        if (blueprintBlobs == null) {
+            throw new IllegalStateException("当前运行时未配置蓝图 blob 仓库");
+        }
+        return admitVerifiedBlueprintAsset(snapshot, blueprintBlobs.requireIssued(proof));
+    }
+
+    private AssetAdmissionTicket admitVerifiedBlueprintAsset(
+            TaskSnapshot snapshot,
+            AtomicBlueprintBlobRepository.VerifiedDurableBlueprintBlob verified) {
+        if (verified.blockCount() != snapshot.totalUnits()) {
+            throw new IllegalArgumentException(
+                    "蓝图 blob blockCount 与 task totalUnits 不一致: "
+                            + verified.blockCount() + " != " + snapshot.totalUnits());
+        }
+        TaskAssetMetadata metadata = verified.metadata();
+        coordinator.reserveVerifiedAssetAdmission(snapshot, metadata);
+        boolean alreadyDurable = coordinator.query().get(snapshot.id()).isPresent();
+        if (!alreadyDurable) readyAssetAdmissions.add(snapshot.id());
+        return new AssetAdmissionTicket(snapshot.id(), alreadyDurable
+                ? AssetAdmissionState.ALREADY_DURABLE
+                : AssetAdmissionState.PENDING_DURABILITY);
+    }
+
+    /**
+     * 将冻结蓝图放入有界后台 hash/压缩/force 队列；返回 ENQUEUED 仍不表示 root durable。
+     * 领域层只能在后续 query 出现同一 TaskId 后创建执行器和 Workflow 投影。
+     */
+    public BlueprintQueueOutcome enqueueDurableBlueprint(
+            TaskSnapshot snapshot, String name, String sourceName, String format, CompoundTag structure) {
+        requireServerThread();
+        requireHealthy();
+        if (blueprintAdmissionQueue == null) {
+            throw new IllegalStateException("当前运行时未配置蓝图异步准入队列");
+        }
+        BlueprintBlobAdmissionQueue.EnqueueOutcome outcome = blueprintAdmissionQueue.enqueue(
+                snapshot, new BlueprintBlobAdmissionQueue.FreezeRequest(
+                        snapshot.id(), snapshot.totalUnits(), name, sourceName, format, structure));
+        return switch (outcome) {
+            case ENQUEUED -> BlueprintQueueOutcome.ENQUEUED;
+            case ALREADY_PENDING -> BlueprintQueueOutcome.ALREADY_PENDING;
+            case QUEUE_FULL -> BlueprintQueueOutcome.QUEUE_FULL;
+            case MEMORY_BUDGET_FULL -> BlueprintQueueOutcome.MEMORY_BUDGET_FULL;
+        };
     }
 
     private void cleanupRejectedNewBlob(
@@ -192,6 +242,13 @@ public final class TaskPersistenceRuntime {
         ALREADY_DURABLE
     }
 
+    public enum BlueprintQueueOutcome {
+        ENQUEUED,
+        ALREADY_PENDING,
+        QUEUE_FULL,
+        MEMORY_BUDGET_FULL
+    }
+
     /**
      * 投递领域层显式准备的迁移或专用 durability barrier。
      *
@@ -215,6 +272,7 @@ public final class TaskPersistenceRuntime {
         requireHealthy();
         drainCompletedWrite();
         if (assetMaintenance != null) assetMaintenance.poll();
+        drainBlueprintBlobAdmissions();
         if (inFlight == null) {
             if (!readyAssetAdmissions.isEmpty()) {
                 scheduleNextAssetAdmission();
@@ -246,8 +304,15 @@ public final class TaskPersistenceRuntime {
         RuntimeException flushFailure = null;
         boolean writerTerminated = false;
         boolean maintenanceTerminated = true;
+        boolean blueprintWriterTerminated = true;
         try {
+            flushBlueprintBlobAdmissions(flushTimeout);
             flushReadyAssetAdmissions(maxRetries, flushTimeout);
+            if (!admissionProofsAwaitingRootAck.isEmpty()) {
+                throw new IllegalStateException(
+                        "仍有未晋升为 active-root lease 的蓝图 proof: "
+                                + admissionProofsAwaitingRootAck.keySet());
+            }
             if (coordinator.hasPendingAssetAdmissions()) {
                 throw new IllegalStateException(
                         "仍有未完成的 asset admission reservation，禁止伪装成停服保存成功: "
@@ -257,6 +322,12 @@ public final class TaskPersistenceRuntime {
         } catch (RuntimeException failure) {
             flushFailure = failure;
         } finally {
+            if (blueprintAdmissionQueue != null) {
+                blueprintWriterTerminated = blueprintAdmissionQueue.close(flushTimeout);
+                if (!blueprintWriterTerminated && flushFailure == null) {
+                    flushFailure = new IllegalStateException("蓝图 blob writer 未在停服期限内退出");
+                }
+            }
             if (assetMaintenance != null) {
                 maintenanceTerminated = assetMaintenance.close(flushTimeout);
                 if (!maintenanceTerminated && flushFailure == null) {
@@ -284,7 +355,8 @@ public final class TaskPersistenceRuntime {
                     flushFailure.addSuppressed(e);
                 }
             }
-            if (flushFailure == null && writerTerminated && maintenanceTerminated) {
+            if (flushFailure == null && writerTerminated
+                    && maintenanceTerminated && blueprintWriterTerminated) {
                 coordinator = null;
                 writer = null;
                 inFlight = null;
@@ -293,7 +365,9 @@ public final class TaskPersistenceRuntime {
                 server = null;
                 blueprintBlobs = null;
                 assetMaintenance = null;
+                blueprintAdmissionQueue = null;
                 readyAssetAdmissions.clear();
+                admissionProofsAwaitingRootAck.clear();
                 assetAdmissionInFlight = null;
             } else {
                 fatalFailure = flushFailure == null
@@ -338,6 +412,59 @@ public final class TaskPersistenceRuntime {
         requireServerThread();
         requireHealthy();
         flushTargets(null, maxRetries, timeout);
+    }
+
+    private void drainBlueprintBlobAdmissions() {
+        if (blueprintAdmissionQueue == null) return;
+        blueprintAdmissionQueue.tick(4,
+                ready -> {
+                    if (inFlight != null) {
+                        return BlueprintBlobAdmissionQueue.ReadyDisposition.RETRY_LATER;
+                    }
+                    return handoffQueuedBlueprint(ready);
+                },
+                failed -> RtsbuildingMod.LOGGER.error(
+                        "蓝图 blob 异步准入失败，未创建 durable task: {}", failed.taskId(), failed.failure()));
+    }
+
+    private BlueprintBlobAdmissionQueue.ReadyDisposition handoffQueuedBlueprint(
+            BlueprintBlobAdmissionQueue.Ready ready) {
+        AssetAdmissionTicket ticket = submitDurableBlueprintAsset(ready.snapshot(), ready.proof());
+        if (ticket.state() == AssetAdmissionState.ALREADY_DURABLE) {
+            blueprintBlobs.consumeAdmissionProof(ready.proof());
+            return BlueprintBlobAdmissionQueue.ReadyDisposition.ACCEPTED;
+        }
+        var previous = admissionProofsAwaitingRootAck.putIfAbsent(ticket.taskId(), ready.proof());
+        if (previous != null && previous != ready.proof()) {
+            throw new IllegalStateException("同一 TaskId 存在两个等待 root ACK 的蓝图 proof: " + ticket.taskId());
+        }
+        return BlueprintBlobAdmissionQueue.ReadyDisposition.ACCEPTED;
+    }
+
+    private void flushBlueprintBlobAdmissions(Duration timeout) {
+        if (blueprintAdmissionQueue == null) return;
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (blueprintAdmissionQueue.pendingCount() > 0) {
+            if (System.nanoTime() >= deadline) {
+                throw new IllegalStateException("停服等待蓝图 blob 准入超时，未创建 root 的请求仍保留在内存");
+            }
+            if (assetMaintenance != null) assetMaintenance.poll();
+            if (inFlight != null) {
+                awaitInFlight(deadline);
+                continue;
+            }
+            blueprintAdmissionQueue.tick(8,
+                    ready -> {
+                        return handoffQueuedBlueprint(ready);
+                    },
+                    failed -> {
+                        throw new IllegalStateException(
+                                "停服冲刷蓝图 blob 准入失败: " + failed.taskId(), failed.failure());
+                    });
+            if (blueprintAdmissionQueue.pendingCount() > 0) {
+                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1L));
+            }
+        }
     }
 
     private void flushReadyAssetAdmissions(int maxRetries, Duration timeout) {
@@ -520,6 +647,19 @@ public final class TaskPersistenceRuntime {
         TaskId completed = assetAdmissionInFlight;
         assetAdmissionInFlight = null;
         if (ack.outcome() == TaskPersistenceCoordinator.AckOutcome.ACKNOWLEDGED) {
+            AtomicBlueprintBlobRepository.DurableBlueprintAdmissionProof proof =
+                    admissionProofsAwaitingRootAck.get(completed);
+            if (proof != null) {
+                try {
+                    blueprintBlobs.promoteAdmissionProof(proof);
+                    admissionProofsAwaitingRootAck.remove(completed);
+                } catch (RuntimeException promotionFailure) {
+                    fatalFailure = promotionFailure;
+                    throw new IllegalStateException(
+                            "蓝图 root 已 ACK 但 active lease 晋升失败，运行时 fail-closed: " + completed,
+                            promotionFailure);
+                }
+            }
             readyAssetAdmissions.remove(completed);
         }
     }

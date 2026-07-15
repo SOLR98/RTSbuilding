@@ -17,6 +17,8 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 
 /**
  * 蓝图放置操作的强类型管道上下文。
@@ -39,6 +41,9 @@ public class BlueprintContext extends PipelineContext {
     //  参数键
     // ──────────────────────────────────────────────────────────────
 
+    /** 客户端一次明确提交的稳定身份；同一请求重发时必须保持不变。 */
+    public static final TypedKey<UUID> ARG_SUBMISSION_ID =
+            new TypedKey<>("submissionId", UUID.class);
     public static final TypedKey<RtsBlueprint> ARG_BLUEPRINT =
             new TypedKey<>("blueprint", RtsBlueprint.class);
     public static final TypedKey<BlockPos> ARG_ANCHOR =
@@ -127,6 +132,11 @@ public class BlueprintContext extends PipelineContext {
     // ──────────────────────────────────────────────────────────────
     //  蓝图参数访问器
     // ──────────────────────────────────────────────────────────────
+
+    /** 返回本次蓝图放置提交的稳定身份。 */
+    public UUID getSubmissionId() {
+        return Objects.requireNonNull(getArg(ARG_SUBMISSION_ID), "蓝图上下文缺少 submissionId");
+    }
 
     /** 返回要放置的蓝图。 */
     public RtsBlueprint getBlueprint() {
@@ -278,6 +288,12 @@ public class BlueprintContext extends PipelineContext {
 
         private Builder(ServerPlayer player) {
             this.player = player;
+        }
+
+        /** 设置客户端一次明确提交所生成的稳定身份。 */
+        public Builder submissionId(UUID submissionId) {
+            args.put(ARG_SUBMISSION_ID.name(), Objects.requireNonNull(submissionId, "submissionId"));
+            return this;
         }
 
         /** 要放置的蓝图。 */

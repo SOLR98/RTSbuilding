@@ -96,6 +96,71 @@ class AtomicBlueprintBlobRepositoryTest {
     }
 
     @Test
+    void admissionProofPinsBlobAndIdempotentConsumeRequiresExistingRootLease() {
+        BlueprintBlobCodec codec = new BlueprintBlobCodec();
+        AtomicBlueprintBlobRepository repository = repository(codec);
+        BlueprintBlobRecord record = codec.freeze(
+                TaskId.create(), 1, "proof-pin", "test", "VANILLA_NBT", structure(new byte[]{6}));
+        var firstProof = repository.verifyForAdmission(repository.writeDurably(record));
+
+        assertThrows(AtomicBlueprintBlobRepository.BlobRepositoryException.class,
+                () -> repository.deleteIfMatches(record.assetId(), record.sha256()),
+                "队列持有 proof 时任何 GC 都不能删除对应 blob");
+        assertEquals(record.assetId(), repository.requireIssued(firstProof).metadata().assetId());
+        assertThrows(AtomicBlueprintBlobRepository.BlobRepositoryException.class,
+                () -> repository.consumeAdmissionProof(firstProof),
+                "新 root 不能绕过 ACK promotion 直接消费 proof");
+
+        repository.promoteAdmissionProof(firstProof);
+        var duplicateProof = repository.verifyForAdmission(repository.writeDurably(record));
+        repository.consumeAdmissionProof(duplicateProof);
+
+        assertThrows(AtomicBlueprintBlobRepository.BlobRepositoryException.class,
+                () -> repository.requireIssued(duplicateProof), "proof 只能完成一次 Coordinator 交接");
+        assertThrows(AtomicBlueprintBlobRepository.BlobRepositoryException.class,
+                () -> repository.deleteIfMatches(record.assetId(), record.sha256()));
+        assertTrue(repository.deleteAfterRootRemovalIfMatches(record.assetId(), record.sha256()));
+    }
+
+    @Test
+    void rejectedNewAdmissionProofReleasesPinAndCleansExactBlob() {
+        BlueprintBlobCodec codec = new BlueprintBlobCodec();
+        AtomicBlueprintBlobRepository repository = repository(codec);
+        BlueprintBlobRecord record = codec.freeze(
+                TaskId.create(), 1, "proof-reject", "test", "VANILLA_NBT", structure(new byte[]{5}));
+        var proof = repository.verifyForAdmission(repository.writeDurably(record));
+
+        repository.rejectAdmissionProof(proof);
+
+        assertInstanceOf(AtomicBlueprintBlobRepository.LoadResult.Missing.class,
+                repository.load(record.assetId()));
+        assertThrows(AtomicBlueprintBlobRepository.BlobRepositoryException.class,
+                () -> repository.requireIssued(proof));
+    }
+
+    @Test
+    void delayedOldRootCleanupCannotDeleteNewGenerationWithSameAssetAndHash() {
+        BlueprintBlobCodec codec = new BlueprintBlobCodec();
+        AtomicBlueprintBlobRepository repository = repository(codec);
+        BlueprintBlobRecord record = codec.freeze(
+                TaskId.create(), 1, "lease-generation", "test", "VANILLA_NBT", structure(new byte[]{4}));
+        var oldProof = repository.verifyForAdmission(repository.writeDurably(record));
+        repository.promoteAdmissionProof(oldProof);
+        var newProof = repository.verifyForAdmission(repository.writeDurably(record));
+        repository.promoteAdmissionProof(newProof);
+
+        assertFalse(repository.deleteAfterRootRemovalIfMatches(
+                record.assetId(), record.sha256()),
+                "延迟的旧 root cleanup 只能释放旧 lease，不能删除新 generation 的 blob");
+        assertInstanceOf(AtomicBlueprintBlobRepository.LoadResult.Found.class,
+                repository.load(record.assetId()));
+        assertTrue(repository.deleteAfterRootRemovalIfMatches(
+                record.assetId(), record.sha256()));
+        assertInstanceOf(AtomicBlueprintBlobRepository.LoadResult.Missing.class,
+                repository.load(record.assetId()));
+    }
+
+    @Test
     void reconciliationKeepsStartupLiveSetDeletesOrphansAndReopensAdmission() {
         BlueprintBlobCodec codec = new BlueprintBlobCodec();
         AtomicBlueprintBlobRepository repository = repository(codec);

@@ -38,7 +38,7 @@ class BlueprintAssetMaintenanceTest {
         maintenance.enqueueCleanup(List.of(metadata));
 
         assertTrue(maintenance.close(Duration.ofSeconds(1)));
-        verify(repository).deleteIfMatches(assetId, metadata.sha256());
+        verify(repository).deleteAfterRootRemovalIfMatches(assetId, metadata.sha256());
     }
 
     @Test

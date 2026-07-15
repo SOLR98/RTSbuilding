@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -195,6 +196,78 @@ class TaskPersistenceRuntimeTest {
         verify(blobs, never()).deleteIfMatches(assetId, metadata.sha256());
         runtime.stop();
         assertEquals(accepted, coordinator.query().get(accepted.id()).orElseThrow());
+    }
+
+    @Test
+    void stopFlushesBackgroundBlobWriteBeforeRootAdmission() {
+        RecordingRepository repository = new RecordingRepository();
+        TaskPersistenceCoordinator coordinator = open(repository);
+        TaskSnapshot snapshot = blueprintTask(TaskId.create(), UUID.randomUUID(), 14);
+        TaskAssetId assetId = new TaskAssetId(snapshot.payloadView().getUUID("asset_id"));
+        TaskAssetMetadata metadata = new TaskAssetMetadata(
+                assetId, snapshot.id(), "blueprint", "8".repeat(64), 128L, 64L);
+        AtomicBlueprintBlobRepository blobs = mock(AtomicBlueprintBlobRepository.class);
+        AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt receipt =
+                mock(AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt.class);
+        AtomicBlueprintBlobRepository.DurableBlueprintAdmissionProof proof =
+                mock(AtomicBlueprintBlobRepository.DurableBlueprintAdmissionProof.class);
+        when(blobs.writeDurably(any())).thenReturn(receipt);
+        when(blobs.verifyForAdmission(receipt)).thenReturn(proof);
+        when(blobs.requireIssued(proof)).thenReturn(
+                new AtomicBlueprintBlobRepository.VerifiedDurableBlueprintBlob(
+                        metadata, snapshot.totalUnits()));
+        CompoundTag structure = new CompoundTag();
+        structure.putInt("value", 1);
+        TaskPersistenceRuntime runtime = new TaskPersistenceRuntime(Executors::newSingleThreadExecutor);
+        runtime.start(coordinator, blobs);
+
+        assertEquals(TaskPersistenceRuntime.BlueprintQueueOutcome.ENQUEUED,
+                runtime.enqueueDurableBlueprint(
+                        snapshot, "test", "test", "VANILLA_NBT", structure));
+        runtime.stop();
+
+        assertEquals(snapshot, coordinator.query().get(snapshot.id()).orElseThrow());
+        verify(blobs).writeDurably(any());
+        verify(blobs).verifyForAdmission(receipt);
+        verify(blobs).requireIssued(proof);
+        verify(blobs).promoteAdmissionProof(proof);
+        verify(blobs, never()).requireIssued(receipt);
+        assertFalse(runtime.started());
+    }
+
+    @Test
+    void stopFinishesExistingRootWriteBeforeHandingOffCompletedBlueprintProof() {
+        RecordingRepository repository = new RecordingRepository();
+        TaskPersistenceCoordinator coordinator = open(repository);
+        TaskSnapshot ordinary = task(UUID.randomUUID(), 15);
+        coordinator.submit(ordinary);
+        TaskSnapshot blueprint = blueprintTask(TaskId.create(), UUID.randomUUID(), 16);
+        TaskAssetId assetId = new TaskAssetId(blueprint.payloadView().getUUID("asset_id"));
+        TaskAssetMetadata metadata = new TaskAssetMetadata(
+                assetId, blueprint.id(), "blueprint", "7".repeat(64), 128L, 64L);
+        AtomicBlueprintBlobRepository blobs = mock(AtomicBlueprintBlobRepository.class);
+        var receipt = mock(AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt.class);
+        var proof = mock(AtomicBlueprintBlobRepository.DurableBlueprintAdmissionProof.class);
+        when(blobs.writeDurably(any())).thenReturn(receipt);
+        when(blobs.verifyForAdmission(receipt)).thenReturn(proof);
+        when(blobs.requireIssued(proof)).thenReturn(
+                new AtomicBlueprintBlobRepository.VerifiedDurableBlueprintBlob(
+                        metadata, blueprint.totalUnits()));
+        TaskPersistenceRuntime runtime = new TaskPersistenceRuntime(Executors::newSingleThreadExecutor);
+        runtime.start(coordinator, blobs);
+        runtime.tick();
+        CompoundTag structure = new CompoundTag();
+        structure.putInt("value", 2);
+        assertEquals(TaskPersistenceRuntime.BlueprintQueueOutcome.ENQUEUED,
+                runtime.enqueueDurableBlueprint(
+                        blueprint, "test", "test", "VANILLA_NBT", structure));
+
+        runtime.stop();
+
+        assertEquals(ordinary, coordinator.query().get(ordinary.id()).orElseThrow());
+        assertEquals(blueprint, coordinator.query().get(blueprint.id()).orElseThrow());
+        verify(blobs).promoteAdmissionProof(proof);
+        assertFalse(runtime.started());
     }
 
     @Test

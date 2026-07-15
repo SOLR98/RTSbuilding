@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 每任务独占蓝图 blob 的原子 write-once 仓库。
@@ -42,6 +43,8 @@ public final class AtomicBlueprintBlobRepository {
     private final BlueprintBlobCodec codec;
     private final AtomicMover atomicMover;
     private final Object receiptIssuer = new Object();
+    private final ConcurrentHashMap<TaskAssetId, Integer> admissionPins = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<TaskAssetId, Integer> activeRootLeases = new ConcurrentHashMap<>();
     private volatile boolean writeAdmissionReadOnly;
     private volatile Set<TaskAssetId> maintenanceLiveAssetIds;
 
@@ -99,6 +102,81 @@ public final class AtomicBlueprintBlobRepository {
             throw new BlobRepositoryException("蓝图 blob receipt 对应的磁盘实体已经变化: " + metadata.assetId());
         }
         return new VerifiedDurableBlueprintBlob(metadata, record.blockCount());
+    }
+
+    /** 后台 writer 回读完成后签发主线程可 O(1) 验证的 admission proof。 */
+    public DurableBlueprintAdmissionProof verifyForAdmission(DurableBlueprintBlobReceipt receipt) {
+        Objects.requireNonNull(receipt, "receipt");
+        TaskAssetId assetId = receipt.metadata.assetId();
+        synchronized (assetLock(assetId)) {
+            VerifiedDurableBlueprintBlob verified = requireIssued(receipt);
+            admissionPins.merge(assetId, 1, Integer::sum);
+            return new DurableBlueprintAdmissionProof(receiptIssuer, verified, receipt.outcome);
+        }
+    }
+
+    /** 主线程只验证 proof 的仓库实例与 pin，不重新读取或解压大型 blob。 */
+    public VerifiedDurableBlueprintBlob requireIssued(DurableBlueprintAdmissionProof proof) {
+        TaskAssetId assetId = requireProofOwner(proof);
+        synchronized (assetLock(assetId)) {
+            requireActiveProofLocked(proof, assetId);
+            return proof.verified;
+        }
+    }
+
+    /** 仅用于已存在 durable root 的幂等提交；新 root 必须在 ACK 后调用 promote。 */
+    public void consumeAdmissionProof(DurableBlueprintAdmissionProof proof) {
+        releaseAdmissionProof(proof, ProofRelease.CONSUME);
+    }
+
+    /** root 已精确 ACK 后把短期 admission pin 晋升为 active-root lease。 */
+    public void promoteAdmissionProof(DurableBlueprintAdmissionProof proof) {
+        releaseAdmissionProof(proof, ProofRelease.PROMOTE_TO_ROOT);
+    }
+
+    /** 永久拒绝尚未建立 reservation 的请求；仅精确回收本次新写出的 blob。 */
+    public void rejectAdmissionProof(DurableBlueprintAdmissionProof proof) {
+        releaseAdmissionProof(proof, ProofRelease.REJECT);
+    }
+
+    private void releaseAdmissionProof(DurableBlueprintAdmissionProof proof, ProofRelease release) {
+        TaskAssetId assetId = requireProofOwner(proof);
+        synchronized (assetLock(assetId)) {
+            requireActiveProofLocked(proof, assetId);
+            if (release == ProofRelease.CONSUME && !activeRootLeases.containsKey(assetId)) {
+                throw new BlobRepositoryException(
+                        "没有 active root lease 时不得直接消费 admission proof: " + assetId);
+            }
+            proof.active = false;
+            admissionPins.compute(assetId, (ignored, count) -> {
+                if (count == null || count <= 0) {
+                    throw new BlobRepositoryException("蓝图 admission pin 计数损坏: " + assetId);
+                }
+                return count == 1 ? null : count - 1;
+            });
+            if (release == ProofRelease.PROMOTE_TO_ROOT) {
+                activeRootLeases.merge(assetId, 1, Integer::sum);
+            } else if (release == ProofRelease.REJECT && proof.outcome == WriteOutcome.WRITTEN
+                    && !admissionPins.containsKey(assetId)
+                    && !activeRootLeases.containsKey(assetId)) {
+                deleteIfMatchesLocked(assetId, proof.verified.metadata().sha256());
+            }
+        }
+    }
+
+    private TaskAssetId requireProofOwner(DurableBlueprintAdmissionProof proof) {
+        Objects.requireNonNull(proof, "proof");
+        if (proof.issuer != receiptIssuer) {
+            throw new BlobRepositoryException("蓝图 admission proof 不属于当前仓库实例");
+        }
+        return proof.verified.metadata().assetId();
+    }
+
+    private void requireActiveProofLocked(
+            DurableBlueprintAdmissionProof proof, TaskAssetId assetId) {
+        if (!proof.active || !admissionPins.containsKey(assetId)) {
+            throw new BlobRepositoryException("蓝图 admission proof 已消费或失效: " + assetId);
+        }
     }
 
     /** 新资产在启动 orphan 回收结束前保持只读，避免被旧 root 保护集误删。 */
@@ -186,6 +264,12 @@ public final class AtomicBlueprintBlobRepository {
     }
 
     private boolean deleteIfMatchesLocked(TaskAssetId assetId, String sha256) {
+        if (admissionPins.containsKey(assetId)) {
+            throw new BlobRepositoryException("蓝图 blob 正被 admission proof 固定，拒绝删除: " + assetId);
+        }
+        if (activeRootLeases.containsKey(assetId)) {
+            throw new BlobRepositoryException("蓝图 blob 仍被 active root lease 引用，拒绝删除: " + assetId);
+        }
         LoadResult loaded = load(assetId);
         if (loaded instanceof LoadResult.Missing) return false;
         BlueprintBlobRecord record = requireFound(loaded);
@@ -211,7 +295,29 @@ public final class AtomicBlueprintBlobRepository {
     public synchronized void beginReconciliation(Set<TaskAssetId> liveAssetIds) {
         Objects.requireNonNull(liveAssetIds, "liveAssetIds");
         if (maintenanceLiveAssetIds != null) throw new IllegalStateException("blob reconciliation 已在运行");
+        for (TaskAssetId assetId : liveAssetIds) {
+            activeRootLeases.merge(assetId, 1, Integer::sum);
+        }
         maintenanceLiveAssetIds = Set.copyOf(liveAssetIds);
+    }
+
+    /**
+     * root 已 durable 移除后释放它拥有的一代 lease；相同确定性 ID 的新 root 已接管时只减计数不删文件。
+     */
+    public boolean deleteAfterRootRemovalIfMatches(TaskAssetId assetId, String sha256) {
+        Objects.requireNonNull(assetId, "assetId");
+        synchronized (assetLock(assetId)) {
+            Integer leases = activeRootLeases.get(assetId);
+            if (leases == null || leases <= 0) {
+                throw new BlobRepositoryException("root removal 缺少对应 active lease: " + assetId);
+            }
+            if (leases == 1) activeRootLeases.remove(assetId);
+            else activeRootLeases.put(assetId, leases - 1);
+            if (activeRootLeases.containsKey(assetId) || admissionPins.containsKey(assetId)) {
+                return false;
+            }
+            return deleteIfMatchesLocked(assetId, sha256);
+        }
     }
 
     /**
@@ -467,6 +573,8 @@ public final class AtomicBlueprintBlobRepository {
 
     public enum WriteOutcome { WRITTEN, ALREADY_PRESENT }
 
+    private enum ProofRelease { CONSUME, PROMOTE_TO_ROOT, REJECT }
+
     /** receipt 经当前仓库回读后的事实，供 root admission 同时校验任务规模。 */
     public record VerifiedDurableBlueprintBlob(TaskAssetMetadata metadata, int blockCount) {
         public VerifiedDurableBlueprintBlob {
@@ -485,6 +593,25 @@ public final class AtomicBlueprintBlobRepository {
                 Object issuer, TaskAssetMetadata metadata, WriteOutcome outcome) {
             this.issuer = issuer;
             this.metadata = metadata;
+            this.outcome = outcome;
+        }
+
+        public WriteOutcome outcome() {
+            return outcome;
+        }
+    }
+
+    /** 仅由签发仓库在后台完成物理回读后构造；主线程不得自行拼装。 */
+    public static final class DurableBlueprintAdmissionProof {
+        private final Object issuer;
+        private final VerifiedDurableBlueprintBlob verified;
+        private final WriteOutcome outcome;
+        private boolean active = true;
+
+        private DurableBlueprintAdmissionProof(
+                Object issuer, VerifiedDurableBlueprintBlob verified, WriteOutcome outcome) {
+            this.issuer = issuer;
+            this.verified = verified;
             this.outcome = outcome;
         }
 
