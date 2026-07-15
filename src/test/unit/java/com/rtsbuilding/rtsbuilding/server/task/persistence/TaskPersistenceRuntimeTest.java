@@ -19,10 +19,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TaskPersistenceRuntimeTest {
+
+    @Test
+    void productionSingletonInitializesAfterDefaultConstants() {
+        assertNotNull(TaskPersistenceRuntime.INSTANCE);
+        assertNotNull(TaskPersistenceRuntime.DEFAULT_FLUSH_TIMEOUT);
+    }
 
     @Test
     void ownerFlushUsesBackgroundWriterAndLeavesOtherOwnerDirty() {

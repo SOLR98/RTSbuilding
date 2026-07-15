@@ -29,17 +29,17 @@ import java.util.function.Supplier;
  * 有界时间内冲刷全部任务。超过重试或时间上限会明确失败，绝不以空仓覆盖损坏存档，也不伪造 durable ACK。</p>
  */
 public final class TaskPersistenceRuntime {
+    static final int DEFAULT_CHECKPOINT_RECORDS = 128;
+    static final long DEFAULT_CHECKPOINT_BYTES = 8L * 1024L * 1024L;
+    static final int DEFAULT_MAX_RETRIES = 3;
+    static final Duration DEFAULT_FLUSH_TIMEOUT = Duration.ofSeconds(10);
+
     public static final TaskPersistenceRuntime INSTANCE = new TaskPersistenceRuntime(
             () -> new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
                     new ArrayBlockingQueue<>(1), Thread.ofPlatform()
                             .daemon(true)
                             .name("RTSBuilding-TaskWriter")
                             .factory(), new ThreadPoolExecutor.AbortPolicy()));
-
-    static final int DEFAULT_CHECKPOINT_RECORDS = 128;
-    static final long DEFAULT_CHECKPOINT_BYTES = 8L * 1024L * 1024L;
-    static final int DEFAULT_MAX_RETRIES = 3;
-    static final Duration DEFAULT_FLUSH_TIMEOUT = Duration.ofSeconds(10);
 
     private final Supplier<ExecutorService> writerFactory;
     private final int maxRetries;
