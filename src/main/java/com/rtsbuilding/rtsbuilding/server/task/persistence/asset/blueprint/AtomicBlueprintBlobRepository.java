@@ -209,7 +209,11 @@ public final class AtomicBlueprintBlobRepository {
             throw new BlobRepositoryException("扫描蓝图 blob 目录失败", failure);
         }
         ids.sort(Comparator.naturalOrder());
-        if (quotaExceeded) writeAdmissionReadOnly = true;
+        if (quotaExceeded) {
+            writeAdmissionReadOnly = true;
+        } else if (complete) {
+            writeAdmissionReadOnly = false;
+        }
         return new ScanResult(ids, totalBytes, removedTemps, complete, quotaExceeded);
     }
 

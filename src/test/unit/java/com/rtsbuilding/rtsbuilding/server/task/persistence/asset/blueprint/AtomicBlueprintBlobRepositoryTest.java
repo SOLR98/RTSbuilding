@@ -229,6 +229,31 @@ class AtomicBlueprintBlobRepositoryTest {
     }
 
     @Test
+    void completeRescanAfterCleanupRestoresNewAssetAdmission() {
+        BlueprintBlobCodec codec = new BlueprintBlobCodec();
+        AtomicBlueprintBlobRepository repository = repository(codec);
+        BlueprintBlobRecord first = codec.freeze(
+                TaskId.create(), 1, "first", "recover", "VANILLA_NBT", structure(new byte[]{1}));
+        BlueprintBlobRecord second = codec.freeze(
+                TaskId.create(), 1, "second", "recover", "VANILLA_NBT", structure(new byte[]{2}));
+        BlueprintBlobRecord afterCleanup = codec.freeze(
+                TaskId.create(), 1, "third", "recover", "VANILLA_NBT", structure(new byte[]{3}));
+        repository.writeOnce(first);
+        repository.writeOnce(second);
+        assertTrue(repository.scan(1, Long.MAX_VALUE).quotaExceeded());
+        assertThrows(AtomicBlueprintBlobRepository.BlobRepositoryException.class,
+                () -> repository.writeOnce(afterCleanup));
+
+        assertTrue(repository.deleteIfMatches(second.assetId(), second.sha256()));
+        AtomicBlueprintBlobRepository.ScanResult rescan = repository.scan();
+
+        assertTrue(rescan.complete());
+        assertFalse(rescan.quotaExceeded());
+        assertEquals(AtomicBlueprintBlobRepository.WriteOutcome.WRITTEN,
+                repository.writeOnce(afterCleanup));
+    }
+
+    @Test
     void scanCannotDeleteTemporaryFileWhileSameAssetIsPublishing() throws Exception {
         BlueprintBlobCodec codec = new BlueprintBlobCodec();
         BlueprintBlobRecord record = codec.freeze(
