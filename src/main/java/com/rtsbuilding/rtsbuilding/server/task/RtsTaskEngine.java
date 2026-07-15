@@ -6,6 +6,9 @@ import com.rtsbuilding.rtsbuilding.server.service.destruction.RtsDestructionBatc
 import com.rtsbuilding.rtsbuilding.server.service.mining.RtsMiningStateMachine;
 import com.rtsbuilding.rtsbuilding.server.service.mining.RtsDropAbsorber;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch;
+import com.rtsbuilding.rtsbuilding.server.pipeline.blueprint.BlueprintTickPipe;
+import com.rtsbuilding.rtsbuilding.server.pipeline.context.BlueprintContext;
+import com.rtsbuilding.rtsbuilding.server.service.RtsPlacedRecoveryService;
 import net.minecraft.server.MinecraftServer;
 
 import java.nio.charset.StandardCharsets;
@@ -27,6 +30,9 @@ public final class RtsTaskEngine {
     private final Map<RtsDestructionBatch.DestructionJob, TaskRecord> destructionRecords = new IdentityHashMap<>();
     private final Map<MiningTaskKey, TaskRecord> miningRecords = new java.util.HashMap<>();
     private final Map<UUID, TaskRecord> bufferRecords = new java.util.HashMap<>();
+    private final Map<WorkflowTaskKey, TaskRecord> blueprintRecords = new java.util.HashMap<>();
+    private final Map<UUID, TaskRecord> funnelRecords = new java.util.HashMap<>();
+    private final Map<UUID, TaskRecord> recoveryRecords = new java.util.HashMap<>();
     private final Map<WorkflowTaskKey, Boolean> workflowPauseOverrides = new java.util.HashMap<>();
     private final Map<UUID, TaskStatus> projectedTaskStatuses = new java.util.HashMap<>();
 
@@ -35,6 +41,9 @@ public final class RtsTaskEngine {
         scheduler.registerExecutor(TaskType.DESTRUCTION, this::executeDestruction);
         scheduler.registerExecutor(TaskType.MINING, this::executeMining);
         scheduler.registerExecutor(TaskType.BUFFER_DRAIN, this::executeBufferDrain);
+        scheduler.registerExecutor(TaskType.BLUEPRINT, this::executeBlueprint);
+        scheduler.registerExecutor(TaskType.FUNNEL, this::executeFunnel);
+        scheduler.registerExecutor(TaskType.PLACED_RECOVERY, this::executePlacedRecovery);
     }
 
     public TaskScheduler.TickStats tick(MinecraftServer server) {
@@ -46,6 +55,8 @@ public final class RtsTaskEngine {
             syncDestructionTasks(player, session);
             syncMiningTasks(player, session);
             syncBufferTask(player, session);
+            syncFunnelTask(player, session);
+            syncPlacedRecoveryTask(player, session);
         }
         TaskScheduler.TickStats stats = scheduler.tick(
                 Config.taskEngineMaxNanosPerTick(),
@@ -63,8 +74,13 @@ public final class RtsTaskEngine {
         records.addAll(placementRecords.values());
         records.addAll(destructionRecords.values());
         records.addAll(miningRecords.values());
+        records.addAll(blueprintRecords.values());
         TaskRecord buffer = bufferRecords.get(ownerId);
         if (buffer != null) records.add(buffer);
+        TaskRecord funnel = funnelRecords.get(ownerId);
+        if (funnel != null) records.add(funnel);
+        TaskRecord recovery = recoveryRecords.get(ownerId);
+        if (recovery != null) records.add(recovery);
         for (TaskRecord record : records) {
             if (!record.ownerId().equals(ownerId) || record.status().terminal()) continue;
             active.merge(record.type(), 1, Integer::sum);
@@ -84,10 +100,15 @@ public final class RtsTaskEngine {
                 .map(TaskRecord::id).forEach(removedTaskIds::add);
         miningRecords.values().stream().filter(record -> record.ownerId().equals(playerId))
                 .map(TaskRecord::id).forEach(removedTaskIds::add);
+        blueprintRecords.values().stream().filter(record -> record.ownerId().equals(playerId))
+                .map(TaskRecord::id).forEach(removedTaskIds::add);
         placementRecords.entrySet().removeIf(entry -> entry.getValue().ownerId().equals(playerId));
         destructionRecords.entrySet().removeIf(entry -> entry.getValue().ownerId().equals(playerId));
         miningRecords.entrySet().removeIf(entry -> entry.getKey().playerId().equals(playerId));
+        blueprintRecords.keySet().removeIf(key -> key.playerId().equals(playerId));
         bufferRecords.remove(playerId);
+        funnelRecords.remove(playerId);
+        recoveryRecords.remove(playerId);
         workflowPauseOverrides.keySet().removeIf(key -> key.playerId().equals(playerId));
         projectedTaskStatuses.keySet().removeAll(removedTaskIds);
     }
@@ -157,10 +178,61 @@ public final class RtsTaskEngine {
         }
         if (record != null) {
             record.cancel(System.nanoTime());
+            if (record.payload() instanceof BlueprintTaskPayload) {
+                com.rtsbuilding.rtsbuilding.server.pipeline.blueprint.BlueprintPersistence
+                        .clearFromEntry(player, workflowEntryId);
+            }
             releaseTerminalWorkflow(record);
         }
         workflowPauseOverrides.remove(key);
         return record != null || cleaned;
+    }
+
+    /**
+     * 蓝图同步准入完成后的唯一提交入口；恢复路径也使用同一个入口。
+     */
+    public void submitBlueprint(BlueprintContext context, java.util.LinkedList<Integer> restoredRemaining) {
+        if (context == null || context.player() == null) return;
+        Integer entryId = context.getData(
+                com.rtsbuilding.rtsbuilding.server.pipeline.core.PipelineContext.KEY_WORKFLOW_ENTRY_ID);
+        if (entryId == null || entryId < 0) return;
+        WorkflowTaskKey key = new WorkflowTaskKey(context.player().getUUID(), entryId);
+        TaskRecord existing = blueprintRecords.get(key);
+        if (existing != null && !existing.status().terminal()) return;
+
+        long now = System.nanoTime();
+        BlueprintTaskPayload payload = new BlueprintTaskPayload(context, restoredRemaining);
+        TaskRecord record = new TaskRecord(
+                UUID.nameUUIDFromBytes((context.player().getUUID() + ":blueprint:" + entryId)
+                        .getBytes(StandardCharsets.UTF_8)),
+                context.player().getUUID(), TaskType.BLUEPRINT, payload,
+                context.getBlueprint().blockCount(), now);
+        if (restoredRemaining != null) {
+            int cursor = Math.max(0, context.getBlueprint().blockCount() - restoredRemaining.size());
+            int succeeded = Math.min(cursor, Math.max(0, context.getPlacedCount()));
+            record.restoreSnapshot(cursor, succeeded, Math.max(0, cursor - succeeded), now);
+        }
+        applyInitialPause(context.player(), entryId, record, now);
+        blueprintRecords.put(key, record);
+        scheduler.submit(record);
+    }
+
+    public BlueprintContext findBlueprintContext(
+            net.minecraft.server.level.ServerPlayer player, int workflowEntryId) {
+        if (player == null) return null;
+        TaskRecord record = blueprintRecords.get(new WorkflowTaskKey(player.getUUID(), workflowEntryId));
+        if (record == null || record.status().terminal()
+                || !(record.payload() instanceof BlueprintTaskPayload payload)) return null;
+        return payload.context();
+    }
+
+    public boolean resumeBlueprint(
+            net.minecraft.server.level.ServerPlayer player, int workflowEntryId) {
+        TaskRecord record = player == null ? null
+                : blueprintRecords.get(new WorkflowTaskKey(player.getUUID(), workflowEntryId));
+        if (record == null || record.status().terminal()) return false;
+        record.resume(System.nanoTime());
+        return true;
     }
 
     private void syncPlacementTasks(net.minecraft.server.level.ServerPlayer player,
@@ -419,6 +491,77 @@ public final class RtsTaskEngine {
         return TaskStepResult.nextTick(processed, completedStacks, completedStacks, 0);
     }
 
+    private TaskStepResult executeBlueprint(TaskRecord task, TaskBudget budget) {
+        BlueprintTaskPayload payload = (BlueprintTaskPayload) task.payload();
+        var token = com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine.getInstance()
+                .from(payload.player(), payload.workflowEntryId()).orElse(null);
+        if (token == null) {
+            com.rtsbuilding.rtsbuilding.server.pipeline.blueprint.BlueprintPersistence
+                    .clearFromEntry(payload.player(), payload.workflowEntryId());
+            return TaskStepResult.fail("rtsbuilding.task.error.workflow_missing");
+        }
+        if (!payload.ready()) {
+            int processed = payload.prepare(budget);
+            if (payload.ready() && payload.shouldCheckpoint(true)) {
+                com.rtsbuilding.rtsbuilding.server.pipeline.blueprint.BlueprintPersistence.saveToEntry(
+                        payload.player(), payload.workflowEntryId(), payload.context());
+            }
+            return TaskStepResult.nextTick(processed, 0, 0, 0);
+        }
+        return BlueprintTickPipe.execute(payload, budget);
+    }
+
+    private void syncFunnelTask(net.minecraft.server.level.ServerPlayer player,
+            com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession session) {
+        TaskRecord existing = funnelRecords.get(player.getUUID());
+        boolean active = session.funnel.funnelEnabled
+                && session.mode == com.rtsbuilding.rtsbuilding.common.build.BuilderMode.FUNNEL;
+        if (!active) {
+            if (existing != null && existing.status().terminal()) funnelRecords.remove(player.getUUID());
+            return;
+        }
+        if (existing != null && !existing.status().terminal()) return;
+        long now = System.nanoTime();
+        TaskRecord record = new TaskRecord(UUID.randomUUID(), player.getUUID(), TaskType.FUNNEL,
+                new FunnelTaskPayload(player, session), 0, now);
+        funnelRecords.put(player.getUUID(), record);
+        scheduler.submit(record);
+    }
+
+    private TaskStepResult executeFunnel(TaskRecord task, TaskBudget budget) {
+        FunnelTaskPayload payload = (FunnelTaskPayload) task.payload();
+        var result = ServiceRegistry.getInstance().funnel().tickBudgeted(
+                payload.player(), payload.session(), budget.maxUnits(),
+                System.nanoTime() + budget.remainingNanos());
+        if (!result.active()) return TaskStepResult.complete(result.processedUnits(), 0, 0, 0);
+        return TaskStepResult.nextTick(result.processedUnits(), 0, 0, 0);
+    }
+
+    private void syncPlacedRecoveryTask(net.minecraft.server.level.ServerPlayer player,
+            com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession session) {
+        TaskRecord existing = recoveryRecords.get(player.getUUID());
+        if (session.placement.recoveryJobs.isEmpty()) {
+            if (existing != null && existing.status().terminal()) recoveryRecords.remove(player.getUUID());
+            return;
+        }
+        if (existing != null && !existing.status().terminal()) return;
+        long now = System.nanoTime();
+        TaskRecord record = new TaskRecord(
+                UUID.randomUUID(), player.getUUID(), TaskType.PLACED_RECOVERY,
+                new PlacedRecoveryTaskPayload(player, session), 0, now);
+        recoveryRecords.put(player.getUUID(), record);
+        scheduler.submit(record);
+    }
+
+    private TaskStepResult executePlacedRecovery(TaskRecord task, TaskBudget budget) {
+        PlacedRecoveryTaskPayload payload = (PlacedRecoveryTaskPayload) task.payload();
+        var result = RtsPlacedRecoveryService.tickBudgeted(
+                payload.player(), payload.session(), budget.maxUnits(),
+                System.nanoTime() + budget.remainingNanos());
+        if (result.complete()) return TaskStepResult.complete(result.processedUnits(), 0, 0, 0);
+        return TaskStepResult.nextTick(result.processedUnits(), 0, 0, 0);
+    }
+
     private void applyInitialPause(net.minecraft.server.level.ServerPlayer player, int workflowEntryId,
             TaskRecord record, long now) {
         if (workflowEntryId < 0) return;
@@ -431,6 +574,8 @@ public final class RtsTaskEngine {
     }
 
     private TaskRecord findWorkflowTask(WorkflowTaskKey key) {
+        TaskRecord blueprint = blueprintRecords.get(key);
+        if (blueprint != null) return blueprint;
         for (var entry : placementRecords.entrySet()) {
             if (entry.getValue().ownerId().equals(key.playerId())
                     && entry.getKey().workflowEntryId() == key.workflowEntryId()) return entry.getValue();
@@ -448,6 +593,7 @@ public final class RtsTaskEngine {
         records.addAll(placementRecords.values());
         records.addAll(destructionRecords.values());
         records.addAll(miningRecords.values());
+        records.addAll(blueprintRecords.values());
         for (TaskRecord record : records) {
             int entryId = workflowEntryId(record);
             if (entryId < 0) continue;
@@ -509,6 +655,10 @@ public final class RtsTaskEngine {
             return com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine.getInstance()
                     .from(payload.player(), entryId).orElse(null);
         }
+        if (record.payload() instanceof BlueprintTaskPayload payload) {
+            return com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine.getInstance()
+                    .from(payload.player(), entryId).orElse(null);
+        }
         return null;
     }
 
@@ -516,6 +666,7 @@ public final class RtsTaskEngine {
         if (record.payload() instanceof PlacementTaskPayload payload) return payload.job().workflowEntryId();
         if (record.payload() instanceof DestructionTaskPayload payload) return payload.job().workflowEntryId();
         if (record.payload() instanceof MiningTaskPayload payload) return payload.workflowEntryId();
+        if (record.payload() instanceof BlueprintTaskPayload payload) return payload.workflowEntryId();
         return -1;
     }
 
@@ -523,8 +674,8 @@ public final class RtsTaskEngine {
             com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowType type) {
         return switch (type) {
             case MINE_SINGLE, ULTIMINE, AREA_MINE, AREA_DESTROY,
-                    PLACE_SINGLE, PLACE_BATCH, QUICK_BUILD -> true;
-            case BLUEPRINT_BUILD, STOP_MINING -> false;
+                    PLACE_SINGLE, PLACE_BATCH, QUICK_BUILD, BLUEPRINT_BUILD -> true;
+            case STOP_MINING -> false;
         };
     }
 

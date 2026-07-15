@@ -331,6 +331,8 @@ public final class RtsDestructionBatch {
         if (session.mining.miningToolLease == null || session.mining.miningToolLease.isEmpty()) return;
         RtsToolLeaseManager.returnMiningTool(player, session, session.mining.miningToolLease);
         session.mining.miningToolLease = RtsToolLease.empty();
+        session.mining.miningSelectedToolRequested = false;
+        session.mining.workflowEntryId = -1;
         RtsbuildingMod.LOGGER.info("[RtsDestructionBatch] {} all destroy jobs complete, tool returned",
                 player.getGameProfile().getName());
     }

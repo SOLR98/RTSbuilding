@@ -4,10 +4,8 @@ import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.common.blueprint.io.BlueprintWriters;
 import com.rtsbuilding.rtsbuilding.common.blueprint.io.VanillaStructureNbtReader;
 import com.rtsbuilding.rtsbuilding.common.blueprint.model.RtsBlueprint;
-import com.rtsbuilding.rtsbuilding.server.pipeline.blueprint.BlockPlacementPlanner.PlacementPlan;
 import com.rtsbuilding.rtsbuilding.server.pipeline.context.BlueprintContext;
 import com.rtsbuilding.rtsbuilding.server.pipeline.core.PipelineContext;
-import com.rtsbuilding.rtsbuilding.server.pipeline.core.TickablePipelineRegistry;
 import com.rtsbuilding.rtsbuilding.server.pipeline.tool.ToolBorrowPipe;
 import com.rtsbuilding.rtsbuilding.server.pipeline.validation.SessionValidatePipe;
 import com.rtsbuilding.rtsbuilding.server.service.ServiceRegistry;
@@ -19,7 +17,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.LinkedList;
-import java.util.List;
 
 /**
  * 蓝图持久化工具——将蓝图工作流的运行时数据序列化到工作流条目，
@@ -55,6 +52,7 @@ public final class BlueprintPersistence {
     private static final String KEY_SKIPPED_UNSUPPORTED = "skippedUnsupported";
     private static final String KEY_SKIPPED_MISSING_BLOCKS = "skippedMissingBlocks";
     private static final String KEY_SKIPPED_BLOCKED = "skippedBlocked";
+    private static final String KEY_PREPARING = "preparing";
 
     private BlueprintPersistence() {
     }
@@ -116,6 +114,7 @@ public final class BlueprintPersistence {
         data.putInt(KEY_SKIPPED_UNSUPPORTED, bctx.getSkippedUnsupported());
         data.putInt(KEY_SKIPPED_MISSING_BLOCKS, bctx.getSkippedMissingBlocks());
         data.putInt(KEY_SKIPPED_BLOCKED, bctx.getSkippedBlocked());
+        data.putBoolean(KEY_PREPARING, bctx.isPreparing());
 
         // 持久化到工作流条目
         com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine.getInstance()
@@ -166,8 +165,6 @@ public final class BlueprintPersistence {
         int zSteps = data.getInt(KEY_Z_STEPS);
 
         // ── 重算放置计划 ─────────────────────────────────────────
-        List<PlacementPlan> plans = BlockPlacementPlanner.compute(blueprint, anchor, centerOffset, ySteps, xSteps, zSteps);
-
         // ── 重建剩余队列 ─────────────────────────────────────────
         LinkedList<Integer> remaining = new LinkedList<>();
         if (data.contains(KEY_REMAINING, Tag.TAG_INT_ARRAY)) {
@@ -199,8 +196,8 @@ public final class BlueprintPersistence {
 
         // 设置共享数据
         ctx.setData(BlueprintContext.KEY_CENTER_OFFSET, centerOffset);
-        ctx.setPlacementPlans(plans);
-        ctx.setRemainingQueue(remaining);
+        boolean preparing = data.getBoolean(KEY_PREPARING);
+        ctx.setPreparing(true);
         ctx.setPlacedCount(placedCount);
         ctx.setSkippedMissing(skippedMissing);
         ctx.setSkippedUnsupported(skippedUnsupported);
@@ -229,9 +226,12 @@ public final class BlueprintPersistence {
                 BlueprintContext.KEY_SKIPPED_MISSING,
                 BlueprintContext.KEY_SKIPPED_UNSUPPORTED,
                 BlueprintContext.KEY_SKIPPED_MISSING_BLOCKS,
-                BlueprintContext.KEY_SKIPPED_BLOCKED
+                BlueprintContext.KEY_SKIPPED_BLOCKED,
+                BlueprintContext.KEY_PREPARING
         );
-        TickablePipelineRegistry.register(player, ctx, new BlueprintTickPipe());
+        // 准备阶段没有世界副作用，崩溃后从 0 重算；READY 任务恢复唯一 remaining 队列。
+        com.rtsbuilding.rtsbuilding.server.task.RtsTaskEngine.INSTANCE.submitBlueprint(
+                ctx, preparing ? null : remaining);
 
         RtsbuildingMod.LOGGER.info("[BlueprintPersistence] 已恢复蓝图工作流 #{} ({} 剩余方块)",
                 entry.id(), remaining.size());

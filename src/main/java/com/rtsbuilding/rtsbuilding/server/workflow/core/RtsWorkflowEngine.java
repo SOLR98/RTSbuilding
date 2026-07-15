@@ -156,7 +156,7 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
 
     /**
      * 根据 {@link ServerPlayer} 和条目 ID 查找条目。
-     * 公开方法——供 {@link com.rtsbuilding.rtsbuilding.server.pipeline.core.TickablePipelineRegistry}
+     * 公开方法——供统一 Task Engine
      * 等跨包组件使用，避免重复的 engine.from() → token.isPaused() 两次独立 lookup。
      */
     @Nullable

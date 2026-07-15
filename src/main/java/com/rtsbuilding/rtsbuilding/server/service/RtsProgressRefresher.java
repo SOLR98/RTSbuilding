@@ -4,7 +4,6 @@ import com.rtsbuilding.rtsbuilding.server.pipeline.blueprint.BlockPlacementPlann
 import com.rtsbuilding.rtsbuilding.server.pipeline.blueprint.BlueprintPersistence;
 import com.rtsbuilding.rtsbuilding.server.pipeline.context.BlueprintContext;
 import com.rtsbuilding.rtsbuilding.server.pipeline.core.PipelineContext;
-import com.rtsbuilding.rtsbuilding.server.pipeline.core.TickablePipelineRegistry;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder;
 import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
@@ -144,7 +143,8 @@ public final class RtsProgressRefresher {
         for (var status : engine.getAllProgress(player)) {
             if (!status.isActive() || status.type() != RtsWorkflowType.BLUEPRINT_BUILD) continue;
             int entryId = status.entryId();
-            PipelineContext pipeCtx = TickablePipelineRegistry.findContextByWorkflowEntry(player, entryId);
+            PipelineContext pipeCtx = com.rtsbuilding.rtsbuilding.server.task.RtsTaskEngine.INSTANCE
+                    .findBlueprintContext(player, entryId);
             if (!(pipeCtx instanceof BlueprintContext bctx)) continue;
 
             List<BlockPlacementPlanner.PlacementPlan> plans = bctx.getPlacementPlans();

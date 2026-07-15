@@ -58,6 +58,7 @@ public final class SessionSerializer {
         loadPlacement(player, session, root);
         loadDestroy(player, session, root);
         loadDropBuffer(player, session, root);
+        loadFunnel(player, session, root);
     }
 
     /** 保存完整 ItemStack 组件，确保正常存档/重启不会丢失已接住的掉落。 */
@@ -100,6 +101,39 @@ public final class SessionSerializer {
                 ? -1L
                 : root.getLong("drop_buffer_since");
         buffer.fullNoticeSent = false;
+    }
+
+    public static CompoundTag serializeFunnel(ServerPlayer player, RtsStorageSession session) {
+        CompoundTag root = new CompoundTag();
+        root.putBoolean("funnel_enabled", session.funnel.funnelEnabled);
+        if (session.funnel.funnelTarget != null) {
+            root.putLong("funnel_target", session.funnel.funnelTarget.asLong());
+        }
+        root.putInt("funnel_cooldown", Math.max(0, session.funnel.funnelTickCooldown));
+        ListTag stacks = new ListTag();
+        for (ItemStack stack : session.funnel.funnelBuffer) {
+            if (stack != null && !stack.isEmpty()
+                    && stacks.size() < com.rtsbuilding.rtsbuilding.server.service.RtsServiceConstants.FUNNEL_BUFFER_MAX_STACKS) {
+                stacks.add(stack.save(player.registryAccess()));
+            }
+        }
+        root.put("funnel_buffer", stacks);
+        return root;
+    }
+
+    private static void loadFunnel(ServerPlayer player, RtsStorageSession session, CompoundTag root) {
+        session.funnel.funnelEnabled = root.getBoolean("funnel_enabled");
+        session.funnel.funnelTarget = root.contains("funnel_target", Tag.TAG_LONG)
+                ? BlockPos.of(root.getLong("funnel_target")).immutable() : null;
+        session.funnel.funnelTickCooldown = Math.max(0, root.getInt("funnel_cooldown"));
+        session.funnel.funnelBuffer.clear();
+        ListTag stacks = root.getList("funnel_buffer", Tag.TAG_COMPOUND);
+        for (int i = 0; i < stacks.size()
+                && session.funnel.funnelBuffer.size()
+                < com.rtsbuilding.rtsbuilding.server.service.RtsServiceConstants.FUNNEL_BUFFER_MAX_STACKS; i++) {
+            ItemStack stack = ItemStack.parseOptional(player.registryAccess(), stacks.getCompound(i));
+            if (!stack.isEmpty()) session.funnel.funnelBuffer.add(stack);
+        }
     }
 
     // ======================================================================
@@ -434,6 +468,22 @@ public final class SessionSerializer {
             if (job != null) activeList.add(job.toNbt(player.registryAccess()));
         }
         root.put("active_placement_jobs", activeList);
+        ListTag recoveryList = new ListTag();
+        for (var job : session.placement.recoveryJobs) {
+            if (job == null) continue;
+            CompoundTag jobTag = new CompoundTag();
+            jobTag.putString("dimension", job.dimension().location().toString());
+            jobTag.putLong("target", job.targetPos().asLong());
+            ListTag ids = new ListTag();
+            for (java.util.UUID id : job.entityIds()) {
+                CompoundTag idTag = new CompoundTag();
+                idTag.putUUID("id", id);
+                ids.add(idTag);
+            }
+            jobTag.put("entities", ids);
+            recoveryList.add(jobTag);
+        }
+        root.put("placed_recovery_jobs", recoveryList);
         return root;
     }
 
@@ -449,6 +499,24 @@ public final class SessionSerializer {
         for (int i = 0; i < activeList.size(); i++) {
             session.placement.placeBatchJobs.addLast(
                     RtsPlacementBatch.PlaceBatchJob.fromNbt(activeList.getCompound(i), player.registryAccess()));
+        }
+        session.placement.recoveryJobs.clear();
+        ListTag recoveryList = root.getList("placed_recovery_jobs", Tag.TAG_COMPOUND);
+        for (int i = 0; i < recoveryList.size(); i++) {
+            CompoundTag jobTag = recoveryList.getCompound(i);
+            ResourceKey<Level> dimension = parseDimensionKey(jobTag.getString("dimension"));
+            if (dimension == null) continue;
+            java.util.ArrayDeque<java.util.UUID> entityIds = new java.util.ArrayDeque<>();
+            ListTag ids = jobTag.getList("entities", Tag.TAG_COMPOUND);
+            for (int j = 0; j < ids.size(); j++) {
+                CompoundTag idTag = ids.getCompound(j);
+                if (idTag.hasUUID("id")) entityIds.addLast(idTag.getUUID("id"));
+            }
+            if (!entityIds.isEmpty()) {
+                session.placement.recoveryJobs.addLast(
+                        new com.rtsbuilding.rtsbuilding.server.storage.state.RtsPlacementState.PlacedRecoveryJob(
+                                dimension, BlockPos.of(jobTag.getLong("target")).immutable(), entityIds));
+            }
         }
     }
 

@@ -73,6 +73,10 @@ public class BlueprintContext extends PipelineContext {
     public static final TypedKey<Integer> KEY_SKIPPED_BLOCKED =
             new TypedKey<>("blueprintSkippedBlocked", Integer.class);
 
+    /** 计划与有序队列仍在由统一任务预算分片构建。 */
+    public static final TypedKey<Boolean> KEY_PREPARING =
+            new TypedKey<>("blueprintPreparing", Boolean.class);
+
     /** 旋转中心偏移量，由 {@code BlueprintExecutePipe} 计算并存放。 */
     public static final TypedKey<BlockPos> KEY_CENTER_OFFSET =
             new TypedKey<>("blueprintCenterOffset", BlockPos.class);
@@ -228,6 +232,14 @@ public class BlueprintContext extends PipelineContext {
     /** 设置因位置堵塞跳过的次数。 */
     public void setSkippedBlocked(int count) {
         setData(KEY_SKIPPED_BLOCKED, count);
+    }
+
+    public boolean isPreparing() {
+        return Boolean.TRUE.equals(getData(KEY_PREPARING));
+    }
+
+    public void setPreparing(boolean preparing) {
+        setData(KEY_PREPARING, preparing);
     }
 
     // ──────────────────────────────────────────────────────────────

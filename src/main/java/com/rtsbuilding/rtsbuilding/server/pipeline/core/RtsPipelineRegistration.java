@@ -43,7 +43,7 @@ import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowType;
  *   ProgressionGate → SessionValidate → SessionDimension → StopPrevious →
  *   ToolBorrow → WorkflowStart → UltimineExecute → WorkflowProgress →
  *   NetworkSync → UiRefresh
- *   [然后可 Tick：UltimineTickPipe] // 异步逐 Tick 监控
+ *   [然后由统一 Task Engine 异步推进]
  *
  * PLACE_SINGLE / QUICK_BUILD:
  *   SessionValidate → WorkflowStart → PlacementExecute → UiRefresh
@@ -121,9 +121,9 @@ public final class RtsPipelineRegistration {
      * <p>同步阶段包括：功能门控 → 会话 → 维度 → 停止
      * 前一个 → 借用工具 → 启动工作流 → 执行（目标收集、
      * 状态设置、beginRemoteMining）。同步成功后，
-     * {@link UltimineTickPipe} 每个服务器 Tick 运行，监控批处理
+     * 统一 Task Engine 每个服务器 Tick 在全局预算内推进批处理
      * 进度并在所有目标处理完成时完成工作流。
-     * 可 Tick 管道自动注册到 {@link TickablePipelineRegistry}
+     * 任务由统一 Task Engine 持有和调度
      * 并在完成时清理。</p>
      */
     private static void registerUltimine() {
@@ -136,7 +136,7 @@ public final class RtsPipelineRegistration {
                 .pipe(new ToolBorrowPipe())
                 .pipe(new UltimineExecutePipe(RtsWorkflowType.ULTIMINE))
                 .pipe(new UiRefreshPipe())
-                .tickable(new UltimineTickPipe())
+                .asyncCompletion()
                 .register();
     }
 
@@ -157,7 +157,7 @@ public final class RtsPipelineRegistration {
                 .pipe(new ToolBorrowPipe())
                 .pipe(new UltimineExecutePipe(RtsWorkflowType.AREA_MINE))
                 .pipe(new UiRefreshPipe())
-                .tickable(new UltimineTickPipe())
+                .asyncCompletion()
                 .register();
     }
 
@@ -256,7 +256,7 @@ public final class RtsPipelineRegistration {
      *
      * <p>同步成功后，{@link BlueprintTickPipe} 每个服务器 Tick 运行，
      * 逐步放置蓝图中的方块，并在所有方块放置完成时完成工作流。
-     * 可 Tick 管道自动注册到 {@link TickablePipelineRegistry}
+     * 蓝图任务由统一 Task Engine 持有和调度
      * 并在完成时清理。</p>
      */
     private static void registerBlueprintBuild() {
@@ -266,7 +266,7 @@ public final class RtsPipelineRegistration {
                 .pipe(new WorkflowStartPipe(RtsWorkflowType.BLUEPRINT_BUILD, RtsWorkflowPriority.NORMAL))
                 .pipe(new BlueprintExecutePipe())
                 .pipe(new UiRefreshPipe())
-                .tickable(new BlueprintTickPipe())
+                .asyncCompletion()
                 .register();
     }
 

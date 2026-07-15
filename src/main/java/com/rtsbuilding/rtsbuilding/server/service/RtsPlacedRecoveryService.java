@@ -123,6 +123,8 @@ public final class RtsPlacedRecoveryService {
         tracker.clear(targetPos);
         List<ItemEntity> droppedEntities = collectNewNearbyDrops(level, targetPos, dropIdsBeforeBreak);
         enqueueRecoveryJob(player, session, targetPos, droppedEntities);
+        // UUID claim 队列进入细粒度持久化组件；源 ItemEntity 仍留在世界中直到任务实际处理。
+        ServiceRegistry.getInstance().session().saveToPlayerNbt(player, session);
 
         LinkedStorageRef targetRef = new LinkedStorageRef(player.serverLevel().dimension(), targetPos);
         if (session.linkedStorageInfo.remove(targetRef)) {
@@ -137,12 +139,24 @@ public final class RtsPlacedRecoveryService {
      * Tick 处理恢复作业。
      */
     public static void tick(ServerPlayer player, RtsStorageSession session) {
+        tickBudgeted(player, session,
+                RtsServiceConstants.PLACED_RECOVERY_MAX_STACKS_PER_TICK, Long.MAX_VALUE);
+    }
+
+    /**
+     * 在统一 Task Engine 的调度片内处理回收实体。
+     *
+     * <p>队列只保存实体 UUID；真正物品在成功插入或 fallback 物化前始终由世界实体持有，
+     * 因而任务跨 Tick 不会同时持有一份复制的 ItemStack。</p>
+     */
+    public static RecoveryTickResult tickBudgeted(
+            ServerPlayer player, RtsStorageSession session, int maxUnits, long deadlineNanos) {
         if (player == null || session == null) {
-            return;
+            return new RecoveryTickResult(0, true);
         }
         Deque<PlacedRecoveryJob> jobs = session.placement.recoveryJobs;
         if (jobs == null || jobs.isEmpty()) {
-            return;
+            return new RecoveryTickResult(0, true);
         }
 
         List<LinkedHandler> orderedLinked = RtsLinkedHandlerResolutionService.orderHandlersForInsert(
@@ -155,30 +169,53 @@ public final class RtsPlacedRecoveryService {
 
         while (!jobs.isEmpty()
                 && processedJobs < RtsServiceConstants.PLACED_RECOVERY_MAX_JOBS_PER_TICK
-                && processedStacks < RtsServiceConstants.PLACED_RECOVERY_MAX_STACKS_PER_TICK) {
+                && processedStacks < Math.max(1, maxUnits)
+                && System.nanoTime() < deadlineNanos) {
             PlacedRecoveryJob job = jobs.peekFirst();
-            if (job == null || job.stacks().isEmpty()) {
+            if (job == null || job.entityIds().isEmpty()) {
                 jobs.removeFirst();
                 processedJobs++;
                 continue;
             }
 
+            if (!player.serverLevel().dimension().equals(job.dimension())) {
+                // 链接端点属于玩家当前维度；切维后等待返回，不能写入错误网络。
+                break;
+            }
+
+            ServerLevel jobLevel = player.getServer().getLevel(job.dimension());
+            if (jobLevel == null) {
+                // 维度暂不可用时保留 UUID，下一 Tick 再试，避免把世界仍持有的实体误判丢失。
+                break;
+            }
+
             List<IItemHandler> handlers = recoveryHandlersExcluding(orderedLinked, job.targetPos());
             hasLinkedRecoveryTarget |= !handlers.isEmpty();
-            while (!job.stacks().isEmpty() && processedStacks < RtsServiceConstants.PLACED_RECOVERY_MAX_STACKS_PER_TICK) {
-                ItemStack droppedStack = job.stacks().removeFirst();
-                if (droppedStack == null || droppedStack.isEmpty()) {
+            while (!job.entityIds().isEmpty()
+                    && processedStacks < Math.max(1, maxUnits)
+                    && System.nanoTime() < deadlineNanos) {
+                UUID entityId = job.entityIds().removeFirst();
+                net.minecraft.world.entity.Entity entity = jobLevel.getEntity(entityId);
+                if (!(entity instanceof ItemEntity droppedEntity) || !droppedEntity.isAlive()) {
+                    processedStacks++;
+                    continue;
+                }
+                ItemStack droppedStack = droppedEntity.getItem();
+                if (droppedStack.isEmpty()) {
+                    processedStacks++;
                     continue;
                 }
                 ItemStack remain = RtsTransferInserter.storeToLinkedOnlyPreferExisting(handlers, droppedStack);
                 if (!remain.isEmpty()) {
                     overflow = overflow.merge(RtsTransferInserter.storeToLinkedWithFallback(handlers, player, remain));
                 }
+                // 单个实体的插入与源实体释放在同一服务端主线程调度片内完成。
+                droppedEntity.discard();
                 processedStacks++;
                 processedAny = true;
             }
 
-            if (job.stacks().isEmpty()) {
+            if (job.entityIds().isEmpty()) {
                 jobs.removeFirst();
                 processedJobs++;
             }
@@ -196,6 +233,13 @@ public final class RtsPlacedRecoveryService {
             ServiceRegistry.getInstance().page().markStorageViewDirty(player, session);
             QuestService.runQuestDetect(player, session, false);
         }
+        if (jobs.isEmpty()) {
+            ServiceRegistry.getInstance().session().saveToPlayerNbt(player, session);
+        }
+        return new RecoveryTickResult(processedStacks, jobs.isEmpty());
+    }
+
+    public record RecoveryTickResult(int processedUnits, boolean complete) {
     }
 
     // ---- 内部方法 ----
@@ -254,16 +298,16 @@ public final class RtsPlacedRecoveryService {
         if (player == null || droppedEntities == null || droppedEntities.isEmpty()) {
             return;
         }
-        Deque<ItemStack> stacks = new ArrayDeque<>();
+        Deque<UUID> entityIds = new ArrayDeque<>();
         for (ItemEntity droppedEntity : droppedEntities) {
             if (droppedEntity == null) continue;
             ItemStack droppedStack = droppedEntity.getItem();
             if (droppedStack.isEmpty()) continue;
-            stacks.addLast(droppedStack.copy());
-            droppedEntity.discard();
+            entityIds.addLast(droppedEntity.getUUID());
         }
-        if (!stacks.isEmpty()) {
-            session.placement.recoveryJobs.addLast(new PlacedRecoveryJob(targetPos.immutable(), stacks));
+        if (!entityIds.isEmpty()) {
+            session.placement.recoveryJobs.addLast(new PlacedRecoveryJob(
+                    player.serverLevel().dimension(), targetPos.immutable(), entityIds));
         }
     }
 

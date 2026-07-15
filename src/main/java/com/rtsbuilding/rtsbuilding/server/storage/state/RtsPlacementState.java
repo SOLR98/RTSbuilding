@@ -2,12 +2,14 @@ package com.rtsbuilding.rtsbuilding.server.storage.state;
 
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.Level;
 
 import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 远程放置与已放置方块回收的可变状态容器。
@@ -73,8 +75,11 @@ public class RtsPlacementState {
     /**
      * 已放置方块被破坏后的掉落物回收作业。
      *
+     * @param dimension 掉落实体所在维度
      * @param targetPos 原始方块坐标
-     * @param stacks    待回收的掉落物堆栈队列
+     * @param entityIds 待回收掉落实体的稳定 UUID 队列
      */
-    public record PlacedRecoveryJob(BlockPos targetPos, Deque<ItemStack> stacks) {}
+    public record PlacedRecoveryJob(
+            ResourceKey<Level> dimension, BlockPos targetPos, Deque<UUID> entityIds) {
+    }
 }

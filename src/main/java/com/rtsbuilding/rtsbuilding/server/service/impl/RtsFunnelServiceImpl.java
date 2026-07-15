@@ -16,6 +16,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.items.IItemHandler;
@@ -39,6 +40,7 @@ public final class RtsFunnelServiceImpl implements FunnelService {
     public void enable(ServerPlayer player, RtsStorageSession session) {
         session.funnel.funnelEnabled = true;
         session.funnel.funnelTickCooldown = 0;
+        registry.session().saveToPlayerNbt(player, session);
     }
 
     @Override
@@ -47,6 +49,7 @@ public final class RtsFunnelServiceImpl implements FunnelService {
         session.funnel.funnelTarget = null;
         session.funnel.funnelTickCooldown = 0;
         if (session.funnel.funnelBuffer.isEmpty()) {
+            registry.session().saveToPlayerNbt(player, session);
             return;
         }
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
@@ -63,29 +66,45 @@ public final class RtsFunnelServiceImpl implements FunnelService {
             }
         }
         session.funnel.funnelBuffer.clear();
+        registry.session().saveToPlayerNbt(player, session);
     }
 
     @Override
     public void updateTarget(ServerPlayer player, RtsStorageSession session, BlockPos target) {
         if (!session.funnel.funnelEnabled || target == null) return;
         session.funnel.funnelTarget = target.immutable();
+        registry.session().saveToPlayerNbt(player, session);
     }
 
     @Override
     public void tick(ServerPlayer player, RtsStorageSession session) {
-        if (!session.funnel.funnelEnabled || session.mode != BuilderMode.FUNNEL) return;
+        tickBudgeted(player, session,
+                RtsServiceConstants.FUNNEL_MAX_ENTITIES_PER_TICK, Long.MAX_VALUE);
+    }
+
+    @Override
+    public FunnelTickResult tickBudgeted(
+            ServerPlayer player, RtsStorageSession session, int maxUnits, long deadlineNanos) {
+        if (!session.funnel.funnelEnabled || session.mode != BuilderMode.FUNNEL) {
+            return new FunnelTickResult(0, false);
+        }
         if (session.funnel.funnelTickCooldown > 0) {
             session.funnel.funnelTickCooldown--;
-            return;
+            return new FunnelTickResult(0, true);
         }
         session.funnel.funnelTickCooldown = RtsServiceConstants.FUNNEL_TICK_INTERVAL - 1;
 
         RtsLinkedStorageResolver.sanitizeSessionDimension(player, session);
-        if (session.funnel.funnelTarget == null) return;
-        if (!RtsLinkedStorageResolver.canAccessWorldTarget(player, session.funnel.funnelTarget)) return;
+        if (session.funnel.funnelTarget == null) return new FunnelTickResult(0, true);
+        if (!RtsLinkedStorageResolver.canAccessWorldTarget(player, session.funnel.funnelTarget)) {
+            return new FunnelTickResult(0, true);
+        }
         if (!RtsClaimProtectionService.canInteractBlock(
-                player, session.funnel.funnelTarget, Direction.UP, InteractionHand.MAIN_HAND, ItemStack.EMPTY)) return;
-        if (!RtsCameraManager.isWithinActionRange(player, session.funnel.funnelTarget)) return;
+                player, session.funnel.funnelTarget, Direction.UP,
+                InteractionHand.MAIN_HAND, ItemStack.EMPTY)) return new FunnelTickResult(0, true);
+        if (!RtsCameraManager.isWithinActionRange(player, session.funnel.funnelTarget)) {
+            return new FunnelTickResult(0, true);
+        }
 
         List<LinkedHandler> linked = RtsLinkedStorageResolver.resolveLinkedHandlers(player, session);
         List<IItemHandler> handlers = new ArrayList<>(linked.size());
@@ -93,22 +112,34 @@ public final class RtsFunnelServiceImpl implements FunnelService {
             handlers.add(lh.handler());
         }
 
-        boolean changed = flushBuffer(handlers, player, session);
-        changed |= absorbDrops(player, session.funnel.funnelTarget, handlers, session);
+        int limit = Math.max(1, maxUnits);
+        WorkResult flushed = flushBuffer(handlers, player, session, limit, deadlineNanos);
+        int remainingUnits = Math.max(0, limit - flushed.processedUnits());
+        WorkResult absorbed = remainingUnits == 0 || System.nanoTime() >= deadlineNanos
+                ? new WorkResult(0, false)
+                : absorbDrops(player, session.funnel.funnelTarget, handlers, session,
+                        remainingUnits, deadlineNanos);
+        boolean changed = flushed.changed() || absorbed.changed();
         if (changed) {
+            registry.session().saveToPlayerNbt(player, session);
             registry.page().markStorageViewDirty(player, session);
             QuestService.runQuestDetect(player, session, false);
         }
+        return new FunnelTickResult(flushed.processedUnits() + absorbed.processedUnits(), true);
     }
 
     // ────────────────────────────────────────────────────────────────
     //  Internal helpers
     // ────────────────────────────────────────────────────────────────
 
-    private boolean flushBuffer(List<IItemHandler> handlers, ServerPlayer player, RtsStorageSession session) {
-        if (session.funnel.funnelBuffer.isEmpty()) return false;
+    private WorkResult flushBuffer(List<IItemHandler> handlers, ServerPlayer player,
+            RtsStorageSession session, int maxUnits, long deadlineNanos) {
+        if (session.funnel.funnelBuffer.isEmpty()) return new WorkResult(0, false);
         boolean changed = false;
-        for (int i = 0; i < session.funnel.funnelBuffer.size(); i++) {
+        int processed = 0;
+        for (int i = 0; i < session.funnel.funnelBuffer.size()
+                && processed < maxUnits && System.nanoTime() < deadlineNanos; i++) {
+            processed++;
             ItemStack buffered = session.funnel.funnelBuffer.get(i);
             if (buffered.isEmpty()) {
                 session.funnel.funnelBuffer.remove(i);
@@ -129,14 +160,17 @@ public final class RtsFunnelServiceImpl implements FunnelService {
                 changed = true;
             }
         }
-        return changed;
+        return new WorkResult(processed, changed);
     }
 
-    private boolean absorbDrops(ServerPlayer player, BlockPos target, List<IItemHandler> handlers, RtsStorageSession session) {
+    private WorkResult absorbDrops(ServerPlayer player, BlockPos target, List<IItemHandler> handlers,
+            RtsStorageSession session, int maxUnits, long deadlineNanos) {
         AABB box = new AABB(target).inflate(RtsServiceConstants.FUNNEL_RADIUS);
-        List<ItemEntity> drops = player.serverLevel().getEntitiesOfClass(
-                ItemEntity.class, box,
-                e -> e != null && e.isAlive() && !e.getItem().isEmpty());
+        int queryLimit = Math.min(maxUnits, RtsServiceConstants.FUNNEL_MAX_ENTITIES_PER_TICK);
+        List<ItemEntity> drops = new ArrayList<>(queryLimit);
+        player.serverLevel().getEntities(
+                EntityTypeTest.forClass(ItemEntity.class), box,
+                e -> e != null && e.isAlive() && !e.getItem().isEmpty(), drops, queryLimit);
 
         int processedEntities = 0;
         int processedItems = 0;
@@ -144,9 +178,11 @@ public final class RtsFunnelServiceImpl implements FunnelService {
 
         for (ItemEntity drop : drops) {
             if (processedEntities >= RtsServiceConstants.FUNNEL_MAX_ENTITIES_PER_TICK
+                    || processedEntities >= maxUnits
                     || processedItems >= RtsServiceConstants.FUNNEL_MAX_ITEMS_PER_TICK) {
                 break;
             }
+            if (System.nanoTime() >= deadlineNanos) break;
             processedEntities++;
             ItemStack worldStack = drop.getItem();
             if (worldStack.isEmpty()) continue;
@@ -176,7 +212,10 @@ public final class RtsFunnelServiceImpl implements FunnelService {
                 drop.setItem(worldStack);
             }
         }
-        return changed;
+        return new WorkResult(processedEntities, changed);
+    }
+
+    private record WorkResult(int processedUnits, boolean changed) {
     }
 
     private ItemStack addToBuffer(RtsStorageSession session, ItemStack stack) {
