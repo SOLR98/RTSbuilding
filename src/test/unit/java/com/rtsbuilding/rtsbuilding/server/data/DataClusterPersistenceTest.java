@@ -80,6 +80,26 @@ class DataClusterPersistenceTest {
     }
 
     @Test
+    void persistedRevisionAdvancesOnlyAfterSuccessfulAtomicWrite() {
+        FakeStore store = new FakeStore(new CompoundTag());
+        DataCluster cluster = new DataCluster(store);
+
+        long revision = cluster.set(ALPHA, 22);
+        assertEquals(1L, revision);
+        assertEquals(revision, cluster.revision(ALPHA));
+        assertEquals(0L, cluster.persistedRevision(ALPHA));
+
+        store.failWrites = true;
+        assertFalse(cluster.flush());
+        assertEquals(0L, cluster.persistedRevision(ALPHA),
+                "写盘失败时不能伪造 durability ACK");
+
+        store.failWrites = false;
+        assertTrue(cluster.flush());
+        assertEquals(revision, cluster.persistedRevision(ALPHA));
+    }
+
+    @Test
     void failedFlushAndCloseKeepsCacheOpenUntilRetrySucceeds() {
         FakeStore store = new FakeStore(new CompoundTag());
         store.failWrites = true;

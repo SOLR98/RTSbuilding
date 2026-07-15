@@ -181,7 +181,10 @@ public final class RtsProgressRefresher {
 
             bctx.setPlacedCount(actualPlaced);
             bctx.setRemainingQueue(remaining);
-            BlueprintPersistence.saveToEntry(player, entryId, bctx);
+            if (!com.rtsbuilding.rtsbuilding.server.task.RtsTaskEngine.INSTANCE
+                    .isDurableBlueprintContext(bctx)) {
+                BlueprintPersistence.saveToEntry(player, entryId, bctx);
+            }
             int refreshPlacedCount = actualPlaced;
             engine.from(player, entryId).ifPresent(token -> token.setCompletedBlocks(refreshPlacedCount));
         }

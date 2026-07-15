@@ -263,9 +263,7 @@ public final class RtsPipelineRegistration {
         PipelineRegistry.register(RtsWorkflowType.BLUEPRINT_BUILD)
                 .pipe(new ProgressionGatePipe(RtsFeature.BLUEPRINTS))
                 .pipe(new SessionValidatePipe())
-                .pipe(new WorkflowStartPipe(RtsWorkflowType.BLUEPRINT_BUILD, RtsWorkflowPriority.NORMAL))
                 .pipe(new BlueprintExecutePipe())
-                .pipe(new UiRefreshPipe())
                 .asyncCompletion()
                 .register();
     }

@@ -286,6 +286,27 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
         return Optional.of(new RtsWorkflowToken(player.getUUID(), entryId, dimension, this));
     }
 
+    /**
+     * 在每玩家最多八个槽位中精确查找 durable 蓝图薄投影。
+     * 该查询只读 {@code durable_task_id}，不会把旧 heavy extraData 误认成新执行许可。
+     */
+    public Optional<RtsWorkflowToken> findDurableBlueprintProjection(ServerPlayer player, UUID taskId) {
+        if (player == null || taskId == null) return Optional.empty();
+        playerRefs.putIfAbsent(player.getUUID(), player);
+        ResourceKey<Level> dimension = player.level().dimension();
+        RtsWorkflowSlotManager slots = getSlots(player.getUUID(), dimension);
+        if (slots == null) return Optional.empty();
+        for (RtsWorkflowEntry entry : slots.allEntries()) {
+            CompoundTag extra = entry.getExtraData();
+            if (entry.type() == RtsWorkflowType.BLUEPRINT_BUILD && extra != null
+                    && extra.hasUUID("durable_task_id")
+                    && taskId.equals(extra.getUUID("durable_task_id"))) {
+                return Optional.of(new RtsWorkflowToken(player.getUUID(), entry.id(), dimension, this));
+            }
+        }
+        return Optional.empty();
+    }
+
     @Override
     public Optional<RtsWorkflowToken> lastActive(ServerPlayer player) {
         if (player == null) return Optional.empty();

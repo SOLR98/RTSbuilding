@@ -3,6 +3,7 @@ package com.rtsbuilding.rtsbuilding.server.storage.state;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 
 import java.util.ArrayDeque;
@@ -73,13 +74,61 @@ public class RtsPlacementState {
     public final Deque<PlacedRecoveryJob> recoveryJobs = new ArrayDeque<>();
 
     /**
-     * 已放置方块被破坏后的掉落物回收作业。
-     *
-     * @param dimension 掉落实体所在维度
-     * @param targetPos 原始方块坐标
-     * @param entityIds 待回收掉落实体的稳定 UUID 队列
+     * 已放置方块被破坏后的掉落物回收作业。operationId 与 claim ordinal 一起提供稳定身份；
+     * requiredPersistedRevision 只属于当前进程，不写入 NBT。
      */
-    public record PlacedRecoveryJob(
-            ResourceKey<Level> dimension, BlockPos targetPos, Deque<UUID> entityIds) {
+    public static final class PlacedRecoveryJob {
+        private final UUID operationId;
+        private final ResourceKey<Level> dimension;
+        private final BlockPos targetPos;
+        private final Deque<PlacedRecoveryClaim> claims;
+        private long requiredPersistedRevision;
+
+        public PlacedRecoveryJob(UUID operationId, ResourceKey<Level> dimension,
+                BlockPos targetPos, Deque<PlacedRecoveryClaim> claims) {
+            this.operationId = java.util.Objects.requireNonNull(operationId, "operationId");
+            this.dimension = java.util.Objects.requireNonNull(dimension, "dimension");
+            this.targetPos = java.util.Objects.requireNonNull(targetPos, "targetPos").immutable();
+            this.claims = java.util.Objects.requireNonNull(claims, "claims");
+        }
+
+        public UUID operationId() { return operationId; }
+        public ResourceKey<Level> dimension() { return dimension; }
+        public BlockPos targetPos() { return targetPos; }
+        public Deque<PlacedRecoveryClaim> claims() { return claims; }
+
+        /** 当前进程内，在该 revision 得到落盘 ACK 前禁止接管任何世界实体。 */
+        public long requiredPersistedRevision() { return requiredPersistedRevision; }
+
+        public void requirePersistedRevision(long revision) {
+            requiredPersistedRevision = Math.max(requiredPersistedRevision, Math.max(0L, revision));
+        }
+    }
+
+    /**
+     * 世界掉落实体的保守 claim。expectedStack 始终防御性复制，避免外部代码修改持久化指纹。
+     */
+    public record PlacedRecoveryClaim(UUID entityId, int ordinal, ItemStack expectedStack) {
+        public PlacedRecoveryClaim {
+            if (entityId == null) throw new IllegalArgumentException("entityId 不能为空");
+            if (ordinal < 0) throw new IllegalArgumentException("ordinal 不能为负数");
+            if (expectedStack == null || expectedStack.isEmpty()) {
+                throw new IllegalArgumentException("expectedStack 不能为空");
+            }
+            expectedStack = expectedStack.copy();
+        }
+
+        @Override
+        public ItemStack expectedStack() {
+            return expectedStack.copy();
+        }
+
+        /** 只有物品、组件和数量完全相同，才允许消费这个世界实体。 */
+        public boolean matches(ItemStack actual) {
+            return actual != null
+                    && !actual.isEmpty()
+                    && actual.getCount() == expectedStack.getCount()
+                    && ItemStack.isSameItemSameComponents(actual, expectedStack);
+        }
     }
 }

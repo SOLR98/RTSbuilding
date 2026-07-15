@@ -61,13 +61,16 @@ public final class BlueprintExecutePipe implements PipelinePipe<PipelineContext>
         bctx.setSkippedBlocked(0);
         bctx.setPreparing(true);
 
+        var outcome = RtsTaskEngine.INSTANCE.queueDurableBlueprint(bctx);
+        if (outcome == com.rtsbuilding.rtsbuilding.server.task.DurableBlueprintTaskBridge.QueueResult.QUEUE_FULL
+                || outcome == com.rtsbuilding.rtsbuilding.server.task.DurableBlueprintTaskBridge.QueueResult.MEMORY_BUDGET_FULL) {
+            send(bctx, S2CBlueprintStatusPayload.ERROR,
+                    "screen.rtsbuilding.blueprints.status.admission_busy", "");
+            return PipelineResult.failure("Durable blueprint admission queue full");
+        }
         send(bctx, S2CBlueprintStatusPayload.INFO,
                 "screen.rtsbuilding.blueprints.status.queued",
                 Integer.toString(blueprint.blockCount()));
-
-        int entryId = ctx.getData(PipelineContext.KEY_WORKFLOW_ENTRY_ID);
-        BlueprintPersistence.saveToEntry(ctx.player(), entryId, bctx);
-        RtsTaskEngine.INSTANCE.submitBlueprint(bctx, null);
         return PipelineResult.success();
     }
 

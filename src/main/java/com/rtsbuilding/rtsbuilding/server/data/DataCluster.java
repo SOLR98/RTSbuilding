@@ -64,12 +64,13 @@ public final class DataCluster {
      * 设置指定组件的数据——仅改内存，标记脏。
      * 实际文件写入延迟到下次 {@link #flush()} 调用。
      */
-    public synchronized <T> void set(DataComponent<T> component, T value) {
+    public synchronized <T> long set(DataComponent<T> component, T value) {
         loadIfNeeded();
         Cell<?> current = cells.get(component.key());
         long nextRevision = current == null ? 1L : current.revision + 1L;
         cells.put(component.key(), new Cell<>(component, value, nextRevision,
                 current == null ? 0L : current.persistedRevision));
+        return nextRevision;
     }
 
     /**
@@ -141,6 +142,23 @@ public final class DataCluster {
     /** 返回内部缓存的组件数量（用于诊断）。 */
     public synchronized int componentCount() {
         return cells.size();
+    }
+
+    /** 返回组件当前内存 revision；尚未访问的组件会先按正常规则加载。 */
+    public synchronized long revision(DataComponent<?> component) {
+        get(component);
+        Cell<?> cell = cells.get(component.key());
+        return cell == null ? 0L : cell.revision;
+    }
+
+    /**
+     * 返回已经由底层原子存储确认的 revision。调用方只能把它当作 durability ACK，
+     * 不能用当前内存 revision 冒充已经落盘。
+     */
+    public synchronized long persistedRevision(DataComponent<?> component) {
+        get(component);
+        Cell<?> cell = cells.get(component.key());
+        return cell == null ? 0L : cell.persistedRevision;
     }
 
     // ──────────────────────────────────────────────────────────────────

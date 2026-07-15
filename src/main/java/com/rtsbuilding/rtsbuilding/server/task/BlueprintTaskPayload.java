@@ -130,7 +130,8 @@ public final class BlueprintTaskPayload implements TaskPayload {
                 }
                 case QUEUE -> {
                     if (orderedIndices.isEmpty()) {
-                        context.setRemainingQueue(new LinkedList<>());
+                        // ORDER 已经把所有索引逐个写入当前队列；这里只切换阶段。
+                        // 重新分配空队列会把刚生成的执行计划全部丢掉，任务随后会被误判为完成。
                         context.setPreparing(false);
                         stage = PreparationStage.READY;
                         continue;

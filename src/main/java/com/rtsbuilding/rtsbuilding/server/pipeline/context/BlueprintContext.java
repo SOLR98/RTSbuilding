@@ -55,6 +55,10 @@ public class BlueprintContext extends PipelineContext {
     public static final TypedKey<Integer> ARG_Z_ROTATION_STEPS =
             new TypedKey<>("zRotationSteps", Integer.class);
 
+    /** 新 durable 蓝图在线绑定的稳定 TaskId；只存在于 data，不进入客户端参数。 */
+    public static final TypedKey<UUID> KEY_DURABLE_TASK_ID =
+            new TypedKey<>("durableBlueprintTaskId", UUID.class);
+
     // ──────────────────────────────────────────────────────────────
     //  共享数据键（进度追踪）
     // ──────────────────────────────────────────────────────────────

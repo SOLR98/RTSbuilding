@@ -162,6 +162,38 @@ class TaskPersistenceRuntimeTest {
     }
 
     @Test
+    void rootAckPublishesOneBoundedBlueprintCompletionAndDuplicateAdmissionStaysSingle() throws Exception {
+        RecordingRepository repository = new RecordingRepository();
+        TaskPersistenceCoordinator coordinator = open(repository);
+        TaskSnapshot snapshot = blueprintTask(TaskId.create(), UUID.randomUUID(), -1);
+        TaskAssetId assetId = new TaskAssetId(snapshot.payloadView().getUUID("asset_id"));
+        TaskAssetMetadata metadata = new TaskAssetMetadata(
+                assetId, snapshot.id(), "blueprint", "e".repeat(64), 128L, 64L);
+        AtomicBlueprintBlobRepository blobs = mock(AtomicBlueprintBlobRepository.class);
+        AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt receipt =
+                mock(AtomicBlueprintBlobRepository.DurableBlueprintBlobReceipt.class);
+        when(blobs.requireIssued(receipt)).thenReturn(
+                new AtomicBlueprintBlobRepository.VerifiedDurableBlueprintBlob(metadata, snapshot.totalUnits()));
+
+        TaskPersistenceRuntime runtime = new TaskPersistenceRuntime(Executors::newSingleThreadExecutor);
+        runtime.start(coordinator, blobs);
+        runtime.submitDurableBlueprintAsset(snapshot, receipt);
+        runtime.submitDurableBlueprintAsset(snapshot, receipt);
+
+        for (int i = 0; i < 200 && coordinator.query().get(snapshot.id()).isEmpty(); i++) {
+            runtime.tick();
+            Thread.sleep(1L);
+        }
+        var completions = runtime.drainBlueprintAdmissionCompletions(8);
+        assertEquals(1, completions.size());
+        assertEquals(snapshot.id(), completions.getFirst().taskId());
+        assertEquals(TaskPersistenceRuntime.BlueprintAdmissionOutcome.ROOT_DURABLE,
+                completions.getFirst().outcome());
+        assertTrue(runtime.drainBlueprintAdmissionCompletions(8).isEmpty());
+        runtime.stop();
+    }
+
+    @Test
     void rejectedWrittenReceiptCannotDeleteBlobClaimedByAnotherPendingReceipt() {
         TaskPersistenceCoordinator coordinator = open(new RecordingRepository());
         TaskSnapshot accepted = blueprintTask(TaskId.create(), UUID.randomUUID(), 13);

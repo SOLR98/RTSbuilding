@@ -36,6 +36,9 @@ public final class RtsTaskEngine {
     private final Map<UUID, TaskRecord> recoveryRecords = new java.util.HashMap<>();
     private final Map<WorkflowTaskKey, Boolean> workflowPauseOverrides = new java.util.HashMap<>();
     private final Map<UUID, TaskStatus> projectedTaskStatuses = new java.util.HashMap<>();
+    private final DurableBlueprintTaskBridge durableBlueprintBridge =
+            new DurableBlueprintTaskBridge(this,
+                    com.rtsbuilding.rtsbuilding.server.task.persistence.TaskPersistenceRuntime.INSTANCE);
 
     private RtsTaskEngine() {
         scheduler.registerExecutor(TaskType.PLACEMENT, this::executePlacement);
@@ -48,6 +51,7 @@ public final class RtsTaskEngine {
     }
 
     public TaskScheduler.TickStats tick(MinecraftServer server) {
+        durableBlueprintBridge.beforeTaskTick(server);
         var sessionService = ServiceRegistry.getInstance().session();
         for (var player : server.getPlayerList().getPlayers()) {
             var session = sessionService.getIfPresent(player);
@@ -63,9 +67,25 @@ public final class RtsTaskEngine {
                 Config.taskEngineMaxNanosPerTick(),
                 Config.taskEngineMaxUnitsPerTick(),
                 Config.taskEngineMaxUnitsPerSlice());
+        durableBlueprintBridge.afterTaskTick(server);
         projectWorkflowLifecycles();
         blueprintRecords.entrySet().removeIf(entry -> entry.getValue().status().terminal());
         return stats;
+    }
+
+    /** command gateway 只负责排队；返回成功不代表执行器或 Workflow 已经可见。 */
+    public DurableBlueprintTaskBridge.QueueResult queueDurableBlueprint(BlueprintContext context) {
+        return durableBlueprintBridge.queue(context);
+    }
+
+    /** 旧 Workflow heavy-extraData 的确定性迁移入口。 */
+    public DurableBlueprintTaskBridge.QueueResult queueLegacyDurableBlueprint(BlueprintContext context) {
+        return durableBlueprintBridge.queueLegacy(context);
+    }
+
+    /** 兼容入口据此跳过旧 Workflow heavy-extraData checkpoint。 */
+    public boolean isDurableBlueprintContext(BlueprintContext context) {
+        return durableBlueprintBridge.isDurableContext(context);
     }
 
     /** 开发者采样读取的轻量任务快照；不暴露可变 TaskRecord 或领域 payload。 */
@@ -94,6 +114,8 @@ public final class RtsTaskEngine {
     }
 
     public void detachPlayer(UUID playerId) {
+        // 必须在移除 scheduler lane 前把 durable cursor 冻结，并释放 Context→ServerPlayer 强引用。
+        durableBlueprintBridge.detachOwner(playerId);
         long now = System.nanoTime();
         for (TaskRecord detached : scheduler.detachOwner(playerId)) {
             if (!isPhaseOneDurable(detached.type())) detached.cancel(now);
@@ -124,7 +146,28 @@ public final class RtsTaskEngine {
     }
 
     private static boolean isPhaseOneDurable(TaskType type) {
-        return type == TaskType.BLUEPRINT || type == TaskType.FUNNEL || type == TaskType.PLACED_RECOVERY;
+        return type == TaskType.BLUEPRINT;
+    }
+
+    /** ServerStopping 的 persistence.stop 前置 barrier。 */
+    public void checkpointAllDurableExecutions(MinecraftServer server) {
+        durableBlueprintBridge.checkpointAll(server.overworld().getGameTime());
+    }
+
+    /** persistence.stop 成功后调用，清除单例中的旧世界引用。 */
+    public void resetDurableRuntimeAfterServerStop() {
+        durableBlueprintBridge.resetAfterServerStop();
+        scheduler.clear();
+        placementRecords.clear();
+        destructionRecords.clear();
+        miningRecords.clear();
+        activeMiningByWorkflow.clear();
+        bufferRecords.clear();
+        blueprintRecords.clear();
+        funnelRecords.clear();
+        recoveryRecords.clear();
+        workflowPauseOverrides.clear();
+        projectedTaskStatuses.clear();
     }
 
     /** 玩家暂停/恢复命令的唯一执行入口；WorkflowToken 只负责展示投影。 */
@@ -213,6 +256,29 @@ public final class RtsTaskEngine {
     public void submitBlueprint(BlueprintContext context, java.util.LinkedList<Integer> restoredRemaining) {
         if (context == null || context.player() == null) return;
         submitBlueprint(context, restoredRemaining, context.player().serverLevel().dimension());
+    }
+
+    /** root 已 ACK 后由 durable bridge 调用；TaskRecord 复用稳定 TaskId，不再生成 workflow 派生 UUID。 */
+    TaskRecord activateDurableBlueprint(
+            com.rtsbuilding.rtsbuilding.server.task.identity.TaskId taskId,
+            com.rtsbuilding.rtsbuilding.server.task.persistence.TaskSnapshot snapshot,
+            BlueprintContext context,
+            net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> sourceDimension) {
+        int entryId = context.getData(
+                com.rtsbuilding.rtsbuilding.server.pipeline.core.PipelineContext.KEY_WORKFLOW_ENTRY_ID);
+        WorkflowTaskKey key = new WorkflowTaskKey(context.player().getUUID(), sourceDimension, entryId);
+        TaskRecord existing = blueprintRecords.get(key);
+        if (existing != null && !existing.status().terminal()) return existing;
+        long now = System.nanoTime();
+        BlueprintTaskPayload payload = new BlueprintTaskPayload(context,
+                context.isPreparing() ? null : context.getRemainingQueue(), sourceDimension);
+        TaskRecord record = new TaskRecord(taskId.value(), context.player().getUUID(),
+                TaskType.BLUEPRINT, payload, snapshot.totalUnits(), now);
+        record.restoreDurableSnapshot(snapshot.cursorUnits(), snapshot.succeededUnits(),
+                snapshot.failedUnits(), DurableBlueprintTaskBridge.runtimeState(snapshot.state()), now);
+        blueprintRecords.put(key, record);
+        scheduler.submit(record);
+        return record;
     }
 
     public void submitBlueprint(BlueprintContext context, java.util.LinkedList<Integer> restoredRemaining,
@@ -563,7 +629,8 @@ public final class RtsTaskEngine {
         }
         if (!payload.ready()) {
             int processed = payload.prepare(budget);
-            if (payload.ready() && payload.shouldCheckpoint(true)) {
+            if (payload.ready() && payload.shouldCheckpoint(true)
+                    && !durableBlueprintBridge.isDurableContext(payload.context())) {
                 com.rtsbuilding.rtsbuilding.server.pipeline.blueprint.BlueprintPersistence.saveToEntry(
                         payload.player(), payload.workflowEntryId(), payload.context());
             }

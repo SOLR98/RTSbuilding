@@ -18,6 +18,7 @@ import com.rtsbuilding.rtsbuilding.server.service.*;
 import com.rtsbuilding.rtsbuilding.server.service.page.RtsStoragePageRequestCoalescer;
 import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementSound;
 import com.rtsbuilding.rtsbuilding.server.storage.cache.RtsEndpointLeaseCache;
+import com.rtsbuilding.rtsbuilding.server.task.RtsTaskEngine;
 import com.rtsbuilding.rtsbuilding.server.task.persistence.TaskPersistenceRuntime;
 import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
 
@@ -205,14 +206,15 @@ public class RtsbuildingMod {
         }
 
         /**
-         * 世界对象仍然有效时完成最终 ACK 并停止 writer；不得推迟到 ServerStopped。
+         * 世界对象仍然有效时冻结在线执行状态。真正关闭 writer 必须等玩家登出事件全部结束，
+         * 否则停服流程随后触发的 PlayerLoggedOutEvent 会对已经关闭的 Runtime 调用 flushOwner。
          */
         @SubscribeEvent
         static void onServerStopping(ServerStoppingEvent event) {
             try {
-                TaskPersistenceRuntime.INSTANCE.stop();
+                RtsTaskEngine.INSTANCE.checkpointAllDurableExecutions(event.getServer());
             } catch (RuntimeException failure) {
-                LOGGER.error("停服时 durable task 冲刷失败；未确认的 dirty 不会被伪装成已落盘", failure);
+                LOGGER.error("停服时 durable task 冻结失败；未确认的 dirty 不会被伪装成已落盘", failure);
                 throw failure;
             }
         }
@@ -231,6 +233,15 @@ public class RtsbuildingMod {
          */
         @SubscribeEvent
         static void onServerStopped(ServerStoppedEvent event) {
+            RuntimeException durableFailure = null;
+            try {
+                // Minecraft 会在 ServerStopping 之后才移除在线玩家；等所有 logout flush 完成再关 writer。
+                TaskPersistenceRuntime.INSTANCE.stop();
+                RtsTaskEngine.INSTANCE.resetDurableRuntimeAfterServerStop();
+            } catch (RuntimeException failure) {
+                durableFailure = failure;
+                LOGGER.error("服务器停止后关闭 durable task writer 失败；保留故障状态以阻止静默复用", failure);
+            }
             // 先保存工作流（此时 SaveScheduler 的缓存仍有效）
             RtsWorkflowEngine.getInstance().saveAll(event.getServer());
             // 再刷新所有持久化数据并清空缓存
@@ -239,6 +250,7 @@ public class RtsbuildingMod {
             RtsWorkflowEngine.getInstance().clearAllData();
             RtsStoragePageRequestCoalescer.clearAll();
             RtsDeveloperMetrics.clearAll();
+            if (durableFailure != null) throw durableFailure;
         }
 
         /**
@@ -262,6 +274,8 @@ public class RtsbuildingMod {
         static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
             if (event.getEntity() instanceof ServerPlayer serverPlayer) {
                 try {
+                    // 先把在线执行绑定冻结进 TaskSnapshot，再冲刷；顺序不可反转。
+                    RtsTaskEngine.INSTANCE.detachPlayer(serverPlayer.getUUID());
                     // Session 清理前先确认该玩家的 durable task 已 ACK，避免旧权威先被删除。
                     TaskPersistenceRuntime.INSTANCE.flushOwner(serverPlayer.getUUID());
                 } catch (RuntimeException failure) {

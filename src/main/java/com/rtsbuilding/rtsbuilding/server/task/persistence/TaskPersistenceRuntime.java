@@ -11,6 +11,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
 
 import java.time.Duration;
+import java.util.ArrayDeque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -67,6 +68,10 @@ public final class TaskPersistenceRuntime {
     private final LinkedHashSet<TaskId> readyAssetAdmissions = new LinkedHashSet<>();
     private final Map<TaskId, AtomicBlueprintBlobRepository.DurableBlueprintAdmissionProof>
             admissionProofsAwaitingRootAck = new LinkedHashMap<>();
+    /** 领域层按 tick 有界消费；磁盘线程绝不直接回调 Task Engine 或 Workflow。 */
+    private final ArrayDeque<BlueprintAdmissionCompletion> blueprintAdmissionCompletions = new ArrayDeque<>();
+    /** 启动时一次性建立恢复队列，避免 Task Engine 每 tick 全量扫描 TaskStore。 */
+    private final ArrayDeque<TaskId> blueprintRecoveryRoots = new ArrayDeque<>();
     private TaskId assetAdmissionInFlight;
 
     /** 包内构造器用于故障注入测试；生产代码统一使用 {@link #INSTANCE}。 */
@@ -128,6 +133,11 @@ public final class TaskPersistenceRuntime {
         if (blueprintBlobs != null) {
             this.blueprintAdmissionQueue = new BlueprintBlobAdmissionQueue(
                     blueprintBlobs, new BlueprintBlobCodec());
+            coordinator.query().snapshots().stream()
+                    .filter(snapshot -> snapshot.type() == com.rtsbuilding.rtsbuilding.server.task.TaskType.BLUEPRINT)
+                    .filter(snapshot -> !snapshot.state().terminal())
+                    .map(TaskSnapshot::id)
+                    .forEach(blueprintRecoveryRoots::addLast);
         }
     }
 
@@ -214,6 +224,77 @@ public final class TaskPersistenceRuntime {
             case QUEUE_FULL -> BlueprintQueueOutcome.QUEUE_FULL;
             case MEMORY_BUDGET_FULL -> BlueprintQueueOutcome.MEMORY_BUDGET_FULL;
         };
+    }
+
+    /**
+     * 有界取走蓝图准入结果。ROOT_DURABLE 是领域层创建执行器和 Workflow 的唯一许可。
+     * 启动恢复根与运行期 ACK 共用这条出口，但每次最多返回调用方指定数量。
+     */
+    public List<BlueprintAdmissionCompletion> drainBlueprintAdmissionCompletions(int maxResults) {
+        requireServerThread();
+        requireHealthy();
+        if (maxResults <= 0) throw new IllegalArgumentException("maxResults 必须为正数");
+        java.util.ArrayList<BlueprintAdmissionCompletion> drained = new java.util.ArrayList<>(maxResults);
+        while (drained.size() < maxResults && !blueprintAdmissionCompletions.isEmpty()) {
+            drained.add(blueprintAdmissionCompletions.removeFirst());
+        }
+        while (drained.size() < maxResults && !blueprintRecoveryRoots.isEmpty()) {
+            drained.add(BlueprintAdmissionCompletion.rootDurable(blueprintRecoveryRoots.removeFirst()));
+        }
+        return List.copyOf(drained);
+    }
+
+    /** 按稳定 TaskId 精确加载已由 manifest 保护的蓝图；不会扫描物理目录。 */
+    public BlueprintBlobRecord loadDurableBlueprint(TaskId taskId) {
+        requireServerThread();
+        requireHealthy();
+        Objects.requireNonNull(taskId, "taskId");
+        if (blueprintBlobs == null) throw new IllegalStateException("当前运行时未配置蓝图 blob 仓库");
+        Set<com.rtsbuilding.rtsbuilding.server.task.persistence.asset.TaskAssetId> ids =
+                coordinator.assetManifest().assetIdsForTask(taskId);
+        if (ids.size() != 1) throw new IllegalStateException("蓝图任务必须精确引用一个资产: " + taskId);
+        var assetId = ids.iterator().next();
+        TaskAssetMetadata metadata = coordinator.assetManifest().entries().get(assetId);
+        if (metadata == null || !"blueprint".equals(metadata.kind())) {
+            throw new IllegalStateException("蓝图任务引用了未知资产: " + taskId);
+        }
+        var loaded = blueprintBlobs.load(assetId);
+        if (!(loaded instanceof AtomicBlueprintBlobRepository.LoadResult.Found found)) {
+            Throwable cause = loaded instanceof AtomicBlueprintBlobRepository.LoadResult.Failed failed
+                    ? failed.cause() : null;
+            throw new IllegalStateException("蓝图 durable blob 缺失或损坏: " + taskId, cause);
+        }
+        BlueprintBlobRecord record = found.record();
+        if (!record.taskId().equals(taskId)
+                || !record.sha256().equals(metadata.sha256())
+                || found.compressedBytes() != metadata.compressedBytes()) {
+            throw new IllegalStateException("蓝图 task/manifest/blob 精确校验失败: " + taskId);
+        }
+        return record;
+    }
+
+    public record BlueprintAdmissionCompletion(TaskId taskId, BlueprintAdmissionOutcome outcome,
+            String failureMessage) {
+        public BlueprintAdmissionCompletion {
+            Objects.requireNonNull(taskId, "taskId");
+            Objects.requireNonNull(outcome, "outcome");
+            failureMessage = failureMessage == null ? "" : failureMessage;
+        }
+
+        static BlueprintAdmissionCompletion rootDurable(TaskId taskId) {
+            return new BlueprintAdmissionCompletion(taskId, BlueprintAdmissionOutcome.ROOT_DURABLE, "");
+        }
+
+        static BlueprintAdmissionCompletion failed(TaskId taskId, Throwable failure) {
+            String message = failure == null || failure.getMessage() == null
+                    ? "unknown durable admission failure" : failure.getMessage();
+            return new BlueprintAdmissionCompletion(taskId, BlueprintAdmissionOutcome.FAILED, message);
+        }
+    }
+
+    public enum BlueprintAdmissionOutcome {
+        ROOT_DURABLE,
+        FAILED
     }
 
     private void cleanupRejectedNewBlob(
@@ -368,6 +449,8 @@ public final class TaskPersistenceRuntime {
                 blueprintAdmissionQueue = null;
                 readyAssetAdmissions.clear();
                 admissionProofsAwaitingRootAck.clear();
+                blueprintAdmissionCompletions.clear();
+                blueprintRecoveryRoots.clear();
                 assetAdmissionInFlight = null;
             } else {
                 fatalFailure = flushFailure == null
@@ -423,8 +506,12 @@ public final class TaskPersistenceRuntime {
                     }
                     return handoffQueuedBlueprint(ready);
                 },
-                failed -> RtsbuildingMod.LOGGER.error(
-                        "蓝图 blob 异步准入失败，未创建 durable task: {}", failed.taskId(), failed.failure()));
+                failed -> {
+                    enqueueBlueprintCompletion(BlueprintAdmissionCompletion.failed(
+                            failed.taskId(), failed.failure()));
+                    RtsbuildingMod.LOGGER.error(
+                            "蓝图 blob 异步准入失败，未创建 durable task: {}", failed.taskId(), failed.failure());
+                });
     }
 
     private BlueprintBlobAdmissionQueue.ReadyDisposition handoffQueuedBlueprint(
@@ -432,6 +519,7 @@ public final class TaskPersistenceRuntime {
         AssetAdmissionTicket ticket = submitDurableBlueprintAsset(ready.snapshot(), ready.proof());
         if (ticket.state() == AssetAdmissionState.ALREADY_DURABLE) {
             blueprintBlobs.consumeAdmissionProof(ready.proof());
+            enqueueBlueprintCompletion(BlueprintAdmissionCompletion.rootDurable(ticket.taskId()));
             return BlueprintBlobAdmissionQueue.ReadyDisposition.ACCEPTED;
         }
         var previous = admissionProofsAwaitingRootAck.putIfAbsent(ticket.taskId(), ready.proof());
@@ -661,7 +749,19 @@ public final class TaskPersistenceRuntime {
                 }
             }
             readyAssetAdmissions.remove(completed);
+            enqueueBlueprintCompletion(BlueprintAdmissionCompletion.rootDurable(completed));
         }
+    }
+
+    private void enqueueBlueprintCompletion(BlueprintAdmissionCompletion completion) {
+        // 准入队列最多 64 项；128 为运行期 ACK 与启动恢复交错留出余量。满时必须 fail-closed，
+        // 不能静默丢掉“允许执行”或“明确失败”事件。
+        if (blueprintAdmissionCompletions.size() >= 128) {
+            IllegalStateException overflow = new IllegalStateException("蓝图准入 completion 队列溢出");
+            fatalFailure = overflow;
+            throw overflow;
+        }
+        blueprintAdmissionCompletions.addLast(completion);
     }
 
     /** 先 fail-closed 打开 root，再验证 live；任何失败都发生在目录扫描/删除之前。 */

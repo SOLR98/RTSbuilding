@@ -40,11 +40,20 @@ class UnifiedLongTaskRuntimeContractTest {
     }
 
     @Test
-    void recoveryQueueStoresEntityIdentityInsteadOfCopiedStacks() throws IOException {
+    void recoveryQueueStoresDurableEntityClaimsInsteadOfAnonymousCopiedStacks() throws IOException {
         String state = read("server/storage/state/RtsPlacementState.java");
         String service = read("server/service/RtsPlacedRecoveryService.java");
-        assertTrue(state.contains("Deque<UUID> entityIds"));
+        String serializer = read("server/data/SessionSerializer.java");
+        assertTrue(state.contains("UUID operationId"));
+        assertTrue(state.contains("Deque<PlacedRecoveryClaim> claims"));
+        assertTrue(state.contains("int ordinal"));
+        assertTrue(state.contains("ItemStack expectedStack"));
+        assertTrue(state.contains("ItemStack.isSameItemSameComponents(actual, expectedStack)"));
         assertTrue(service.contains("droppedEntity.getUUID()"));
+        assertTrue(service.contains("claim.matches(droppedStack)"));
+        assertTrue(serializer.contains("putUUID(\"operation_id\""));
+        assertTrue(serializer.contains("putInt(\"ordinal\""));
+        assertTrue(serializer.contains("put(\"stack\""));
         assertFalse(service.contains("stacks.addLast(droppedStack.copy())"));
     }
 
@@ -87,10 +96,43 @@ class UnifiedLongTaskRuntimeContractTest {
 
         assertTrue(service.contains("setUnlimitedLifetime()"));
         assertTrue(service.contains("hasChunkAt(candidate.targetPos())"));
+        assertTrue(service.contains("EntityTypeTest.forClass(ItemEntity.class)"));
+        assertTrue(service.contains("safeLimit + 1"));
+        assertFalse(service.contains("getEntitiesOfClass("));
         assertTrue(service.contains("PLACED_RECOVERY_MAX_QUEUED_JOBS"));
         assertTrue(service.contains("PLACED_RECOVERY_MAX_TOTAL_ENTITY_CLAIMS"));
         assertTrue(serializer.contains("PLACED_RECOVERY_MAX_ENTITIES_PER_JOB"));
         assertTrue(serializer.contains("PLACED_RECOVERY_MAX_TOTAL_ENTITY_CLAIMS"));
+    }
+
+    @Test
+    void recoveryWaitsForDurabilityAckBeforeConsumingWorldEntity() throws IOException {
+        String service = read("server/service/RtsPlacedRecoveryService.java");
+        String state = read("server/storage/state/RtsPlacementState.java");
+        String cluster = read("server/data/DataCluster.java");
+
+        assertTrue(state.contains("requiredPersistedRevision"));
+        assertTrue(service.contains("persistedPlacementRevision(player)"));
+        assertTrue(service.contains("candidate.requiredPersistedRevision() <= persistedPlacementRevision"));
+        assertTrue(service.contains("savePlacementToPlayerNbt(player, session)"));
+        assertTrue(cluster.contains("persistedRevision(DataComponent<?> component)"));
+    }
+
+    @Test
+    void funnelTargetIsDimensionBoundAndNewOverflowStaysInWorld() throws IOException {
+        String state = read("server/storage/state/RtsFunnelState.java");
+        String service = read("server/service/impl/RtsFunnelServiceImpl.java");
+        String serializer = read("server/data/SessionSerializer.java");
+        String tickSource = service.substring(service.indexOf("public FunnelTickResult tickBudgeted"));
+
+        assertTrue(state.contains("ResourceKey<Level> funnelTargetDimension"));
+        assertTrue(serializer.contains("funnel_target_dimension"));
+        assertTrue(tickSource.contains("player.serverLevel().dimension().equals(session.funnel.funnelTargetDimension)"));
+        assertTrue(tickSource.indexOf("funnelTargetDimension == null")
+                < tickSource.indexOf("sanitizeSessionDimension(player, session)"));
+        assertTrue(service.contains("saveFunnelToPlayerNbt(player, session)"));
+        assertFalse(service.contains("addToBuffer("));
+        assertFalse(service.contains("saveToPlayerNbt(player, session)"));
     }
 
     private static String read(String relative) throws IOException {

@@ -58,6 +58,12 @@ public final class TaskScheduler {
         return lane == null ? List.of() : List.copyOf(lane);
     }
 
+    /** 世界切换时清除所有在线执行绑定；durable root 由下一世界重新恢复。 */
+    public synchronized void clear() {
+        lanes.clear();
+        playerCursor = 0;
+    }
+
     public synchronized TickStats tick(long maxNanos, int maxUnitsPerTick, int maxUnitsPerSlice) {
         long start = nanoClock.getAsLong();
         long deadline = start + Math.max(1L, maxNanos);

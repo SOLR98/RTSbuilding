@@ -80,6 +80,33 @@ public final class RtsSessionServiceImpl implements SessionService {
     }
 
     @Override
+    public void saveFunnelToPlayerNbt(ServerPlayer player, RtsStorageSession session) {
+        SaveScheduler.INSTANCE.player(player).set(
+                SessionComponents.FUNNEL, SessionSerializer.serializeFunnel(player, session));
+    }
+
+    @Override
+    public long savePlacementToPlayerNbt(ServerPlayer player, RtsStorageSession session) {
+        return SaveScheduler.INSTANCE.player(player).set(
+                SessionComponents.PLACEMENT, SessionSerializer.serializePlacement(player, session));
+    }
+
+    @Override
+    public long placementRevision(ServerPlayer player) {
+        return SaveScheduler.INSTANCE.player(player).revision(SessionComponents.PLACEMENT);
+    }
+
+    @Override
+    public long persistedPlacementRevision(ServerPlayer player) {
+        return SaveScheduler.INSTANCE.player(player).persistedRevision(SessionComponents.PLACEMENT);
+    }
+
+    @Override
+    public void saveModeToPlayerNbt(ServerPlayer player, RtsStorageSession session) {
+        SaveScheduler.INSTANCE.player(player).set(SessionComponents.MODE, session.mode);
+    }
+
+    @Override
     public void onRtsEnabled(ServerPlayer player) {
         RtsStorageSession session = getOrCreate(player);
         // 从 DataCluster 加载最新 mode（确保跨模式切换后状态一致）
@@ -168,6 +195,16 @@ public final class RtsSessionServiceImpl implements SessionService {
 
         if (!root.isEmpty()) {
             SessionSerializer.loadAll(player, session, root);
+        }
+
+        // flush 失败后同进程重登会复用 DataCluster 的未确认内存值；重建运行时 gate，
+        // 不能把“能读到最新 claim”误当作“该 claim 已经落盘”。
+        long placementRevision = cluster.revision(SessionComponents.PLACEMENT);
+        long persistedPlacementRevision = cluster.persistedRevision(SessionComponents.PLACEMENT);
+        if (persistedPlacementRevision < placementRevision) {
+            for (var recoveryJob : session.placement.recoveryJobs) {
+                recoveryJob.requirePersistedRevision(placementRevision);
+            }
         }
 
         // MODE 有独立编解码且字段非 final，可直接赋值

@@ -106,8 +106,10 @@ public final class SessionSerializer {
     public static CompoundTag serializeFunnel(ServerPlayer player, RtsStorageSession session) {
         CompoundTag root = new CompoundTag();
         root.putBoolean("funnel_enabled", session.funnel.funnelEnabled);
-        if (session.funnel.funnelTarget != null) {
+        if (session.funnel.funnelTarget != null && session.funnel.funnelTargetDimension != null) {
             root.putLong("funnel_target", session.funnel.funnelTarget.asLong());
+            root.putString("funnel_target_dimension",
+                    session.funnel.funnelTargetDimension.location().toString());
         }
         root.putInt("funnel_cooldown", Math.max(0, session.funnel.funnelTickCooldown));
         ListTag stacks = new ListTag();
@@ -123,8 +125,16 @@ public final class SessionSerializer {
 
     private static void loadFunnel(ServerPlayer player, RtsStorageSession session, CompoundTag root) {
         session.funnel.funnelEnabled = root.getBoolean("funnel_enabled");
-        session.funnel.funnelTarget = root.contains("funnel_target", Tag.TAG_LONG)
-                ? BlockPos.of(root.getLong("funnel_target")).immutable() : null;
+        ResourceKey<Level> targetDimension = parseDimensionKey(
+                root.getString("funnel_target_dimension"));
+        if (root.contains("funnel_target", Tag.TAG_LONG) && targetDimension != null) {
+            session.funnel.funnelTarget = BlockPos.of(root.getLong("funnel_target")).immutable();
+            session.funnel.funnelTargetDimension = targetDimension;
+        } else {
+            // 旧存档没有维度身份时不能猜测当前世界，否则切维后可能在同坐标误吸物品。
+            session.funnel.funnelTarget = null;
+            session.funnel.funnelTargetDimension = null;
+        }
         session.funnel.funnelTickCooldown = Math.max(0, root.getInt("funnel_cooldown"));
         session.funnel.funnelBuffer.clear();
         ListTag stacks = root.getList("funnel_buffer", Tag.TAG_COMPOUND);
@@ -479,22 +489,25 @@ public final class SessionSerializer {
                 break;
             }
             CompoundTag jobTag = new CompoundTag();
+            jobTag.putUUID("operation_id", job.operationId());
             jobTag.putString("dimension", job.dimension().location().toString());
             jobTag.putLong("target", job.targetPos().asLong());
-            ListTag ids = new ListTag();
-            for (java.util.UUID id : job.entityIds()) {
-                if (ids.size()
+            ListTag claims = new ListTag();
+            for (var claim : job.claims()) {
+                if (claims.size()
                         >= com.rtsbuilding.rtsbuilding.server.service.RtsServiceConstants.PLACED_RECOVERY_MAX_ENTITIES_PER_JOB
                         || serializedClaims
                         >= com.rtsbuilding.rtsbuilding.server.service.RtsServiceConstants.PLACED_RECOVERY_MAX_TOTAL_ENTITY_CLAIMS) {
                     break;
                 }
-                CompoundTag idTag = new CompoundTag();
-                idTag.putUUID("id", id);
-                ids.add(idTag);
+                CompoundTag claimTag = new CompoundTag();
+                claimTag.putUUID("id", claim.entityId());
+                claimTag.putInt("ordinal", claim.ordinal());
+                claimTag.put("stack", claim.expectedStack().save(player.registryAccess()));
+                claims.add(claimTag);
                 serializedClaims++;
             }
-            jobTag.put("entities", ids);
+            jobTag.put("entities", claims);
             recoveryList.add(jobTag);
         }
         root.put("placed_recovery_jobs", recoveryList);
@@ -524,24 +537,34 @@ public final class SessionSerializer {
                 < com.rtsbuilding.rtsbuilding.server.service.RtsServiceConstants.PLACED_RECOVERY_MAX_TOTAL_ENTITY_CLAIMS; i++) {
             CompoundTag jobTag = recoveryList.getCompound(i);
             ResourceKey<Level> dimension = parseDimensionKey(jobTag.getString("dimension"));
-            if (dimension == null) continue;
-            java.util.ArrayDeque<java.util.UUID> entityIds = new java.util.ArrayDeque<>();
-            ListTag ids = jobTag.getList("entities", Tag.TAG_COMPOUND);
-            for (int j = 0; j < ids.size()
-                    && entityIds.size()
+            // 旧版没有 operationId/ordinal/stack，无法证明 claim 身份，保守留给世界实体自行处理。
+            if (dimension == null || !jobTag.hasUUID("operation_id")) continue;
+            java.util.ArrayDeque<com.rtsbuilding.rtsbuilding.server.storage.state.RtsPlacementState.PlacedRecoveryClaim>
+                    claims = new java.util.ArrayDeque<>();
+            ListTag encodedClaims = jobTag.getList("entities", Tag.TAG_COMPOUND);
+            for (int j = 0; j < encodedClaims.size()
+                    && claims.size()
                     < com.rtsbuilding.rtsbuilding.server.service.RtsServiceConstants.PLACED_RECOVERY_MAX_ENTITIES_PER_JOB
                     && loadedClaims
                     < com.rtsbuilding.rtsbuilding.server.service.RtsServiceConstants.PLACED_RECOVERY_MAX_TOTAL_ENTITY_CLAIMS; j++) {
-                CompoundTag idTag = ids.getCompound(j);
-                if (idTag.hasUUID("id")) {
-                    entityIds.addLast(idTag.getUUID("id"));
-                    loadedClaims++;
-                }
+                CompoundTag claimTag = encodedClaims.getCompound(j);
+                // 旧版只有 UUID、没有物品指纹；保守放弃自动接管，让实体继续留在世界中。
+                if (!claimTag.hasUUID("id")
+                        || !claimTag.contains("ordinal", Tag.TAG_INT)
+                        || claimTag.getInt("ordinal") < 0
+                        || !claimTag.contains("stack", Tag.TAG_COMPOUND)) continue;
+                ItemStack expected = ItemStack.parseOptional(
+                        player.registryAccess(), claimTag.getCompound("stack"));
+                if (expected.isEmpty()) continue;
+                claims.addLast(new com.rtsbuilding.rtsbuilding.server.storage.state.RtsPlacementState.PlacedRecoveryClaim(
+                        claimTag.getUUID("id"), claimTag.getInt("ordinal"), expected));
+                loadedClaims++;
             }
-            if (!entityIds.isEmpty()) {
+            if (!claims.isEmpty()) {
                 session.placement.recoveryJobs.addLast(
                         new com.rtsbuilding.rtsbuilding.server.storage.state.RtsPlacementState.PlacedRecoveryJob(
-                                dimension, BlockPos.of(jobTag.getLong("target")).immutable(), entityIds));
+                                jobTag.getUUID("operation_id"), dimension,
+                                BlockPos.of(jobTag.getLong("target")).immutable(), claims));
             }
         }
     }

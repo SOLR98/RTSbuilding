@@ -154,6 +154,8 @@ public final class BlueprintTickPipe {
         BlueprintContext context = payload.context();
         if (!context.hasData(PipelineContext.KEY_WORKFLOW_ENTRY_ID)
                 || !payload.shouldCheckpoint(force)) return;
+        if (com.rtsbuilding.rtsbuilding.server.task.RtsTaskEngine.INSTANCE
+                .isDurableBlueprintContext(context)) return;
         BlueprintPersistence.saveToEntry(
                 payload.player(), context.getData(PipelineContext.KEY_WORKFLOW_ENTRY_ID), context);
     }
@@ -167,7 +169,10 @@ public final class BlueprintTickPipe {
                         + context.getSkippedBlocked() + context.getSkippedUnsupported();
                 token.recordFailures(failures);
             });
-            BlueprintPersistence.clearFromEntry(player, entryId);
+            if (!com.rtsbuilding.rtsbuilding.server.task.RtsTaskEngine.INSTANCE
+                    .isDurableBlueprintContext(context)) {
+                BlueprintPersistence.clearFromEntry(player, entryId);
+            }
         }
         blueprint().refreshPage(player);
         BlueprintNetworkHandlers.send(player, S2CBlueprintStatusPayload.SUCCESS,

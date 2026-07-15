@@ -9,6 +9,7 @@ import com.rtsbuilding.rtsbuilding.server.pipeline.core.PipelineContext;
 import com.rtsbuilding.rtsbuilding.server.pipeline.tool.ToolBorrowPipe;
 import com.rtsbuilding.rtsbuilding.server.pipeline.validation.SessionValidatePipe;
 import com.rtsbuilding.rtsbuilding.server.service.ServiceRegistry;
+import com.rtsbuilding.rtsbuilding.server.task.identity.SubmissionId;
 import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
@@ -209,7 +210,11 @@ public final class BlueprintPersistence {
         int skippedBlocked = data.getInt(KEY_SKIPPED_BLOCKED);
 
         // ── 构建管线上下文 ───────────────────────────────────────
+        SubmissionId legacySubmission = SubmissionId.fromLegacy(
+                player.getUUID(), "blueprint",
+                sourceDimension.location() + ":" + entry.id());
         BlueprintContext ctx = BlueprintContext.builder(player)
+                .submissionId(legacySubmission.value())
                 .blueprint(blueprint)
                 .anchor(anchor)
                 .yRotationSteps(ySteps)
@@ -221,13 +226,14 @@ public final class BlueprintPersistence {
         // 设置共享数据
         ctx.setData(BlueprintContext.KEY_CENTER_OFFSET, centerOffset);
         boolean preparing = data.getBoolean(KEY_PREPARING);
-        ctx.setPreparing(true);
+        ctx.setPreparing(preparing);
         ctx.setData(BlueprintContext.KEY_SOURCE_DIMENSION, sourceDimension);
         ctx.setPlacedCount(placedCount);
         ctx.setSkippedMissing(skippedMissing);
         ctx.setSkippedUnsupported(skippedUnsupported);
         ctx.setSkippedMissingBlocks(skippedMissingBlocks);
         ctx.setSkippedBlocked(skippedBlocked);
+        if (!preparing) ctx.setRemainingQueue(remaining);
 
         // 恢复 session（懒加载，若不存在则先创建）
         if (!ctx.hasData(SessionValidatePipe.KEY_SESSION)) {
@@ -239,7 +245,7 @@ public final class BlueprintPersistence {
         // 设置工作流条目 ID
         ctx.setData(PipelineContext.KEY_WORKFLOW_ENTRY_ID, entry.id());
 
-        // ── 注册 Tick 管道 ───────────────────────────────────────
+        // ── 进入 durable 迁移准入；root ACK 前保留 heavy extraData，不注册旧执行器 ──
         ctx.retainOnly(
                 PipelineContext.KEY_WORKFLOW_ENTRY_ID,
                 SessionValidatePipe.KEY_SESSION,
@@ -255,11 +261,21 @@ public final class BlueprintPersistence {
                 BlueprintContext.KEY_PREPARING,
                 BlueprintContext.KEY_SOURCE_DIMENSION
         );
-        // 准备阶段没有世界副作用，崩溃后从 0 重算；READY 任务恢复唯一 remaining 队列。
-        com.rtsbuilding.rtsbuilding.server.task.RtsTaskEngine.INSTANCE.submitBlueprint(
-                ctx, preparing ? null : remaining, sourceDimension);
-
-        RtsbuildingMod.LOGGER.info("[BlueprintPersistence] 已恢复蓝图工作流 #{} ({} 剩余方块)",
+        var outcome = com.rtsbuilding.rtsbuilding.server.task.RtsTaskEngine.INSTANCE
+                .queueLegacyDurableBlueprint(ctx);
+        if (outcome == com.rtsbuilding.rtsbuilding.server.task.DurableBlueprintTaskBridge.QueueResult.ALREADY_FINISHED) {
+            RtsWorkflowEngine.getInstance().from(player, entry.id()).ifPresent(token -> token.cancel());
+            RtsbuildingMod.LOGGER.info("[BlueprintPersistence] 旧蓝图工作流 #{} 已有终态 receipt，已移除陈旧投影",
+                    entry.id());
+            return;
+        }
+        if (outcome == com.rtsbuilding.rtsbuilding.server.task.DurableBlueprintTaskBridge.QueueResult.QUEUE_FULL
+                || outcome == com.rtsbuilding.rtsbuilding.server.task.DurableBlueprintTaskBridge.QueueResult.MEMORY_BUDGET_FULL) {
+            RtsbuildingMod.LOGGER.warn("[BlueprintPersistence] durable 准入繁忙，旧蓝图工作流 #{} 保持 heavy 待下次恢复",
+                    entry.id());
+            return;
+        }
+        RtsbuildingMod.LOGGER.info("[BlueprintPersistence] 旧蓝图工作流 #{} 已进入 durable 准入 ({} 剩余方块)",
                 entry.id(), remaining.size());
     }
 
