@@ -186,9 +186,19 @@ public final class TaskCodec {
         TaskLifecycleState state = parseEnum(
                 TaskLifecycleState.class, requireString(tag, "state"), "state");
         TaskWaitKey waitKey = null;
-        if (tag.contains("wait", Tag.TAG_COMPOUND)) {
+        if (tag.contains("wait")) {
+            if (!tag.contains("wait", Tag.TAG_COMPOUND)) {
+                throw new TaskCodecException("可选字段 wait 的 NBT 类型错误");
+            }
             CompoundTag wait = tag.getCompound("wait");
             waitKey = new TaskWaitKey(requireString(wait, "kind"), requireString(wait, "value"));
+        }
+        int workflowEntryId = -1;
+        if (tag.contains("workflow")) {
+            if (!tag.contains("workflow", Tag.TAG_INT)) {
+                throw new TaskCodecException("可选字段 workflow 的 NBT 类型错误");
+            }
+            workflowEntryId = tag.getInt("workflow");
         }
         if (!tag.contains("payload", Tag.TAG_COMPOUND)) {
             throw new TaskCodecException("缺少 CompoundTag 字段: payload");
@@ -201,7 +211,7 @@ public final class TaskCodec {
                 dimension,
                 type,
                 state,
-                tag.contains("workflow", Tag.TAG_INT) ? tag.getInt("workflow") : -1,
+                workflowEntryId,
                 waitKey,
                 requireLong(tag, "revision"),
                 requireLong(tag, "created_game_time"),
@@ -220,7 +230,13 @@ public final class TaskCodec {
         if (counter.exceeded()) {
             throw new TaskCodecException("单个 task payload 超过 4 MiB/100000 节点上限");
         }
-        return addSaturated(256L + NbtStringLimits.modifiedUtfBytes(snapshot.dimensionId()), counter.bytes);
+        long metadataBytes = 256L + NbtStringLimits.modifiedUtfBytes(snapshot.dimensionId());
+        if (snapshot.waitKey() != null) {
+            metadataBytes = addSaturated(metadataBytes,
+                    8L + NbtStringLimits.modifiedUtfBytes(snapshot.waitKey().kind())
+                            + NbtStringLimits.modifiedUtfBytes(snapshot.waitKey().value()));
+        }
+        return addSaturated(metadataBytes, counter.bytes);
     }
 
     private static void measureTag(Tag tag, SizeCounter counter, int depth) {

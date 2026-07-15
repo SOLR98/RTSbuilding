@@ -227,8 +227,13 @@ public final class TaskPersistenceCoordinator {
         }
         PendingCommit pending = inFlight;
         TaskRepository.AcknowledgeResult repositoryAck = repository.acknowledge(completion);
+        if (!repositoryAck.accepted()) {
+            Throwable failure = repositoryAck.failure() == null
+                    ? new IllegalStateException("Repository 拒绝 completion") : repositoryAck.failure();
+            return CommitAckResult.rejected(failure);
+        }
         inFlight = null;
-        if (!repositoryAck.accepted() || !repositoryAck.durable()) {
+        if (!repositoryAck.durable()) {
             Throwable failure = repositoryAck.failure() == null
                     ? new IllegalStateException("Repository 未确认 durable") : repositoryAck.failure();
             return CommitAckResult.failed(failure);

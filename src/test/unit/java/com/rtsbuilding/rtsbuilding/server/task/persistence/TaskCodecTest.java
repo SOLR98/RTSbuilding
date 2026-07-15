@@ -10,6 +10,8 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class TaskCodecTest {
@@ -117,5 +119,55 @@ class TaskCodecTest {
         root.put("completed_migrations", migrations);
 
         assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeImage(root));
+    }
+
+    @Test
+    void optionalWorkflowDefaultsOnlyWhenAbsentAndRejectsWrongType() {
+        TaskSnapshot task = new TaskSnapshot(
+                TaskId.create(), SubmissionId.create(), UUID.randomUUID(), "minecraft:overworld",
+                com.rtsbuilding.rtsbuilding.server.task.TaskType.PLACEMENT,
+                TaskLifecycleState.QUEUED, -1, null, 1L, 0L, 0L,
+                1, 0, 0, 0, new CompoundTag());
+        CompoundTag absent = codec.encodeSnapshot(task);
+        assertEquals(-1, codec.decodeSnapshot(absent).workflowEntryId());
+
+        absent.putString("workflow", "wrong-type");
+        assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeSnapshot(absent));
+    }
+
+    @Test
+    void optionalWaitDefaultsOnlyWhenAbsentAndRejectsWrongType() {
+        TaskSnapshot task = new TaskSnapshot(
+                TaskId.create(), SubmissionId.create(), UUID.randomUUID(), "minecraft:overworld",
+                com.rtsbuilding.rtsbuilding.server.task.TaskType.MINING,
+                TaskLifecycleState.QUEUED, -1, null, 1L, 0L, 0L,
+                1, 0, 0, 0, new CompoundTag());
+        CompoundTag absent = codec.encodeSnapshot(task);
+        assertNull(codec.decodeSnapshot(absent).waitKey());
+
+        absent.putString("wait", "wrong-type");
+        assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeSnapshot(absent));
+    }
+
+    @Test
+    void dimensionMustBeCanonicalResourceLocationAndWaitKeyCountsTowardBudget() {
+        assertThrows(IllegalArgumentException.class, () -> new TaskSnapshot(
+                TaskId.create(), SubmissionId.create(), UUID.randomUUID(), "Bad Dimension",
+                com.rtsbuilding.rtsbuilding.server.task.TaskType.MINING,
+                TaskLifecycleState.QUEUED, -1, null, 1L, 0L, 0L,
+                1, 0, 0, 0, new CompoundTag()));
+
+        TaskSnapshot plain = new TaskSnapshot(
+                TaskId.create(), SubmissionId.create(), UUID.randomUUID(), "minecraft:overworld",
+                com.rtsbuilding.rtsbuilding.server.task.TaskType.MINING,
+                TaskLifecycleState.QUEUED, -1, null, 1L, 0L, 0L,
+                1, 0, 0, 0, new CompoundTag());
+        TaskSnapshot waiting = new TaskSnapshot(
+                TaskId.create(), SubmissionId.create(), UUID.randomUUID(), "minecraft:overworld",
+                com.rtsbuilding.rtsbuilding.server.task.TaskType.MINING,
+                TaskLifecycleState.WAITING_RESOURCE, -1,
+                new TaskWaitKey("item", "minecraft:oak_log"), 1L, 0L, 0L,
+                1, 0, 0, 0, new CompoundTag());
+        assertTrue(codec.estimateSnapshotBytes(waiting) > codec.estimateSnapshotBytes(plain));
     }
 }

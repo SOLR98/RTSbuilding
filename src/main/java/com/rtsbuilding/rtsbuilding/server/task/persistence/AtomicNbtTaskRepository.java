@@ -27,6 +27,8 @@ public final class AtomicNbtTaskRepository implements TaskRepository {
     private boolean exists;
     private final Map<UUID, AtomicPreparedCommit> prepared = new LinkedHashMap<>();
     private final Map<UUID, Image> writtenCandidates = new LinkedHashMap<>();
+    private final Map<UUID, PreparedState> preparedStates = new LinkedHashMap<>();
+    private final Map<UUID, WriteCompletion> writeCompletions = new LinkedHashMap<>();
 
     /** wiring 层负责从 MinecraftServer 构造原子 Store；Repository 本身不接收世界和玩家对象。 */
     public AtomicNbtTaskRepository(RtsAtomicNbtStore store, TaskCodec codec) {
@@ -72,6 +74,7 @@ public final class AtomicNbtTaskRepository implements TaskRepository {
             UUID ticket = UUID.randomUUID();
             AtomicPreparedCommit value = new AtomicPreparedCommit(ticket, commit);
             prepared.put(ticket, value);
+            preparedStates.put(ticket, PreparedState.PREPARED);
             return new PrepareResult.Prepared(value);
         } catch (RuntimeException e) {
             return new PrepareResult.Failed(e);
@@ -86,24 +89,44 @@ public final class AtomicNbtTaskRepository implements TaskRepository {
             return WriteCompletion.failed(preparedCommit.ticketId(),
                     new IllegalArgumentException("PreparedCommit 不属于当前 Repository"));
         }
+        PreparedState state = preparedStates.get(atomic.ticketId());
+        if (state == PreparedState.WRITTEN) return writeCompletions.get(atomic.ticketId());
+        if (state != PreparedState.PREPARED) {
+            return WriteCompletion.failed(atomic.ticketId(),
+                    new IllegalStateException("PreparedCommit 已被 writer 领取"));
+        }
+        preparedStates.put(atomic.ticketId(), PreparedState.WRITING);
+        WriteCompletion completion;
         try {
             Image candidate = apply(image, atomic.logicalCommit());
             CompoundTag encoded = codec.encodeImage(candidate);
             if (!store.write(encoded)) {
-                return WriteCompletion.failed(atomic.ticketId(),
+                completion = WriteCompletion.failed(atomic.ticketId(),
                         new IOException("原子写入失败: " + store.label()));
+            } else {
+                writtenCandidates.put(atomic.ticketId(), candidate);
+                completion = WriteCompletion.succeeded(atomic.ticketId(), fileSize());
             }
-            writtenCandidates.put(atomic.ticketId(), candidate);
-            return WriteCompletion.succeeded(atomic.ticketId(), fileSize());
         } catch (RuntimeException e) {
-            return WriteCompletion.failed(atomic.ticketId(), e);
+            completion = WriteCompletion.failed(atomic.ticketId(), e);
         }
+        writeCompletions.put(atomic.ticketId(), completion);
+        preparedStates.put(atomic.ticketId(), PreparedState.WRITTEN);
+        return completion;
     }
 
     @Override
     public synchronized AcknowledgeResult acknowledge(WriteCompletion completion) {
-        AtomicPreparedCommit pending = prepared.remove(completion.ticketId());
+        AtomicPreparedCommit pending = prepared.get(completion.ticketId());
         if (pending == null) return new AcknowledgeResult(false, false, completion.failure());
+        WriteCompletion canonical = writeCompletions.get(completion.ticketId());
+        if (canonical != completion) {
+            return new AcknowledgeResult(false, false,
+                    new IllegalArgumentException("completion 不是 writer 的规范结果"));
+        }
+        prepared.remove(completion.ticketId());
+        writeCompletions.remove(completion.ticketId());
+        preparedStates.remove(completion.ticketId());
         Image candidate = writtenCandidates.remove(completion.ticketId());
         if (!completion.successful()) {
             return new AcknowledgeResult(true, false, completion.failure());
@@ -144,6 +167,10 @@ public final class AtomicNbtTaskRepository implements TaskRepository {
         for (TaskTombstone tombstone : commit.tombstones()) {
             TaskTombstone previous = tombstones.get(tombstone.taskId());
             if (previous != null && previous.revision() > tombstone.revision()) continue;
+            if (previous != null && previous.revision() == tombstone.revision()
+                    && !previous.equals(tombstone)) {
+                throw new IllegalStateException("同一 revision 出现不同终态回执: " + tombstone.taskId());
+            }
             TaskSnapshot task = tasks.get(tombstone.taskId());
             if (task != null && task.revision() >= tombstone.revision()) {
                 throw new IllegalStateException("墓碑 revision 必须高于任务快照: " + tombstone.taskId());
@@ -160,6 +187,12 @@ public final class AtomicNbtTaskRepository implements TaskRepository {
         public int recordCount() {
             return logicalCommit.recordCount();
         }
+    }
+
+    private enum PreparedState {
+        PREPARED,
+        WRITING,
+        WRITTEN
     }
 
     private long fileSize() {
