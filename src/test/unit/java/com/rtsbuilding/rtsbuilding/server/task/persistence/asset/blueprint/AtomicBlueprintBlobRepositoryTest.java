@@ -250,7 +250,7 @@ class AtomicBlueprintBlobRepositoryTest {
         try (var executor = Executors.newFixedThreadPool(2)) {
             var write = executor.submit(() -> repository.writeOnce(record));
             assertTrue(moveReached.await(2, TimeUnit.SECONDS));
-            var scan = executor.submit(repository::scan);
+            var scan = executor.submit(() -> { return repository.scan(); });
             assertThrows(TimeoutException.class, () -> scan.get(100, TimeUnit.MILLISECONDS));
             allowMove.countDown();
             assertEquals(AtomicBlueprintBlobRepository.WriteOutcome.WRITTEN,
