@@ -28,7 +28,7 @@ final class CanonicalNbtHasher {
     static String sha256(String domain, int hashVersion, Tag root) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            putBytes(digest, domain.getBytes(StandardCharsets.UTF_8));
+            putCanonicalString(digest, domain, "hash domain");
             putInt(digest, hashVersion);
             hashTag(digest, root);
             return HexFormat.of().formatHex(digest.digest());
@@ -45,15 +45,15 @@ final class CanonicalNbtHasher {
             case Tag.TAG_SHORT -> putShort(digest, ((NumericTag) tag).getAsShort());
             case Tag.TAG_INT -> putInt(digest, ((NumericTag) tag).getAsInt());
             case Tag.TAG_LONG -> putLong(digest, ((NumericTag) tag).getAsLong());
-            case Tag.TAG_FLOAT -> putInt(digest, Float.floatToRawIntBits(((NumericTag) tag).getAsFloat()));
-            case Tag.TAG_DOUBLE -> putLong(digest, Double.doubleToRawLongBits(((NumericTag) tag).getAsDouble()));
+            case Tag.TAG_FLOAT -> putInt(digest, Float.floatToIntBits(((NumericTag) tag).getAsFloat()));
+            case Tag.TAG_DOUBLE -> putLong(digest, Double.doubleToLongBits(((NumericTag) tag).getAsDouble()));
             case Tag.TAG_BYTE_ARRAY -> {
                 byte[] values = ((ByteArrayTag) tag).getAsByteArray();
                 putInt(digest, values.length);
                 digest.update(values);
             }
-            case Tag.TAG_STRING -> putBytes(digest,
-                    ((StringTag) tag).getAsString().getBytes(StandardCharsets.UTF_8));
+            case Tag.TAG_STRING -> putCanonicalString(
+                    digest, ((StringTag) tag).getAsString(), "NBT 字符串");
             case Tag.TAG_LIST -> {
                 ListTag list = (ListTag) tag;
                 putInt(digest, list.size());
@@ -65,7 +65,7 @@ final class CanonicalNbtHasher {
                 keys.sort(String::compareTo);
                 putInt(digest, keys.size());
                 for (String key : keys) {
-                    putBytes(digest, key.getBytes(StandardCharsets.UTF_8));
+                    putCanonicalString(digest, key, "Compound key");
                     Tag value = compound.get(key);
                     if (value == null) throw new IllegalArgumentException("Compound key 缺失值: " + key);
                     hashTag(digest, value);
@@ -88,6 +88,26 @@ final class CanonicalNbtHasher {
     private static void putBytes(MessageDigest digest, byte[] values) {
         putInt(digest, values.length);
         digest.update(values);
+    }
+
+    private static void putCanonicalString(MessageDigest digest, String value, String field) {
+        requirePairedSurrogates(value, field);
+        putBytes(digest, value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** UTF-8 编码器会把孤立代理项替换成同一个字符，必须在哈希前拒绝这种歧义输入。 */
+    private static void requirePairedSurrogates(String value, String field) {
+        for (int i = 0; i < value.length(); i++) {
+            char current = value.charAt(i);
+            if (Character.isHighSurrogate(current)) {
+                if (i + 1 >= value.length() || !Character.isLowSurrogate(value.charAt(i + 1))) {
+                    throw new IllegalArgumentException(field + " 包含未配对的高代理项");
+                }
+                i++;
+            } else if (Character.isLowSurrogate(current)) {
+                throw new IllegalArgumentException(field + " 包含未配对的低代理项");
+            }
+        }
     }
 
     private static void putShort(MessageDigest digest, short value) {

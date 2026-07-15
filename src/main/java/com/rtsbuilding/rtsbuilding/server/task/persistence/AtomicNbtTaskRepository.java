@@ -1,6 +1,5 @@
 package com.rtsbuilding.rtsbuilding.server.task.persistence;
 
-import com.rtsbuilding.rtsbuilding.server.data.RtsAtomicNbtStore;
 import com.rtsbuilding.rtsbuilding.server.data.RtsNbtStore;
 import com.rtsbuilding.rtsbuilding.server.task.identity.TaskId;
 import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.TaskAssetManifest;
@@ -21,7 +20,7 @@ import java.util.UUID;
  * 全 Root 替换过慢，可以在不改 TaskStore/Codec 的情况下替换为分片 Journal。</p>
  */
 public final class AtomicNbtTaskRepository implements TaskRepository {
-    private final RtsAtomicNbtStore store;
+    private final RtsNbtStore store;
     private final TaskCodec codec;
     private Image image = Image.empty();
     private boolean loaded;
@@ -32,7 +31,7 @@ public final class AtomicNbtTaskRepository implements TaskRepository {
     private final Map<UUID, WriteCompletion> writeCompletions = new LinkedHashMap<>();
 
     /** wiring 层负责从 MinecraftServer 构造原子 Store；Repository 本身不接收世界和玩家对象。 */
-    public AtomicNbtTaskRepository(RtsAtomicNbtStore store, TaskCodec codec) {
+    public AtomicNbtTaskRepository(RtsNbtStore store, TaskCodec codec) {
         this.store = store;
         this.codec = codec;
     }
@@ -199,6 +198,7 @@ public final class AtomicNbtTaskRepository implements TaskRepository {
     }
 
     private long fileSize() {
+        if (store.path() == null) return -1L;
         try {
             return Files.size(store.path());
         } catch (IOException ignored) {

@@ -42,6 +42,13 @@ public final class TaskCodec {
             "schema", TASKS, TOMBSTONES, MIGRATIONS, ASSETS);
     private static final Set<String> ASSET_FIELDS = Set.of(
             "asset_id", "task_id", "kind", "sha256", "compressed_bytes", "logical_bytes");
+    private static final Set<String> SNAPSHOT_REQUIRED_FIELDS = Set.of(
+            "id", "submission", "owner", "dimension", "type", "state", "revision",
+            "created_game_time", "updated_game_time", "total", "cursor", "succeeded", "failed", "payload");
+    private static final Set<String> WAIT_FIELDS = Set.of("kind", "value");
+    private static final Set<String> TOMBSTONE_FIELDS = Set.of(
+            "id", "submission", "owner", "dimension", "revision", "state",
+            "completed_game_time", "retained_until");
 
     public CompoundTag encodeImage(TaskRepository.Image image) {
         if ((long) image.tasks().size() + image.tombstones().size() > MAX_TASKS) {
@@ -50,23 +57,9 @@ public final class TaskCodec {
         if (image.completedMigrations().size() > MAX_MIGRATIONS) {
             throw new TaskCodecException("迁移台账超过数量上限");
         }
+        requireImageBudget(image, MAX_IMAGE_ESTIMATED_BYTES);
         CompoundTag root = new CompoundTag();
         root.putInt("schema", CURRENT_SCHEMA);
-        long imageBytes = 0L;
-        for (TaskSnapshot snapshot : image.tasks().values()) {
-            imageBytes = addSaturated(imageBytes, estimateSnapshotBytes(snapshot));
-            if (imageBytes > MAX_IMAGE_ESTIMATED_BYTES) {
-                throw new TaskCodecException("task 存档超过总量上限");
-            }
-        }
-        imageBytes = addSaturated(imageBytes, image.tombstones().size() * 256L);
-        for (String migration : image.completedMigrations()) {
-            imageBytes = addSaturated(imageBytes, NbtStringLimits.modifiedUtfBytes(migration) + 8L);
-        }
-        if (imageBytes > MAX_IMAGE_ESTIMATED_BYTES) {
-            throw new TaskCodecException("task 存档超过总量上限");
-        }
-
         ListTag tasks = new ListTag();
         image.tasks().values().stream()
                 .sorted(Comparator.comparing(TaskSnapshot::id))
@@ -103,10 +96,11 @@ public final class TaskCodec {
     public TaskRepository.Image decodeImage(CompoundTag root) {
         try {
             int schema = requireInt(root, "schema");
-            if (schema < LEGACY_SCHEMA || schema > CURRENT_SCHEMA) {
-                throw new TaskCodecException("不支持的 task schema: " + schema);
-            }
-            Set<String> expectedRootFields = schema == LEGACY_SCHEMA ? ROOT_V1_FIELDS : ROOT_V2_FIELDS;
+            Set<String> expectedRootFields = switch (schema) {
+                case 1 -> ROOT_V1_FIELDS;
+                case 2 -> ROOT_V2_FIELDS;
+                default -> throw new TaskCodecException("不支持的 task schema: " + schema);
+            };
             if (!root.getAllKeys().equals(expectedRootFields)) {
                 throw new TaskCodecException("task root 缺少字段或包含当前 schema 未知字段");
             }
@@ -153,7 +147,9 @@ public final class TaskCodec {
                 if (migration.isBlank()) throw new TaskCodecException("迁移标识不能为空");
                 if (migration.length() > 128) throw new TaskCodecException("迁移标识过长");
                 NbtStringLimits.requireWritable(migration, "migrationId");
-                migrations.add(migration);
+                if (!migrations.add(migration)) {
+                    throw new TaskCodecException("重复迁移标识: " + migration);
+                }
                 imageBytes = addSaturated(
                         imageBytes, NbtStringLimits.modifiedUtfBytes(migration) + 8L);
             }
@@ -161,7 +157,7 @@ public final class TaskCodec {
                 throw new TaskCodecException("task 存档超过总量上限");
             }
             TaskAssetManifest assets = TaskAssetManifest.empty();
-            if (schema == CURRENT_SCHEMA) {
+            if (schema == 2) {
                 ListTag encodedAssets = requireList(root, ASSETS, Tag.TAG_COMPOUND);
                 if (encodedAssets.size() > TaskAssetManifest.MAX_ASSETS) {
                     throw new TaskCodecException("活动资产数量超过上限");
@@ -176,7 +172,9 @@ public final class TaskCodec {
                 assets = new TaskAssetManifest(decodedAssets);
                 assets.requireOwnedBy(tasks.keySet());
             }
-            return new TaskRepository.Image(tasks, tombstones, migrations, assets);
+            TaskRepository.Image image = new TaskRepository.Image(tasks, tombstones, migrations, assets);
+            requireImageBudget(image, MAX_IMAGE_ESTIMATED_BYTES);
+            return image;
         } catch (TaskCodecException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -201,11 +199,15 @@ public final class TaskCodec {
         }
         requireUuid(tag, "asset_id");
         requireUuid(tag, "task_id");
+        String sha256 = requireString(tag, "sha256");
+        if (!sha256.matches("[0-9a-f]{64}")) {
+            throw new TaskCodecException("asset sha256 必须是 canonical 小写十六进制");
+        }
         return new TaskAssetMetadata(
                 new TaskAssetId(tag.getUUID("asset_id")),
                 new TaskId(tag.getUUID("task_id")),
                 requireString(tag, "kind"),
-                requireString(tag, "sha256"),
+                sha256,
                 requireLong(tag, "compressed_bytes"),
                 requireLong(tag, "logical_bytes"));
     }
@@ -242,6 +244,12 @@ public final class TaskCodec {
     }
 
     public TaskSnapshot decodeSnapshot(CompoundTag tag) {
+        Set<String> expected = new LinkedHashSet<>(SNAPSHOT_REQUIRED_FIELDS);
+        if (tag.contains("workflow")) expected.add("workflow");
+        if (tag.contains("wait")) expected.add("wait");
+        if (!tag.getAllKeys().equals(expected)) {
+            throw new TaskCodecException("task snapshot 缺少字段或包含未知字段");
+        }
         requireUuid(tag, "id");
         requireUuid(tag, "submission");
         requireUuid(tag, "owner");
@@ -255,6 +263,9 @@ public final class TaskCodec {
                 throw new TaskCodecException("可选字段 wait 的 NBT 类型错误");
             }
             CompoundTag wait = tag.getCompound("wait");
+            if (!wait.getAllKeys().equals(WAIT_FIELDS)) {
+                throw new TaskCodecException("wait envelope 缺少字段或包含未知字段");
+            }
             waitKey = new TaskWaitKey(requireString(wait, "kind"), requireString(wait, "value"));
         }
         int workflowEntryId = -1;
@@ -301,6 +312,34 @@ public final class TaskCodec {
                             + NbtStringLimits.modifiedUtfBytes(snapshot.waitKey().value()));
         }
         return addSaturated(metadataBytes, counter.bytes);
+    }
+
+    /** 编码与解码共享同一套根镜像预算；外置资产正文由 blob 仓库单独计费。 */
+    long estimateImageBytes(TaskRepository.Image image) {
+        long bytes = 128L;
+        for (TaskSnapshot snapshot : image.tasks().values()) {
+            bytes = addSaturated(bytes, estimateSnapshotBytes(snapshot));
+        }
+        for (TaskTombstone tombstone : image.tombstones().values()) {
+            bytes = addSaturated(bytes,
+                    256L + NbtStringLimits.modifiedUtfBytes(tombstone.dimensionId()));
+        }
+        for (String migration : image.completedMigrations()) {
+            bytes = addSaturated(bytes, 8L + NbtStringLimits.modifiedUtfBytes(migration));
+        }
+        for (TaskAssetMetadata asset : image.assets().entries().values()) {
+            bytes = addSaturated(bytes, 256L
+                    + NbtStringLimits.modifiedUtfBytes(asset.kind())
+                    + NbtStringLimits.modifiedUtfBytes(asset.sha256()));
+        }
+        return bytes;
+    }
+
+    void requireImageBudget(TaskRepository.Image image, long maxBytes) {
+        if (maxBytes <= 0L) throw new IllegalArgumentException("根镜像预算必须为正数");
+        if (estimateImageBytes(image) > maxBytes) {
+            throw new TaskCodecException("task 存档超过总量上限");
+        }
     }
 
     /** 外置资产 codec 复用相同的深度、节点与 Modified UTF 校验；默认入口沿用 TaskSnapshot 预算。 */
@@ -402,6 +441,9 @@ public final class TaskCodec {
     }
 
     private TaskTombstone decodeTombstone(CompoundTag tag) {
+        if (!tag.getAllKeys().equals(TOMBSTONE_FIELDS)) {
+            throw new TaskCodecException("tombstone 缺少字段或包含未知字段");
+        }
         requireUuid(tag, "id");
         requireUuid(tag, "submission");
         requireUuid(tag, "owner");

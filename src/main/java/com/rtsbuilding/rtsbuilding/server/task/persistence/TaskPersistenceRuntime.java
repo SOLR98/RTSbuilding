@@ -1,7 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.task.persistence;
 
 import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
-import com.rtsbuilding.rtsbuilding.server.data.RtsAtomicNbtStore;
+import com.rtsbuilding.rtsbuilding.server.data.RtsStrictAtomicNbtStore;
 import com.rtsbuilding.rtsbuilding.server.task.identity.TaskId;
 import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.TaskAssetMetadata;
 import com.rtsbuilding.rtsbuilding.server.task.persistence.asset.blueprint.AtomicBlueprintBlobRepository;
@@ -80,7 +80,7 @@ public final class TaskPersistenceRuntime {
         blobs.scan();
         TaskPersistenceCoordinator opened = TaskPersistenceCoordinator.open(
                 new AtomicNbtTaskRepository(
-                        new RtsAtomicNbtStore(server, "rtsbuilding", "durable_tasks.dat"), codec),
+                        new RtsStrictAtomicNbtStore(server, "rtsbuilding", "durable_tasks.dat"), codec),
                 codec);
         verifyManifestAssets(opened, blobs, blobCodec);
         start(server, opened, blobs);

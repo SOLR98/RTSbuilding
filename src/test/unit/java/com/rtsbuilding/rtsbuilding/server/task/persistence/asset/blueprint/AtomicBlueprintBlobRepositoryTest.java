@@ -78,6 +78,36 @@ class AtomicBlueprintBlobRepositoryTest {
     }
 
     @Test
+    void canonicalHashNormalizesNanAndRejectsAmbiguousUtf16() {
+        BlueprintBlobCodec codec = new BlueprintBlobCodec();
+        TaskId taskId = TaskId.create();
+        CompoundTag first = new CompoundTag();
+        first.putFloat("float_nan", Float.intBitsToFloat(0x7fc00001));
+        first.putDouble("double_nan", Double.longBitsToDouble(0x7ff8000000000001L));
+        CompoundTag second = new CompoundTag();
+        second.putFloat("float_nan", Float.intBitsToFloat(0x7fc12345));
+        second.putDouble("double_nan", Double.longBitsToDouble(0x7ff8123456789abCL));
+
+        BlueprintBlobRecord firstRecord = codec.freeze(
+                taskId, 1, "nan", "test", "VANILLA_NBT", first);
+        BlueprintBlobRecord secondRecord = codec.freeze(
+                taskId, 1, "nan", "test", "VANILLA_NBT", second);
+        assertEquals(firstRecord.sha256(), secondRecord.sha256());
+
+        CompoundTag invalid = new CompoundTag();
+        invalid.putString("text", "broken-\uD800");
+        assertThrows(IllegalArgumentException.class,
+                () -> codec.freeze(TaskId.create(), 1, "utf", "test", "VANILLA_NBT", invalid));
+
+        CompoundTag valid = new CompoundTag();
+        valid.putString("text", "paired-\uD83D\uDE80");
+        BlueprintBlobRecord validRecord = codec.freeze(
+                TaskId.create(), 1, "utf", "test", "VANILLA_NBT", valid);
+        assertEquals(validRecord.sha256(),
+                codec.decodeCompressed(codec.encodeCompressed(validRecord)).sha256());
+    }
+
+    @Test
     void denseNbtUsesLogicalLimitAndDecodeAccountingHeadroomConsistently() {
         BlueprintBlobCodec codec = new BlueprintBlobCodec();
         CompoundTag structure = new CompoundTag();

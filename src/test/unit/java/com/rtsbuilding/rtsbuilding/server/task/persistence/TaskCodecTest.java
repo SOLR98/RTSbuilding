@@ -32,7 +32,8 @@ class TaskCodecTest {
                 TaskId.create(), SubmissionId.create(), UUID.randomUUID(), "minecraft:overworld",
                 7L, TaskLifecycleState.COMPLETED, 200L, 1_000L);
         TaskRepository.Image source = new TaskRepository.Image(
-                Map.of(task.id(), task), Map.of(tombstone.taskId(), tombstone), Set.of("session-jobs-v1"));
+                Map.of(task.id(), task), Map.of(tombstone.taskId(), tombstone),
+                Set.of("session-jobs-v1"), TaskAssetManifest.empty());
 
         TaskRepository.Image decoded = codec.decodeImage(codec.encodeImage(source));
 
@@ -93,6 +94,11 @@ class TaskCodecTest {
                 .getCompound("payload").putUUID("asset_id", UUID.randomUUID());
 
         assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeImage(mismatched));
+
+        CompoundTag uppercaseSha = codec.encodeImage(valid);
+        CompoundTag asset = uppercaseSha.getList("assets", Tag.TAG_COMPOUND).getCompound(0);
+        asset.putString("sha256", asset.getString("sha256").toUpperCase(java.util.Locale.ROOT));
+        assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeImage(uppercaseSha));
     }
 
     @Test
@@ -214,6 +220,55 @@ class TaskCodecTest {
 
         absent.putString("wait", "wrong-type");
         assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeSnapshot(absent));
+    }
+
+    @Test
+    void snapshotWaitAndTombstoneRejectUnknownEnvelopeFields() {
+        TaskSnapshot task = TaskStoreTest.snapshot(
+                TaskId.create(), SubmissionId.create(), UUID.randomUUID(), 88,
+                TaskLifecycleState.WAITING_RESOURCE,
+                new TaskWaitKey("item", "minecraft:stone"), 1L, "minecraft:overworld");
+        CompoundTag snapshot = codec.encodeSnapshot(task);
+        snapshot.putInt("future_field", 1);
+        assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeSnapshot(snapshot));
+
+        CompoundTag wait = codec.encodeSnapshot(task);
+        wait.getCompound("wait").putInt("future_field", 1);
+        assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeSnapshot(wait));
+
+        TaskTombstone tombstone = new TaskTombstone(
+                TaskId.create(), SubmissionId.create(), UUID.randomUUID(), "minecraft:overworld",
+                2L, TaskLifecycleState.COMPLETED, 20L, 40L);
+        TaskRepository.Image image = new TaskRepository.Image(
+                Map.of(), Map.of(tombstone.taskId(), tombstone), Set.of(), TaskAssetManifest.empty());
+        CompoundTag root = codec.encodeImage(image);
+        root.getList("tombstones", Tag.TAG_COMPOUND).getCompound(0).putInt("future_field", 1);
+        assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeImage(root));
+    }
+
+    @Test
+    void duplicateMigrationLedgerEntryFailsClosed() {
+        CompoundTag root = codec.encodeImage(TaskRepository.Image.empty());
+        net.minecraft.nbt.ListTag migrations = root.getList("completed_migrations", Tag.TAG_STRING);
+        migrations.add(net.minecraft.nbt.StringTag.valueOf("same"));
+        migrations.add(net.minecraft.nbt.StringTag.valueOf("same"));
+
+        assertThrows(TaskCodec.TaskCodecException.class, () -> codec.decodeImage(root));
+    }
+
+    @Test
+    void completeImageBudgetCountsEveryRootSectionSymmetrically() {
+        TaskId taskId = TaskId.create();
+        TaskAssetId assetId = TaskAssetId.forTask(taskId, "blueprint");
+        TaskRepository.Image image = new TaskRepository.Image(
+                Map.of(taskId, blueprintTask(taskId, assetId)), Map.of(), Set.of("migration-v2"),
+                new TaskAssetManifest(Map.of(assetId, metadata(taskId))));
+        long exact = codec.estimateImageBytes(image);
+
+        codec.requireImageBudget(image, exact);
+        assertThrows(TaskCodec.TaskCodecException.class,
+                () -> codec.requireImageBudget(image, exact - 1L));
+        assertEquals(image, codec.decodeImage(codec.encodeImage(image)));
     }
 
     @Test

@@ -2,6 +2,8 @@ package com.rtsbuilding.rtsbuilding.server.data;
 
 import net.minecraft.nbt.CompoundTag;
 
+import java.nio.file.Path;
+
 /**
  * DataCluster 使用的最小持久化端口。
  *
@@ -15,6 +17,11 @@ public interface RtsNbtStore {
     boolean write(CompoundTag tag);
 
     String label();
+
+    /** 可选的物理路径，仅供持久层统计写入字节数；内存测试实现可以返回 null。 */
+    default Path path() {
+        return null;
+    }
 
     /** 明确区分文件不存在、读取成功和读取失败，避免损坏文件被当作空存档覆盖。 */
     sealed interface ReadResult permits ReadResult.Found, ReadResult.Missing, ReadResult.Failed {

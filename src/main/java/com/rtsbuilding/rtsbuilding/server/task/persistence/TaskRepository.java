@@ -50,11 +50,6 @@ public interface TaskRepository {
             requireConsistentAssetLinks(tasks, assets);
         }
 
-        public Image(Map<TaskId, TaskSnapshot> tasks,
-                Map<TaskId, TaskTombstone> tombstones, Set<String> completedMigrations) {
-            this(tasks, tombstones, completedMigrations, TaskAssetManifest.empty());
-        }
-
         public static Image empty() {
             return new Image(Map.of(), Map.of(), Set.of(), TaskAssetManifest.empty());
         }
