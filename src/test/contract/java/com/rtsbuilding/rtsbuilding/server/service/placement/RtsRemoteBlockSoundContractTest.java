@@ -51,7 +51,8 @@ class RtsRemoteBlockSoundContractTest {
         String serverSource = Files.readString(Path.of(
                 "src/main/java/com/rtsbuilding/rtsbuilding/server/service/placement/RtsPlacementSound.java"));
         String clientSource = Files.readString(Path.of(
-                "src/main/java/com/rtsbuilding/rtsbuilding/client/sound/RtsBlockActionSoundPlayer.java"));
+                "src/main/java/com/rtsbuilding/rtsbuilding/client/sound/RtsBlockActionSoundPlayer.java"))
+                .replace("\r\n", "\n");
         String configSource = Files.readString(Path.of(
                 "src/main/java/com/rtsbuilding/rtsbuilding/Config.java"));
         String modSource = Files.readString(Path.of(
