@@ -247,27 +247,16 @@ public final class RtsDropAbsorber {
      */
     private static boolean enqueueDrops(ServerPlayer player, RtsStorageSession session, List<ItemEntity> drops) {
         var buffer = session.miningDropBuffer;
+        List<DropGroup> groups = groupDrops(drops);
         boolean changed = false;
-        for (ItemEntity entity : drops) {
-            if (entity == null || !entity.isAlive() || entity.getItem().isEmpty()) continue;
-            if (buffer.stacks.size() >= com.rtsbuilding.rtsbuilding.server.storage.state.RtsMiningDropBufferState.MAX_STACKS) {
-                break;
-            }
-            int accepted = Math.min(buffer.remainingCapacity(), entity.getItem().getCount());
+        long gameTime = player.serverLevel().getGameTime();
+        for (DropGroup group : groups) {
+            int accepted = buffer.enqueueMerged(group.template(), group.totalCount());
             if (accepted <= 0) break;
-            buffer.stacks.addLast(entity.getItem().copyWithCount(accepted));
-            buffer.bufferedItems += accepted;
-            if (buffer.firstQueuedGameTime < 0L) {
-                buffer.firstQueuedGameTime = player.serverLevel().getGameTime();
-            }
-            int remaining = entity.getItem().getCount() - accepted;
-            if (remaining <= 0) entity.discard();
-            else entity.setItem(entity.getItem().copyWithCount(remaining));
+            consumeAbsorbedDrops(group.entities(), accepted);
+            buffer.markQueued(gameTime);
             changed = true;
-        }
-        if (buffer.isFull() && !buffer.fullNoticeSent) {
-            player.displayClientMessage(Component.translatable("message.rtsbuilding.drop_buffer.full"), true);
-            buffer.fullNoticeSent = true;
+            if (buffer.isFull()) break;
         }
         if (changed) {
             RtsEffectAccumulator.INSTANCE.markPersistence(
@@ -284,8 +273,8 @@ public final class RtsDropAbsorber {
             int maxStacks, long deadlineNanos) {
         var buffer = session.miningDropBuffer;
         if (buffer.isEmpty() || maxStacks <= 0) return 0;
-        boolean timeout = buffer.firstQueuedGameTime >= 0L
-                && player.serverLevel().getGameTime() - buffer.firstQueuedGameTime >= 60L;
+        long gameTime = player.serverLevel().getGameTime();
+        boolean timeout = buffer.shouldFallback(gameTime);
         DropInsertContext insertContext = timeout ? null : createInsertContext(player, session);
         int processed = 0;
         boolean storageChanged = false;
@@ -315,8 +304,15 @@ public final class RtsDropAbsorber {
             notifyStorageChanged(player, insertContext, storageChanged);
         }
         if (storageChanged) {
+            buffer.markStorageProgress(gameTime);
             QuestService.runQuestDetect(player, session, false);
             RtsPendingPlacementService.tryResumeAfterStorageChange(player);
+        }
+        if (!buffer.isFull()) {
+            buffer.fullNoticeSent = false;
+        } else if (!buffer.fullNoticeSent && buffer.shouldNotifyFull(gameTime)) {
+            player.displayClientMessage(Component.translatable("message.rtsbuilding.drop_buffer.full"), true);
+            buffer.fullNoticeSent = true;
         }
         if (timeout && buffer.isEmpty()) {
             RtsDeveloperMetrics.recordBufferFallback(player);

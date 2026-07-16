@@ -78,6 +78,7 @@ public final class SessionSerializer {
         }
         root.put("drop_buffer_stacks", stacks);
         root.putLong("drop_buffer_since", session.miningDropBuffer.firstQueuedGameTime);
+        root.putLong("drop_buffer_last_progress", session.miningDropBuffer.lastProgressGameTime);
         return root;
     }
 
@@ -99,6 +100,11 @@ public final class SessionSerializer {
         buffer.firstQueuedGameTime = buffer.stacks.isEmpty()
                 ? -1L
                 : root.getLong("drop_buffer_since");
+        buffer.lastProgressGameTime = buffer.stacks.isEmpty()
+                ? -1L
+                : root.contains("drop_buffer_last_progress", Tag.TAG_LONG)
+                        ? root.getLong("drop_buffer_last_progress")
+                        : buffer.firstQueuedGameTime;
         buffer.fullNoticeSent = false;
     }
 

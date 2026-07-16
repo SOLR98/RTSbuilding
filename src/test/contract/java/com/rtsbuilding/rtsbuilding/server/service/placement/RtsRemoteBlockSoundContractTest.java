@@ -83,7 +83,8 @@ class RtsRemoteBlockSoundContractTest {
                 "玩家 tick 不应再驱动任何声音队列。");
         assertTrue(modSource.contains("RtsPlacementSound.forgetPlayer(serverPlayer.getUUID())"),
                 "玩家离线时仍应清理限流计数状态。");
-        assertTrue(clientSource.contains("0.0D,\n                true"),
+        String compactClientSource = clientSource.replaceAll("\\s+", "");
+        assertTrue(compactClientSource.contains("SoundInstance.Attenuation.NONE,0.0D,0.0D,0.0D,true)"),
                 "声音实例必须相对监听器播放，跟随当前 RTS 相机。");
         assertTrue(packetRegistry.contains("S2CRtsBlockActionSoundPayload.STREAM_CODEC"),
                 "相对方块声音必须注册为 S2C 数据包。");

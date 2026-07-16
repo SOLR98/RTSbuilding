@@ -879,6 +879,7 @@
   "screen.rtsbuilding.quick_build.missing_blocks": "§7| §cMissing x %s",
   "message.rtsbuilding.quick_build.remote_place_locked": "Remote placement is not unlocked.",
   "message.rtsbuilding.plugin_required": "Install %s to use this feature.",
+  "message.rtsbuilding.camera_locked": "RTS camera locked. Install the %s plugin, or turn off Survival balance in mod config.",
   "screen.rtsbuilding.tooltip.shape_block": "Block",
   "screen.rtsbuilding.tooltip.shape_line": "Line",
   "screen.rtsbuilding.tooltip.shape_square": "Plane",

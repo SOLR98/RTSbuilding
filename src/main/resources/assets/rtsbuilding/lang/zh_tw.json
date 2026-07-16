@@ -879,6 +879,7 @@
   "screen.rtsbuilding.quick_build.missing_blocks": "| 缺少 x %s",
   "message.rtsbuilding.quick_build.remote_place_locked": "遠端放置功能尚未解鎖。",
   "message.rtsbuilding.plugin_required": "請先安裝%s以使用此功能。",
+  "message.rtsbuilding.camera_locked": "RTS 相機尚未解鎖。安裝「%s」插件即可解鎖，或在模組設定中關閉「生存平衡」。",
   "screen.rtsbuilding.tooltip.shape_block": "單",
   "screen.rtsbuilding.tooltip.shape_line": "線",
   "screen.rtsbuilding.tooltip.shape_square": "面",
