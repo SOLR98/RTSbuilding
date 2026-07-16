@@ -15,6 +15,7 @@ import com.rtsbuilding.rtsbuilding.server.service.transfer.RtsTransferInserter;
 import com.rtsbuilding.rtsbuilding.server.storage.model.LinkedHandler;
 import com.rtsbuilding.rtsbuilding.server.storage.resolver.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
+import com.rtsbuilding.rtsbuilding.server.task.RtsEffectAccumulator;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -176,7 +177,7 @@ public final class RtsCraftingExecutor {
 
         ServiceRegistry.getInstance().page().recordRecentItem(session, craftedItemId,
                 S2CRtsStoragePagePayload.RECENT_ITEM_CRAFTED, totalCraftedCount);
-        ServiceRegistry.getInstance().session().saveToPlayerNbt(player, session);
+        RtsEffectAccumulator.INSTANCE.markPersistence(player.getUUID(), player.level().dimension());
         RtsClientboundPackets.sendToPlayer(player, new S2CRtsCraftFeedbackPayload(
                 craftedItemId, totalCraftedCount,
                 new ArrayList<>(consumedCounts.keySet()),

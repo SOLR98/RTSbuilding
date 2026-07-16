@@ -58,6 +58,7 @@ public final class ServerTickOrchestrator {
         RtsWorkflowEngine.getInstance().tickTimeoutService(
                 server, server.overworld().getGameTime());
         RtsStoragePageRequestCoalescer.flushPending();
-        RtsEffectAccumulator.INSTANCE.flush(server);
+        var effectReport = RtsEffectAccumulator.INSTANCE.flush(server);
+        RtsDeveloperMetrics.recordEffectCommit(effectReport);
     }
 }

@@ -14,6 +14,7 @@ import com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder;
 import com.rtsbuilding.rtsbuilding.server.storage.model.LinkedHandler;
 import com.rtsbuilding.rtsbuilding.server.storage.resolver.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
+import com.rtsbuilding.rtsbuilding.server.task.RtsEffectAccumulator;
 import com.rtsbuilding.rtsbuilding.server.util.InteractionHelper;
 import com.rtsbuilding.rtsbuilding.server.util.TemporaryContextSwitcher;
 import net.minecraft.core.BlockPos;
@@ -142,7 +143,7 @@ public final class RtsPlacementExecutor {
         }
 
         if (emptyUse.result().consumesAction()) {
-            ServiceRegistry.getInstance().session().saveToPlayerNbt(player, session);
+            RtsEffectAccumulator.INSTANCE.markPersistence(player.getUUID(), player.level().dimension());
             return true;
         }
 
@@ -160,7 +161,7 @@ public final class RtsPlacementExecutor {
             return false;
         }
         if (emptyFallback.result().consumesAction()) {
-            ServiceRegistry.getInstance().session().saveToPlayerNbt(player, session);
+            RtsEffectAccumulator.INSTANCE.markPersistence(player.getUUID(), player.level().dimension());
             return true;
         }
         return false;
@@ -208,7 +209,7 @@ public final class RtsPlacementExecutor {
         if (mainHandUse.result().consumesAction()) {
             recordMainHandResult(player, session, level, clickedPos, beforeClicked, adjacentPos, beforeAdjacent,
                     sourceSnapshot, sourcePlacesBlock);
-            ServiceRegistry.getInstance().session().saveToPlayerNbt(player, session);
+            RtsEffectAccumulator.INSTANCE.markPersistence(player.getUUID(), player.level().dimension());
             return true;
         }
 
@@ -237,7 +238,7 @@ public final class RtsPlacementExecutor {
                             1L);
                 }
             }
-            ServiceRegistry.getInstance().session().saveToPlayerNbt(player, session);
+            RtsEffectAccumulator.INSTANCE.markPersistence(player.getUUID(), player.level().dimension());
             return true;
         }
 
@@ -258,7 +259,7 @@ public final class RtsPlacementExecutor {
             if (interactFallback.result().consumesAction()) {
                 recordMainHandResult(player, session, level, clickedPos, beforeClicked, adjacentPos, beforeAdjacent,
                         sourceSnapshot, sourcePlacesBlock);
-                ServiceRegistry.getInstance().session().saveToPlayerNbt(player, session);
+                RtsEffectAccumulator.INSTANCE.markPersistence(player.getUUID(), player.level().dimension());
                 return true;
             }
 
@@ -287,7 +288,7 @@ public final class RtsPlacementExecutor {
                                 1L);
                     }
                 }
-                ServiceRegistry.getInstance().session().saveToPlayerNbt(player, session);
+                RtsEffectAccumulator.INSTANCE.markPersistence(player.getUUID(), player.level().dimension());
                 return true;
             }
         }
