@@ -34,7 +34,12 @@ public final class RtsPlaceHandlers {
     public static void handleRotateBlock(C2SRtsRotateBlockPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer serverPlayer) {
-                ServiceRegistry.getInstance().placement().rotateBlock(serverPlayer, payload.pos());
+                if (payload.propertyName().isBlank() && payload.valueName().isBlank()) {
+                    ServiceRegistry.getInstance().placement().rotateBlock(serverPlayer, payload.pos());
+                } else {
+                    ServiceRegistry.getInstance().placement().rotateBlock(
+                            serverPlayer, payload.pos(), payload.propertyName(), payload.valueName());
+                }
             }
         });
     }

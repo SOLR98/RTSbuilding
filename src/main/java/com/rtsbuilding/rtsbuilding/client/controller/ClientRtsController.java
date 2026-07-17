@@ -1374,6 +1374,14 @@ public final class ClientRtsController {
         RtsClientPacketGateway.sendRotateBlock(pos);
     }
 
+    public void rotateBlock(BlockPos pos, String propertyName, String valueName) {
+        if (pos == null || propertyName == null || propertyName.isBlank()
+                || valueName == null || valueName.isBlank()) {
+            return;
+        }
+        this.buildPlacementService.rotateBlock(pos, propertyName, valueName);
+    }
+
     public void storeHotbarSlotToLinked(int slot) {
         RtsClientPacketGateway.sendStoreHotbarSlot(slot);
     }

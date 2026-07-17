@@ -70,14 +70,22 @@ public final class RtsPlacementHelper {
      */
     public static void rotatePlacedBlock(ServerLevel level, BlockPos pos, byte rotateSteps) {
         int turns = rotateSteps & 3;
-        if (turns == 0 || !level.hasChunkAt(pos)) {
+        if (turns == 0 || !RtsPlacedBlockRotation.canReadNeighborhood(level, pos)) {
             return;
         }
         BlockState state = level.getBlockState(pos);
         BlockState rotated = rotateState(state, rotateSteps);
-        if (rotated != state) {
-            level.setBlock(pos, rotated, 3);
-        }
+        RtsPlacedBlockRotation.applyResolvedState(level, pos, state, rotated);
+    }
+
+    /**
+     * Resolves a named property/value pair against the current server state and
+     * applies it only when it is an approved direction, axis, or rotation
+     * property.
+     */
+    public static void setPlacedBlockProperty(
+            ServerLevel level, BlockPos pos, String propertyName, String valueName) {
+        RtsPlacedBlockRotation.setProperty(level, pos, propertyName, valueName);
     }
 
     /**

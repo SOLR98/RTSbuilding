@@ -354,6 +354,14 @@ public final class BuildPlacementService {
         RtsClientPacketGateway.sendRotateBlock(pos);
     }
 
+    public void rotateBlock(BlockPos pos, String propertyName, String valueName) {
+        if (pos == null || propertyName == null || propertyName.isBlank()
+                || valueName == null || valueName.isBlank()) {
+            return;
+        }
+        RtsClientPacketGateway.sendRotateBlock(pos, propertyName, valueName);
+    }
+
     public void rotatePlacementClockwise() {
         this.placeRotateSteps = (this.placeRotateSteps + 1) & 3;
     }

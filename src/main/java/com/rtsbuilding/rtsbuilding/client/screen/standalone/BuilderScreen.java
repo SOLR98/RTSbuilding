@@ -28,6 +28,7 @@ import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.layout.BottomPanelLayoutTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.layout.PanelLayouts;
 import com.rtsbuilding.rtsbuilding.client.screen.mode.BuilderModeWheel;
+import com.rtsbuilding.rtsbuilding.client.screen.mode.PlacedBlockRotationWheel;
 import com.rtsbuilding.rtsbuilding.client.screen.overlay.PlayerStatusRenderer;
 import com.rtsbuilding.rtsbuilding.client.screen.overlay.RtsScreenOverlayRenderer;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.BottomPanel;
@@ -144,6 +145,8 @@ public final class BuilderScreen extends Screen {
     private final CameraInputHandler cameraInput = new CameraInputHandler();
     /** 长按 Alt 唤出的 RTS 鼠标模式轮盘。 */
     private final BuilderModeWheel modeWheel = new BuilderModeWheel();
+    /** 旋转模式中为世界方块选择目标 facing/axis 的轮盘。 */
+    private final PlacedBlockRotationWheel rotationWheel = new PlacedBlockRotationWheel();
     /** Guide/onboarding panel that explains UI elements and controls. */
     private final GuidePanel guidePanel = new GuidePanel();
     /** Gear (settings) menu panel with configuration toggles and sliders. */
@@ -170,12 +173,14 @@ public final class BuilderScreen extends Screen {
     private BuilderMode modeBeforeFunnelHotkey = BuilderMode.INTERACT;
     /** F 快捷键是否临时替换了一个非漏斗模式。 */
     private boolean funnelHotkeyTemporaryMode = false;
-    /** 漏斗模式下右键短点触发的一次短吸取剩余 tick。 */
-    private int funnelClickPulseTicks = 0;
+    /** 常驻漏斗模式中正在按住的“主要操作”鼠标键；支持玩家重绑右键。 */
+    private int funnelMouseHoldButton = -1;
     /** 上一 tick 的物理 Alt 状态，保证每次按住只打开一次轮盘。 */
     private boolean modeWheelAltWasDown = false;
     /** 轮盘点击关闭后仍需吞掉的鼠标松开事件。 */
     private int modeWheelConsumedMouseButton = -1;
+    /** 方块旋转轮盘关闭后仍需吞掉的鼠标松开事件。 */
+    private int rotationWheelConsumedMouseButton = -1;
     /** 最近一次 RTS 固定缩放渲染所使用的虚拟宽度。 */
     private int lastRtsUiWidth = 0;
     /** 最近一次 RTS 固定缩放渲染所使用的虚拟高度。 */
@@ -479,9 +484,11 @@ public final class BuilderScreen extends Screen {
         }
         this.funnelHotkeyHeld = false;
         this.funnelHotkeyTemporaryMode = false;
-        this.funnelClickPulseTicks = 0;
+        this.funnelMouseHoldButton = -1;
         this.modeWheel.close();
         this.modeWheelConsumedMouseButton = -1;
+        this.rotationWheel.close();
+        this.rotationWheelConsumedMouseButton = -1;
         this.cameraInput.resetCameraVerticalHeld();
         this.cameraInput.stopActiveMining();
         if (this.controller.isFunnelEnabled()) {
@@ -502,9 +509,11 @@ public final class BuilderScreen extends Screen {
         this.modeWheel.close();
         this.modeWheelAltWasDown = false;
         this.modeWheelConsumedMouseButton = -1;
+        this.rotationWheel.close();
+        this.rotationWheelConsumedMouseButton = -1;
         boolean restoreModeAfterFunnel = this.funnelHotkeyTemporaryMode;
         this.funnelHotkeyHeld = false;
-        this.funnelClickPulseTicks = 0;
+        this.funnelMouseHoldButton = -1;
         if (this.controller.isFunnelEnabled()) {
             this.controller.setFunnelEnabled(false);
         }
@@ -527,14 +536,13 @@ public final class BuilderScreen extends Screen {
         this.uiStateManager.flush();
         enforceBlueprintPlacementModeLock();
         updateModeWheelAltState();
+        if (this.rotationWheel.isOpen()
+                && (this.controller.getMode() != BuilderMode.ROTATE
+                || !this.rotationWheel.targetStillMatches(this.minecraft.level))) {
+            this.rotationWheel.close();
+        }
         if (this.rtsFlightToggleCooldownTicks > 0) {
             this.rtsFlightToggleCooldownTicks--;
-        }
-        if (this.funnelClickPulseTicks > 0 && !this.funnelHotkeyHeld) {
-            this.funnelClickPulseTicks--;
-            if (this.funnelClickPulseTicks == 0 && this.controller.isFunnelEnabled()) {
-                this.controller.setFunnelEnabled(false);
-            }
         }
         if (this.controller.getMode() == BuilderMode.FUNNEL && this.controller.isFunnelEnabled()) {
             BlockHitResult hit = this.cursorPicker.pickBlockHit();
@@ -578,6 +586,22 @@ public final class BuilderScreen extends Screen {
             }
         }
         endFixedRtsScaleInput(frame);
+        if (this.rotationWheel.isOpen()) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                PlacedBlockRotationWheel.RotationChoice choice =
+                        this.rotationWheel.hoveredChoice(mouseX, mouseY);
+                if (choice != null) {
+                    this.controller.rotateBlock(
+                            choice.pos(), choice.propertyName(), choice.valueName());
+                    this.rotationWheel.close();
+                    this.rotationWheelConsumedMouseButton = button;
+                }
+            } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                this.rotationWheel.close();
+                this.rotationWheelConsumedMouseButton = button;
+            }
+            return true;
+        }
         if (this.modeWheel.isOpen()) {
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 BuilderMode selectedMode = this.modeWheel.hoveredMode(mouseX, mouseY);
@@ -723,6 +747,12 @@ public final class BuilderScreen extends Screen {
         boolean rotateMouse = CameraInputHandler.isRotateDragActionMouse(button);
         boolean panMouse = CameraInputHandler.isPanDragActionMouse(button);
         boolean pickMouse = CameraInputHandler.isPickBlockActionMouse(button);
+        if (primaryMouse
+                && this.controller.getMode() == BuilderMode.FUNNEL
+                && !isMovePlayerActionMouse(button)
+                && isWorldArea(mouseX, mouseY)) {
+            beginFunnelMouseHold(button);
+        }
         /*
          * After key binding swap:
          *   Right button → primary action + camera pan (movement)
@@ -799,6 +829,14 @@ public final class BuilderScreen extends Screen {
             }
         }
         endFixedRtsScaleInput(frame);
+        endFunnelMouseHold(button);
+        if (button == this.rotationWheelConsumedMouseButton) {
+            this.rotationWheelConsumedMouseButton = -1;
+            return true;
+        }
+        if (this.rotationWheel.isOpen()) {
+            return true;
+        }
         if (button == this.modeWheelConsumedMouseButton) {
             this.modeWheelConsumedMouseButton = -1;
             return true;
@@ -827,9 +865,11 @@ public final class BuilderScreen extends Screen {
             return true;
         }
         if (this.cameraInput.isRightDragActive(button)) {
-            return this.cameraInput.endRightPress(mouseX, mouseY, button)
+            boolean runPrimary = this.cameraInput.endRightPress(mouseX, mouseY, button);
+            boolean consumed = runPrimary
                     ? runPrimaryActionAt(mouseX, mouseY, button)
                     : true;
+            return consumed;
         }
         if (this.cameraInput.endMiddlePress(mouseX, mouseY, button)) {
             return true;
@@ -852,6 +892,9 @@ public final class BuilderScreen extends Screen {
             }
         }
         endFixedRtsScaleInput(frame);
+        if (this.rotationWheel.isOpen()) {
+            return true;
+        }
         if (this.modeWheel.isOpen()) {
             return true;
         }
@@ -898,6 +941,9 @@ public final class BuilderScreen extends Screen {
             }
         }
         endFixedRtsScaleInput(frame);
+        if (this.rotationWheel.isOpen()) {
+            return;
+        }
         this.cameraInput.updateKeyboardPanDrag(mouseX, mouseY);
         super.mouseMoved(mouseX, mouseY);
     }
@@ -970,14 +1016,13 @@ public final class BuilderScreen extends Screen {
         }
         if (this.controller.getMode() == BuilderMode.FUNNEL) {
             this.shapeController.clearShapeBuildSession();
-            startFunnelClickPulse();
             return true;
         }
         if (this.controller.getMode() == BuilderMode.ROTATE) {
             InteractionTypes.InteractionTarget target = this.cursorPicker.pickInteractionTarget(false);
             if (target != null && target.blockHit() != null) {
                 this.shapeController.clearShapeBuildSession();
-                this.controller.rotateBlock(target.blockHit().getBlockPos());
+                openPlacedBlockRotationWheel(target.blockHit().getBlockPos(), mouseX, mouseY);
             }
             return true;
         }
@@ -1141,6 +1186,46 @@ public final class BuilderScreen extends Screen {
         return true;
     }
 
+    /** 打开已放置方块的方向轮盘；没有安全方向属性时只提示，不发送网络请求。 */
+    private void openPlacedBlockRotationWheel(BlockPos pos, double mouseX, double mouseY) {
+        if (this.minecraft == null || this.minecraft.level == null || pos == null
+                || !this.minecraft.level.hasChunkAt(pos)) {
+            return;
+        }
+        BlockState state = this.minecraft.level.getBlockState(pos);
+        if (!PlacedBlockRotationWheel.supportsBlockEntity(this.minecraft.level, pos, state)) {
+            if (this.minecraft.player != null) {
+                this.minecraft.player.displayClientMessage(
+                        Component.translatable("screen.rtsbuilding.rotation_wheel.unsupported"),
+                        true);
+            }
+            return;
+        }
+        var camera = this.minecraft.gameRenderer.getMainCamera();
+        int uiWidth = this.lastRtsUiWidth > 0 ? this.lastRtsUiWidth : this.width;
+        int uiHeight = this.lastRtsUiHeight > 0 ? this.lastRtsUiHeight : this.height;
+        boolean opened = this.rotationWheel.open(
+                state,
+                pos,
+                mouseX,
+                mouseY,
+                uiWidth,
+                uiHeight,
+                camera.getYRot(),
+                camera.getXRot());
+        if (!opened) {
+            if (this.minecraft.player != null) {
+                this.minecraft.player.displayClientMessage(
+                        Component.translatable("screen.rtsbuilding.rotation_wheel.unsupported"),
+                        true);
+            }
+            return;
+        }
+        this.cameraInput.stopActiveMining();
+        this.cameraInput.cancelPointerGestures();
+        this.modeWheel.close();
+    }
+
     private boolean tryUseMainHandItemInAir() {
         if (!canUseMainHandItemInAir()) {
             return false;
@@ -1181,6 +1266,10 @@ public final class BuilderScreen extends Screen {
             }
         }
         endFixedRtsScaleInput(frame);
+        if (this.rotationWheel.isOpen()) {
+            this.rotationWheel.cycleProperty(scrollY);
+            return true;
+        }
         if (this.modeWheel.isOpen()) {
             return true;
         }
@@ -1217,14 +1306,6 @@ public final class BuilderScreen extends Screen {
             }
             return true;
         }
-        if (this.controller.getMode() == BuilderMode.ROTATE) {
-            if (scrollY > 0.0D) {
-                this.controller.rotatePlacementClockwise();
-            } else if (scrollY < 0.0D) {
-                this.controller.rotatePlacementCounterClockwise();
-            }
-            return true;
-        }
         this.controller.queueScroll(scrollY);
         return true;
     }
@@ -1234,6 +1315,12 @@ public final class BuilderScreen extends Screen {
      * search box, tool slot, and sensitivity handlers in priority order.
      */
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (this.rotationWheel.isOpen()) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                this.rotationWheel.close();
+            }
+            return true;
+        }
         if (this.modeWheel.isOpen()) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
                 this.modeWheel.close();
@@ -1496,6 +1583,9 @@ public final class BuilderScreen extends Screen {
     @Override
     /** Handles key release for funnel hotkey and camera vertical movement states. */
     public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
+        if (this.rotationWheel.isOpen()) {
+            return true;
+        }
         if (keyCode == GLFW.GLFW_KEY_LEFT_ALT || keyCode == GLFW.GLFW_KEY_RIGHT_ALT) {
             this.modeWheel.close();
             this.modeWheelAltWasDown = isAltDown();
@@ -1585,6 +1675,9 @@ public final class BuilderScreen extends Screen {
         this.controller.setMode(mode);
         this.controller.setFunnelEnabled(funnelEnabled);
         this.funnelHotkeyHeld = false;
+        this.funnelHotkeyTemporaryMode = false;
+        this.funnelMouseHoldButton = -1;
+        this.rotationWheel.close();
         return true;
     }
     @Override
@@ -1658,7 +1751,10 @@ public final class BuilderScreen extends Screen {
         this.overlayRenderer.updateNativeCursor(this.floatingWindowLayer.resizeCursorAt(mouseX, mouseY));
         this.bottomPanel.renderCraftFeedback(guiGraphics);
         this.overlayRenderer.renderDamageFlash(guiGraphics);
-        if (this.modeWheel.isOpen()) {
+        if (this.rotationWheel.isOpen()) {
+            this.overlayRenderer.updateNativeCursorVisibility(false);
+            this.rotationWheel.render(guiGraphics, this.font, mouseX, mouseY);
+        } else if (this.modeWheel.isOpen()) {
             this.overlayRenderer.updateNativeCursorVisibility(false);
             this.modeWheel.render(guiGraphics, this.font, mouseX, mouseY, this.controller.getMode());
         }
@@ -2115,9 +2211,9 @@ public final class BuilderScreen extends Screen {
         }
         this.cameraInput.stopActiveMining();
         this.shapeController.clearShapeBuildSession();
-        this.funnelClickPulseTicks = 0;
         this.funnelHotkeyTemporaryMode = this.controller.getMode() != BuilderMode.FUNNEL;
         if (this.funnelHotkeyTemporaryMode) {
+            this.funnelMouseHoldButton = -1;
             this.modeBeforeFunnelHotkey = this.controller.getMode();
         }
         this.controller.setMode(BuilderMode.FUNNEL);
@@ -2129,24 +2225,40 @@ public final class BuilderScreen extends Screen {
      */
     private void deactivateFunnelHotkey() {
         if (this.controller.getMode() == BuilderMode.FUNNEL || this.controller.isFunnelEnabled()) {
-            this.controller.setFunnelEnabled(false);
             if (this.funnelHotkeyTemporaryMode) {
+                this.funnelMouseHoldButton = -1;
+                this.controller.setFunnelEnabled(false);
                 this.controller.setMode(this.modeBeforeFunnelHotkey);
+            } else {
+                syncFunnelHoldState();
             }
         }
         this.funnelHotkeyTemporaryMode = false;
     }
 
-    /**
-     * 在常驻漏斗模式中执行一次短吸取。持续时间覆盖服务端漏斗调度间隔，
-     * 但不会把漏斗重新变成进入模式后永久自动运行。
-     */
-    private void startFunnelClickPulse() {
-        if (this.controller.getMode() != BuilderMode.FUNNEL || this.funnelHotkeyHeld) {
+    /** 开始常驻漏斗模式的鼠标按住吸取，同时保留同一按键的拖动镜头判定。 */
+    private void beginFunnelMouseHold(int button) {
+        if (this.controller.getMode() != BuilderMode.FUNNEL) {
             return;
         }
-        this.controller.setFunnelEnabled(true);
-        this.funnelClickPulseTicks = 6;
+        this.funnelMouseHoldButton = button;
+        syncFunnelHoldState();
+    }
+
+    /** 鼠标松开即停止吸取；若 F 仍按住，则由 F 继续维持漏斗。 */
+    private void endFunnelMouseHold(int button) {
+        if (button != this.funnelMouseHoldButton) {
+            return;
+        }
+        this.funnelMouseHoldButton = -1;
+        syncFunnelHoldState();
+    }
+
+    /** 统一 F 与鼠标两个按住源，避免松开其中一个时错误关闭另一个。 */
+    private void syncFunnelHoldState() {
+        boolean enabled = this.controller.getMode() == BuilderMode.FUNNEL
+                && (this.funnelHotkeyHeld || this.funnelMouseHoldButton >= 0);
+        this.controller.setFunnelEnabled(enabled);
     }
 
     /**
@@ -2158,6 +2270,9 @@ public final class BuilderScreen extends Screen {
         if (altDown && !this.modeWheelAltWasDown && canOpenModeWheel()) {
             this.cameraInput.stopActiveMining();
             this.cameraInput.cancelPointerGestures();
+            this.funnelMouseHoldButton = -1;
+            syncFunnelHoldState();
+            this.rotationWheel.close();
             int uiWidth = this.lastRtsUiWidth > 0 ? this.lastRtsUiWidth : this.width;
             int uiHeight = this.lastRtsUiHeight > 0 ? this.lastRtsUiHeight : this.height;
             this.modeWheel.open(currentMouseX(), currentMouseY(), uiWidth, uiHeight);
@@ -2188,9 +2303,10 @@ public final class BuilderScreen extends Screen {
         this.shapeController.clearShapeBuildSession();
         this.funnelHotkeyHeld = false;
         this.funnelHotkeyTemporaryMode = false;
-        this.funnelClickPulseTicks = 0;
+        this.funnelMouseHoldButton = -1;
         this.controller.setFunnelEnabled(false);
         this.controller.setMode(mode);
+        this.rotationWheel.close();
     }
 
     private boolean handleRangeCullingSelectionClick(double mouseX, double mouseY, int button) {
@@ -2294,6 +2410,9 @@ public final class BuilderScreen extends Screen {
         this.controller.setFunnelEnabled(false);
         this.controller.setMode(BuilderMode.INTERACT);
         this.funnelHotkeyHeld = false;
+        this.funnelHotkeyTemporaryMode = false;
+        this.funnelMouseHoldButton = -1;
+        this.rotationWheel.close();
     }
 
     /**

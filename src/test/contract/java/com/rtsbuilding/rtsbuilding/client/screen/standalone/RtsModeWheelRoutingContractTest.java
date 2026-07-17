@@ -67,6 +67,51 @@ class RtsModeWheelRoutingContractTest {
                 "按住 F 关闭界面时，必须先恢复旧模式再清除临时漏斗标记");
     }
 
+    @Test
+    void funnelUsesRightMouseAndFAsIndependentHoldSources() throws IOException {
+        String screen = source(
+                "src/main/java/com/rtsbuilding/rtsbuilding/client/screen/standalone/BuilderScreen.java");
+        String mouseDown = methodBody(
+                screen,
+                "private boolean handleWorldClickActions(double mouseX, double mouseY, int button)");
+        String mouseUp = methodBody(
+                screen,
+                "public boolean mouseReleased(double mouseX, double mouseY, int button)");
+        String sync = methodBody(screen, "private void syncFunnelHoldState()");
+
+        assertTrue(mouseDown.contains("beginFunnelMouseHold(button)"));
+        assertTrue(mouseDown.indexOf("beginFunnelMouseHold(button)")
+                        < mouseDown.indexOf("this.cameraInput.beginRightPress("),
+                "Funnel hold must not bypass the existing click/drag camera arbitration");
+        assertTrue(mouseUp.contains("endFunnelMouseHold(button)"));
+        assertTrue(sync.contains("this.funnelHotkeyHeld || this.funnelMouseHoldButton >= 0"));
+        assertTrue(!screen.contains("funnelClickPulseTicks"),
+                "Funnel mode must stop on release instead of running a delayed click pulse");
+    }
+
+    @Test
+    void placedBlockRotationOpensAStateWheelAndSubmitsOnlyTheSelectedProperty() throws IOException {
+        String screen = source(
+                "src/main/java/com/rtsbuilding/rtsbuilding/client/screen/standalone/BuilderScreen.java");
+        String wheel = source(
+                "src/main/java/com/rtsbuilding/rtsbuilding/client/screen/mode/PlacedBlockRotationWheel.java");
+        String primary = methodBody(
+                screen,
+                "private boolean runPrimaryActionAt(double mouseX, double mouseY, int mouseButton)");
+
+        assertTrue(primary.contains("openPlacedBlockRotationWheel("));
+        assertTrue(!primary.contains("this.controller.rotateBlock(target.blockHit().getBlockPos())"));
+        assertTrue(screen.contains(
+                "choice.pos(), choice.propertyName(), choice.valueName()"));
+        assertTrue(wheel.contains("BlockStateProperties.FACING"));
+        assertTrue(wheel.contains("BlockStateProperties.FACING_HOPPER"));
+        assertTrue(wheel.contains("BlockStateProperties.HORIZONTAL_FACING"));
+        assertTrue(wheel.contains("BlockStateProperties.AXIS"));
+        assertTrue(wheel.contains("BlockStateProperties.HORIZONTAL_AXIS"));
+        assertTrue(wheel.contains("renderSingleBlock("),
+                "Each candidate should be previewed from the RTS camera rather than shown as a text-only opcode");
+    }
+
     private static String source(String path) throws IOException {
         return Files.readString(Path.of(path));
     }

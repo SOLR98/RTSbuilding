@@ -199,18 +199,39 @@ public final class RtsPlacementServiceImpl implements PlacementService {
 
     @Override
     public void rotateBlock(ServerPlayer player, BlockPos pos) {
-        if (!RtsProgressionManager.canUse(player, RtsFeature.ROTATE_BLOCK)) {
-            return;
-        }
-        RtsStorageSession session = registry.session().getIfPresent(player);
-        if (session == null || !RtsLinkedStorageResolver.canAccessWorldTarget(player, pos)) {
-            return;
-        }
-        if (!RtsClaimProtectionService.canInteractBlock(
-                player, pos, Direction.UP, net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY)) {
+        if (!canRotateBlock(player, pos)) {
             return;
         }
         RtsPlacementHelper.rotatePlacedBlock(player.serverLevel(), pos, (byte) 1);
+    }
+
+    @Override
+    public void rotateBlock(ServerPlayer player, BlockPos pos, String propertyName, String valueName) {
+        if (!canRotateBlock(player, pos)) {
+            return;
+        }
+        RtsPlacementHelper.setPlacedBlockProperty(
+                player.serverLevel(), pos, propertyName, valueName);
+    }
+
+    private boolean canRotateBlock(ServerPlayer player, BlockPos pos) {
+        if (player == null || pos == null
+                || !RtsProgressionManager.canUse(player, RtsFeature.ROTATE_BLOCK)) {
+            return false;
+        }
+        RtsStorageSession session = registry.session().getIfPresent(player);
+        if (session == null
+                || session.mode != com.rtsbuilding.rtsbuilding.common.build.BuilderMode.ROTATE
+                || player.isSpectator()
+                || !player.mayBuild()
+                || !RtsLinkedStorageResolver.canAccessWorldTarget(player, pos)) {
+            return false;
+        }
+        if (!RtsClaimProtectionService.canInteractBlock(
+                player, pos, Direction.UP, net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY)) {
+            return false;
+        }
+        return true;
     }
 
     @Override

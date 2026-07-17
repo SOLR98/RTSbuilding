@@ -159,6 +159,14 @@ public final class RtsClientPacketGateway {
         PacketDistributor.sendToServer(new C2SRtsRotateBlockPayload(pos));
     }
 
+    public static void sendRotateBlock(BlockPos pos, String propertyName, String valueName) {
+        if (pos == null || propertyName == null || propertyName.isBlank()
+                || valueName == null || valueName.isBlank()) {
+            return;
+        }
+        PacketDistributor.sendToServer(new C2SRtsRotateBlockPayload(pos, propertyName, valueName));
+    }
+
     public static void sendStoreHotbarSlot(int slot) {
         PacketDistributor.sendToServer(new C2SRtsStoreHotbarSlotPayload((byte) Mth.clamp(slot, 0, 8)));
     }

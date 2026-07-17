@@ -82,6 +82,15 @@ public interface PlacementService {
     void rotateBlock(ServerPlayer player, BlockPos pos);
 
     /**
+     * Sets one server-approved directional property on an already placed block.
+     *
+     * <p>The implementation must resolve both the property and value from the
+     * current server-side block state. Callers cannot supply a replacement
+     * {@code BlockState}.
+     */
+    void rotateBlock(ServerPlayer player, BlockPos pos, String propertyName, String valueName);
+
+    /**
      * 获取当前批量放置作业中的总方块数。
      *
      * @param player 目标玩家

@@ -204,18 +204,38 @@ public final class RtsPlacementService {
      * 旋转已放置的方块。
      */
     public static void rotateBlock(ServerPlayer player, BlockPos pos) {
-        if (!RtsProgressionManager.canUse(player, RtsFeature.ROTATE_BLOCK)) {
-            return;
-        }
-        RtsStorageSession session = ServiceRegistry.getInstance().session().getIfPresent(player);
-        if (session == null || !RtsLinkedStorageResolver.canAccessWorldTarget(player, pos)) {
-            return;
-        }
-        if (!RtsClaimProtectionService.canInteractBlock(
-                player, pos, Direction.UP, net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY)) {
+        if (!canRotateBlock(player, pos)) {
             return;
         }
         RtsPlacementHelper.rotatePlacedBlock(player.serverLevel(), pos, (byte) 1);
+    }
+
+    public static void rotateBlock(ServerPlayer player, BlockPos pos, String propertyName, String valueName) {
+        if (!canRotateBlock(player, pos)) {
+            return;
+        }
+        RtsPlacementHelper.setPlacedBlockProperty(
+                player.serverLevel(), pos, propertyName, valueName);
+    }
+
+    private static boolean canRotateBlock(ServerPlayer player, BlockPos pos) {
+        if (player == null || pos == null
+                || !RtsProgressionManager.canUse(player, RtsFeature.ROTATE_BLOCK)) {
+            return false;
+        }
+        RtsStorageSession session = ServiceRegistry.getInstance().session().getIfPresent(player);
+        if (session == null
+                || session.mode != com.rtsbuilding.rtsbuilding.common.build.BuilderMode.ROTATE
+                || player.isSpectator()
+                || !player.mayBuild()
+                || !RtsLinkedStorageResolver.canAccessWorldTarget(player, pos)) {
+            return false;
+        }
+        if (!RtsClaimProtectionService.canInteractBlock(
+                player, pos, Direction.UP, net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY)) {
+            return false;
+        }
+        return true;
     }
 
     // =========================================================================
