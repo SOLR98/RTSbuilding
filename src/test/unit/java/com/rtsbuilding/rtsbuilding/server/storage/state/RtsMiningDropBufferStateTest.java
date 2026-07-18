@@ -49,4 +49,17 @@ class RtsMiningDropBufferStateTest {
         state.markStorageProgress();
         assertFalse(state.fallbackEligible(2_000L, 60L));
     }
+
+    @Test
+    void fallbackNoticeRepeatsOnlyAfterStorageReallyRecovers() {
+        RtsMiningDropBufferState state = new RtsMiningDropBufferState();
+
+        assertTrue(state.shouldNotifyFallback());
+        assertFalse(state.shouldNotifyFallback());
+        state.clearTimingWhenEmpty();
+        assertFalse(state.shouldNotifyFallback());
+
+        state.markStorageProgress();
+        assertTrue(state.shouldNotifyFallback());
+    }
 }

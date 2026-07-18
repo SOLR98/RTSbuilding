@@ -8,6 +8,8 @@ import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.network.RtsClientPacketGateway;
 import com.rtsbuilding.rtsbuilding.client.pathfinding.RtsClientPathfinding;
 import com.rtsbuilding.rtsbuilding.client.record.CraftableEntry;
+import com.rtsbuilding.rtsbuilding.client.rendering.builder.BuildGhostBlockStateResolver;
+import com.rtsbuilding.rtsbuilding.client.rendering.util.RtsPlacementRayFreeze;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.RenderingUtil;
 import com.rtsbuilding.rtsbuilding.client.screen.blueprint.*;
 import com.rtsbuilding.rtsbuilding.client.screen.craft.RtsCraftQuantityWindowPanel;
@@ -28,7 +30,9 @@ import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.layout.BottomPanelLayoutTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.layout.PanelLayouts;
 import com.rtsbuilding.rtsbuilding.client.screen.mode.BuilderModeWheel;
-import com.rtsbuilding.rtsbuilding.client.screen.mode.PlacedBlockRotationWheel;
+import com.rtsbuilding.rtsbuilding.client.screen.mode.PlacedBlockRotationGesture;
+import com.rtsbuilding.rtsbuilding.client.screen.mode.PlacedBlockRotationHandles;
+import com.rtsbuilding.rtsbuilding.client.screen.mode.PlacementStateWheel;
 import com.rtsbuilding.rtsbuilding.client.screen.overlay.PlayerStatusRenderer;
 import com.rtsbuilding.rtsbuilding.client.screen.overlay.RtsScreenOverlayRenderer;
 import com.rtsbuilding.rtsbuilding.client.screen.panel.BottomPanel;
@@ -49,6 +53,7 @@ import com.rtsbuilding.rtsbuilding.compat.sophisticatedbackpacks.RtsBackpackComp
 import com.rtsbuilding.rtsbuilding.client.service.MiningOperationService;
 import com.rtsbuilding.rtsbuilding.client.state.RtsScreenUiStateManager;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
+import com.rtsbuilding.rtsbuilding.client.widget.WindowTextBox;
 import com.rtsbuilding.rtsbuilding.common.RtsUltimineCollector;
 import com.rtsbuilding.rtsbuilding.common.build.BuilderMode;
 import com.rtsbuilding.rtsbuilding.common.persist.RtsClientUiStateStore;
@@ -145,8 +150,10 @@ public final class BuilderScreen extends Screen {
     private final CameraInputHandler cameraInput = new CameraInputHandler();
     /** 长按 Alt 唤出的 RTS 鼠标模式轮盘。 */
     private final BuilderModeWheel modeWheel = new BuilderModeWheel();
-    /** 旋转模式中为世界方块选择目标 facing/axis 的轮盘。 */
-    private final PlacedBlockRotationWheel rotationWheel = new PlacedBlockRotationWheel();
+    /** 旋转模式中围绕目标方块的摄像机相对增量旋转圆弧。 */
+    private final PlacedBlockRotationHandles rotationHandles = new PlacedBlockRotationHandles();
+    /** R 键为下一次放置选择 BlockState；与世界方块旋转使用独立实例和请求链路。 */
+    private final PlacementStateWheel placementStateWheel = new PlacementStateWheel();
     /** Guide/onboarding panel that explains UI elements and controls. */
     private final GuidePanel guidePanel = new GuidePanel();
     /** Gear (settings) menu panel with configuration toggles and sliders. */
@@ -179,8 +186,11 @@ public final class BuilderScreen extends Screen {
     private boolean modeWheelAltWasDown = false;
     /** 轮盘点击关闭后仍需吞掉的鼠标松开事件。 */
     private int modeWheelConsumedMouseButton = -1;
-    /** 方块旋转轮盘关闭后仍需吞掉的鼠标松开事件。 */
-    private int rotationWheelConsumedMouseButton = -1;
+    /** 放置状态轮盘关闭后仍需吞掉的鼠标松开事件。 */
+    private int placementStateWheelConsumedMouseButton = -1;
+    /** R 面板打开前的原始窗口鼠标位置，关闭时恢复，避免下一次放置射线跳变。 */
+    private double placementWheelRestoreMouseX = Double.NaN;
+    private double placementWheelRestoreMouseY = Double.NaN;
     /** 最近一次 RTS 固定缩放渲染所使用的虚拟宽度。 */
     private int lastRtsUiWidth = 0;
     /** 最近一次 RTS 固定缩放渲染所使用的虚拟高度。 */
@@ -439,9 +449,10 @@ public final class BuilderScreen extends Screen {
         }
         // 持久化加载后，将当前模式的独立状态同步到活跃字段
         syncQuickBuildActiveState();
-        this.searchBox = new EditBox(this.font, 8, this.height - 52, 150, 14, Component.literal("Search"));
+        WindowTextBox storageSearchBox = new WindowTextBox(this.font, 8, this.height - 52, 150, 14);
+        storageSearchBox.setPlaceholder("Search");
+        this.searchBox = storageSearchBox;
         this.searchBox.setMaxLength(128);
-        this.searchBox.setBordered(true);
         this.searchBox.setCanLoseFocus(true);
         this.searchBox.setValue(this.controller.getStorageSearch());
         this.craftSearchBox = new EditBox(this.font, 8, this.height - 52, 74, 10, Component.literal("Craft Search"));
@@ -487,8 +498,9 @@ public final class BuilderScreen extends Screen {
         this.funnelMouseHoldButton = -1;
         this.modeWheel.close();
         this.modeWheelConsumedMouseButton = -1;
-        this.rotationWheel.close();
-        this.rotationWheelConsumedMouseButton = -1;
+        this.rotationHandles.clear();
+        closePlacementStateWheelImmediately();
+        this.placementStateWheelConsumedMouseButton = -1;
         this.cameraInput.resetCameraVerticalHeld();
         this.cameraInput.stopActiveMining();
         if (this.controller.isFunnelEnabled()) {
@@ -509,8 +521,9 @@ public final class BuilderScreen extends Screen {
         this.modeWheel.close();
         this.modeWheelAltWasDown = false;
         this.modeWheelConsumedMouseButton = -1;
-        this.rotationWheel.close();
-        this.rotationWheelConsumedMouseButton = -1;
+        this.rotationHandles.clear();
+        closePlacementStateWheelImmediately();
+        this.placementStateWheelConsumedMouseButton = -1;
         boolean restoreModeAfterFunnel = this.funnelHotkeyTemporaryMode;
         this.funnelHotkeyHeld = false;
         this.funnelMouseHoldButton = -1;
@@ -536,10 +549,15 @@ public final class BuilderScreen extends Screen {
         this.uiStateManager.flush();
         enforceBlueprintPlacementModeLock();
         updateModeWheelAltState();
-        if (this.rotationWheel.isOpen()
-                && (this.controller.getMode() != BuilderMode.ROTATE
-                || !this.rotationWheel.targetStillMatches(this.minecraft.level))) {
-            this.rotationWheel.close();
+        if (this.controller.getMode() != BuilderMode.ROTATE
+                || !this.rotationHandles.targetStillMatches(this.minecraft.level)) {
+            this.rotationHandles.clear();
+        }
+        if (this.placementStateWheel.isOpen()
+                && !(this.controller.getSelectedItemPreview().getItem() instanceof BlockItem)
+                && !(this.minecraft.player != null
+                && this.minecraft.player.getMainHandItem().getItem() instanceof BlockItem)) {
+            closePlacementStateWheel();
         }
         if (this.rtsFlightToggleCooldownTicks > 0) {
             this.rtsFlightToggleCooldownTicks--;
@@ -586,19 +604,23 @@ public final class BuilderScreen extends Screen {
             }
         }
         endFixedRtsScaleInput(frame);
-        if (this.rotationWheel.isOpen()) {
+        if (this.placementStateWheel.isOpen()) {
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                PlacedBlockRotationWheel.RotationChoice choice =
-                        this.rotationWheel.hoveredChoice(mouseX, mouseY);
+                if (this.placementStateWheel.handlePlacementPageClick(mouseX, mouseY)) {
+                    return true;
+                }
+                PlacementStateWheel.PlacementChoice choice =
+                        this.placementStateWheel.hoveredChoice(mouseX, mouseY);
                 if (choice != null) {
-                    this.controller.rotateBlock(
-                            choice.pos(), choice.propertyName(), choice.valueName());
-                    this.rotationWheel.close();
-                    this.rotationWheelConsumedMouseButton = button;
+                    // 保存轮盘真正渲染的完整安全状态，保证后续幽灵与服务端放置不会
+                    // 因为重新解析射线而丢失未点击的朝向、半部或附着面。
+                    this.controller.copyPlacementState(choice.state());
+                    closePlacementStateWheel();
+                    this.placementStateWheelConsumedMouseButton = button;
                 }
             } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-                this.rotationWheel.close();
-                this.rotationWheelConsumedMouseButton = button;
+                closePlacementStateWheel();
+                this.placementStateWheelConsumedMouseButton = button;
             }
             return true;
         }
@@ -717,6 +739,36 @@ public final class BuilderScreen extends Screen {
             }
             return true;
         }
+        if (isWorldArea(mouseX, mouseY)
+                && this.controller.getMode() == BuilderMode.ROTATE) {
+            Vec3 origin = this.cursorPicker.currentRayOrigin();
+            Vec3 direction = this.cursorPicker.computeCursorRayDirection();
+            Direction cameraForward = currentCameraHorizontalDirection();
+            PlacedBlockRotationGesture gesture = this.rotationHandles.hitGesture(
+                    this.minecraft.level, origin, direction, cameraForward);
+            if (gesture != null && this.rotationHandles.targetPos() != null) {
+                this.controller.rotateBlockStep(
+                        this.rotationHandles.targetPos(),
+                        gesture.axisDirection(cameraForward),
+                        gesture.quarterTurns());
+                return true;
+            }
+            BlockHitResult hit = this.cursorPicker.pickBlockHit();
+            if (hit == null || !this.rotationHandles.select(
+                    this.minecraft.level,
+                    hit.getBlockPos(),
+                    cameraForward)) {
+                this.rotationHandles.clear();
+                if (hit != null && this.minecraft.player != null) {
+                    this.minecraft.player.displayClientMessage(
+                            Component.translatable(
+                                    "screen.rtsbuilding.rotation_wheel.unsupported"),
+                            true);
+                }
+            }
+            this.shapeController.clearShapeBuildSession();
+            return true;
+        }
         if (isWorldArea(mouseX, mouseY) && this.controller.getMode() == BuilderMode.LINK_STORAGE) {
             BlockHitResult hit = this.cursorPicker.pickBlockHit();
             if (hit != null) {
@@ -830,11 +882,11 @@ public final class BuilderScreen extends Screen {
         }
         endFixedRtsScaleInput(frame);
         endFunnelMouseHold(button);
-        if (button == this.rotationWheelConsumedMouseButton) {
-            this.rotationWheelConsumedMouseButton = -1;
+        if (button == this.placementStateWheelConsumedMouseButton) {
+            this.placementStateWheelConsumedMouseButton = -1;
             return true;
         }
-        if (this.rotationWheel.isOpen()) {
+        if (this.placementStateWheel.isOpen()) {
             return true;
         }
         if (button == this.modeWheelConsumedMouseButton) {
@@ -892,7 +944,7 @@ public final class BuilderScreen extends Screen {
             }
         }
         endFixedRtsScaleInput(frame);
-        if (this.rotationWheel.isOpen()) {
+        if (this.placementStateWheel.isOpen()) {
             return true;
         }
         if (this.modeWheel.isOpen()) {
@@ -941,7 +993,7 @@ public final class BuilderScreen extends Screen {
             }
         }
         endFixedRtsScaleInput(frame);
-        if (this.rotationWheel.isOpen()) {
+        if (this.placementStateWheel.isOpen()) {
             return;
         }
         this.cameraInput.updateKeyboardPanDrag(mouseX, mouseY);
@@ -1019,11 +1071,7 @@ public final class BuilderScreen extends Screen {
             return true;
         }
         if (this.controller.getMode() == BuilderMode.ROTATE) {
-            InteractionTypes.InteractionTarget target = this.cursorPicker.pickInteractionTarget(false);
-            if (target != null && target.blockHit() != null) {
-                this.shapeController.clearShapeBuildSession();
-                openPlacedBlockRotationWheel(target.blockHit().getBlockPos(), mouseX, mouseY);
-            }
+            // 旋转箭头只响应左键；右键完整保留给相机拖拽。
             return true;
         }
         boolean forcePlace = hasShiftDown();
@@ -1094,6 +1142,7 @@ public final class BuilderScreen extends Screen {
                         target.rayDir());
             } else if (target.blockHit() != null) {
                 if (!forceBackpackPlacement && !forcePlace && !rangeDestroyMode
+                        && this.controller.getPlacementStatePreset().isBlank()
                         && this.controller.getBuildShape() == BuildShape.BLOCK) {
                     this.shapeController.clearShapeBuildSession();
                     this.controller.interactBlockWithPinnedItem(
@@ -1165,8 +1214,10 @@ public final class BuilderScreen extends Screen {
             }
         } else if (target.blockHit() != null) {
             if (hasMainHandItem()) {
-                if (forcePlace) {
-                    this.controller.placeSelected(target.blockHit(), true, target.rayOrigin(), target.rayDir());
+                if (forcePlace || !this.controller.getPlacementStatePreset().isBlank()) {
+                    // R 预选状态只能由放置包携带；普通交互包会重新按命中点计算朝向。
+                    this.controller.placeSelected(
+                            target.blockHit(), forcePlace, target.rayOrigin(), target.rayDir());
                     this.shapeController.recordSinglePlacementForUndo(
                             target.blockHit(),
                             InteractionTypes.PlacementReplayKind.TOOL_SLOT,
@@ -1186,44 +1237,78 @@ public final class BuilderScreen extends Screen {
         return true;
     }
 
-    /** 打开已放置方块的方向轮盘；没有安全方向属性时只提示，不发送网络请求。 */
-    private void openPlacedBlockRotationWheel(BlockPos pos, double mouseX, double mouseY) {
-        if (this.minecraft == null || this.minecraft.level == null || pos == null
-                || !this.minecraft.level.hasChunkAt(pos)) {
-            return;
+    /** 打开只影响后续 RTS 放置的 BlockState 预设轮盘。 */
+    private boolean openPlacementStateWheel(double mouseX, double mouseY) {
+        if (this.minecraft == null || this.minecraft.level == null) {
+            return false;
         }
-        BlockState state = this.minecraft.level.getBlockState(pos);
-        if (!PlacedBlockRotationWheel.supportsBlockEntity(this.minecraft.level, pos, state)) {
-            if (this.minecraft.player != null) {
-                this.minecraft.player.displayClientMessage(
-                        Component.translatable("screen.rtsbuilding.rotation_wheel.unsupported"),
-                        true);
-            }
-            return;
+        ItemStack selected = this.controller.getSelectedItemPreview();
+        if (!(selected.getItem() instanceof BlockItem)
+                && (this.minecraft.player == null
+                || !(this.minecraft.player.getMainHandItem().getItem() instanceof BlockItem))) {
+            return false;
+        }
+        BlockHitResult hit = this.cursorPicker.pickBlockHit();
+        BlockPos targetPos = hit == null
+                ? null
+                : this.minecraft.level.getBlockState(hit.getBlockPos()).canBeReplaced()
+                        ? hit.getBlockPos()
+                        : hit.getBlockPos().relative(hit.getDirection());
+        BlockState state = BuildGhostBlockStateResolver.resolve(this.minecraft, targetPos);
+        if (state == null) {
+            return false;
         }
         var camera = this.minecraft.gameRenderer.getMainCamera();
         int uiWidth = this.lastRtsUiWidth > 0 ? this.lastRtsUiWidth : this.width;
         int uiHeight = this.lastRtsUiHeight > 0 ? this.lastRtsUiHeight : this.height;
-        boolean opened = this.rotationWheel.open(
-                state,
-                pos,
-                mouseX,
-                mouseY,
-                uiWidth,
-                uiHeight,
-                camera.getYRot(),
-                camera.getXRot());
-        if (!opened) {
+        if (!this.placementStateWheel.open(
+                state, mouseX, mouseY, uiWidth, uiHeight, camera.getYRot(), camera.getXRot())) {
             if (this.minecraft.player != null) {
                 this.minecraft.player.displayClientMessage(
-                        Component.translatable("screen.rtsbuilding.rotation_wheel.unsupported"),
-                        true);
+                        Component.translatable("screen.rtsbuilding.placement_state_wheel.unsupported"), true);
             }
-            return;
+            return true;
         }
+        RtsPlacementRayFreeze.clear();
+        this.placementWheelRestoreMouseX = this.minecraft.mouseHandler.xpos();
+        this.placementWheelRestoreMouseY = this.minecraft.mouseHandler.ypos();
+        RtsPlacementRayFreeze.freeze(
+                this.cursorPicker.currentRayOrigin(),
+                this.cursorPicker.computeCursorRayDirection());
         this.cameraInput.stopActiveMining();
         this.cameraInput.cancelPointerGestures();
+        this.rotationHandles.clear();
         this.modeWheel.close();
+        return true;
+    }
+
+    private void closePlacementStateWheel() {
+        this.placementStateWheel.close();
+        releasePlacementWheelPointer();
+    }
+
+    private void closePlacementStateWheelImmediately() {
+        this.placementStateWheel.closeImmediately();
+        releasePlacementWheelPointer();
+    }
+
+    /**
+     * R 面板关闭时解除逻辑射线，并把系统鼠标放回打开前的位置。
+     * GLFW 窗口坐标不参与 RTS UI 缩放，因此高缩放下也不会发生偏移。
+     */
+    private void releasePlacementWheelPointer() {
+        RtsPlacementRayFreeze.clear();
+        if (this.minecraft != null
+                && this.minecraft.getWindow() != null
+                && Double.isFinite(this.placementWheelRestoreMouseX)
+                && Double.isFinite(this.placementWheelRestoreMouseY)) {
+            GLFW.glfwSetCursorPos(
+                    this.minecraft.getWindow().getWindow(),
+                    this.placementWheelRestoreMouseX,
+                    this.placementWheelRestoreMouseY);
+        }
+        this.placementWheelRestoreMouseX = Double.NaN;
+        this.placementWheelRestoreMouseY = Double.NaN;
     }
 
     private boolean tryUseMainHandItemInAir() {
@@ -1266,8 +1351,7 @@ public final class BuilderScreen extends Screen {
             }
         }
         endFixedRtsScaleInput(frame);
-        if (this.rotationWheel.isOpen()) {
-            this.rotationWheel.cycleProperty(scrollY);
+        if (this.placementStateWheel.isOpen()) {
             return true;
         }
         if (this.modeWheel.isOpen()) {
@@ -1315,9 +1399,15 @@ public final class BuilderScreen extends Screen {
      * search box, tool slot, and sensitivity handlers in priority order.
      */
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (this.rotationWheel.isOpen()) {
+        if (this.placementStateWheel.isOpen()) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-                this.rotationWheel.close();
+                closePlacementStateWheel();
+            } else if (keyCode == GLFW.GLFW_KEY_LEFT
+                    || keyCode == GLFW.GLFW_KEY_KP_4) {
+                this.placementStateWheel.cyclePlacementPage(-1);
+            } else if (keyCode == GLFW.GLFW_KEY_RIGHT
+                    || keyCode == GLFW.GLFW_KEY_KP_6) {
+                this.placementStateWheel.cyclePlacementPage(1);
             }
             return true;
         }
@@ -1336,9 +1426,11 @@ public final class BuilderScreen extends Screen {
         if (handleBlueprintKeys(keyCode, scanCode, modifiers)) return true;
         if (handleHomeSelectionKey(keyCode)) return true;
         if (handleSelectionBoxKeys(keyCode, scanCode, modifiers)) return true;
+        // 鼠标正悬浮快捷格时，Pin 是明确的 UI 操作。它必须先于世界/相机按键，
+        // 否则玩家把 Pin 改绑成 A 等常用键后会被前面的世界输入提前消费。
+        if (handleToolSlotKeys(keyCode, scanCode, modifiers)) return true;
         if (handleWorldInteractionKeys(keyCode, scanCode, modifiers)) return true;
         if (handleSearchFocusKeys(keyCode, scanCode, modifiers)) return true;
-        if (handleToolSlotKeys(keyCode, scanCode, modifiers)) return true;
         if (handleSensitivityKeys(keyCode, scanCode)) return true;
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
@@ -1412,6 +1504,9 @@ public final class BuilderScreen extends Screen {
         if (!isSearchFocused() && this.cameraInput.updateCameraVerticalHeldState(keyCode, scanCode, true)) {
             return true;
         }
+        if (!isSearchFocused() && handlePlacedBlockRotationKey(keyCode)) {
+            return true;
+        }
         if (!isSearchFocused() && handleBatchConfirmKey(keyCode, scanCode)) {
             return true;
         }
@@ -1445,6 +1540,13 @@ public final class BuilderScreen extends Screen {
             this.funnelHotkeyHeld = true;
             return true;
         }
+        if (!isSearchFocused()
+                && ClientKeyMappings.ROTATE_SHAPE.matches(keyCode, scanCode)
+                && !hasControlDown()
+                && this.controller.getBuildShape() == BuildShape.BLOCK
+                && openPlacementStateWheel(currentMouseX(), currentMouseY())) {
+            return true;
+        }
         if (!isSearchFocused() && handleModeKeyPressed(keyCode, scanCode)) {
             return true;
         }
@@ -1467,6 +1569,36 @@ public final class BuilderScreen extends Screen {
             return true;
         }
         return false;
+    }
+
+    /**
+     * 旋转模式的键盘副轨。选择框和相机按键已经在它之前获得优先级；
+     * 只有目标方块仍处于选中状态时，方向键/小键盘才提交一步旋转。
+     */
+    private boolean handlePlacedBlockRotationKey(int keyCode) {
+        if (this.controller.getMode() != BuilderMode.ROTATE
+                || !this.rotationHandles.hasTarget()
+                || this.minecraft == null
+                || this.minecraft.level == null) {
+            return false;
+        }
+        PlacedBlockRotationGesture gesture =
+                PlacedBlockRotationGesture.fromKey(keyCode);
+        if (gesture == null) {
+            return false;
+        }
+        Direction cameraForward = currentCameraHorizontalDirection();
+        boolean supported = this.rotationHandles.arcs(
+                        this.minecraft.level, cameraForward)
+                .stream()
+                .anyMatch(arc -> arc.gesture() == gesture);
+        if (supported && this.rotationHandles.targetPos() != null) {
+            this.controller.rotateBlockStep(
+                    this.rotationHandles.targetPos(),
+                    gesture.axisDirection(cameraForward),
+                    gesture.quarterTurns());
+        }
+        return true;
     }
 
     private boolean handleSelectionBoxKeys(int keyCode, int scanCode, int modifiers) {
@@ -1583,7 +1715,7 @@ public final class BuilderScreen extends Screen {
     @Override
     /** Handles key release for funnel hotkey and camera vertical movement states. */
     public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
-        if (this.rotationWheel.isOpen()) {
+        if (this.placementStateWheel.isOpen()) {
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_LEFT_ALT || keyCode == GLFW.GLFW_KEY_RIGHT_ALT) {
@@ -1677,7 +1809,8 @@ public final class BuilderScreen extends Screen {
         this.funnelHotkeyHeld = false;
         this.funnelHotkeyTemporaryMode = false;
         this.funnelMouseHoldButton = -1;
-        this.rotationWheel.close();
+        this.rotationHandles.clear();
+        closePlacementStateWheel();
         return true;
     }
     @Override
@@ -1751,9 +1884,9 @@ public final class BuilderScreen extends Screen {
         this.overlayRenderer.updateNativeCursor(this.floatingWindowLayer.resizeCursorAt(mouseX, mouseY));
         this.bottomPanel.renderCraftFeedback(guiGraphics);
         this.overlayRenderer.renderDamageFlash(guiGraphics);
-        if (this.rotationWheel.isOpen()) {
+        if (this.placementStateWheel.isOpen()) {
             this.overlayRenderer.updateNativeCursorVisibility(false);
-            this.rotationWheel.render(guiGraphics, this.font, mouseX, mouseY);
+            this.placementStateWheel.render(guiGraphics, this.font, mouseX, mouseY);
         } else if (this.modeWheel.isOpen()) {
             this.overlayRenderer.updateNativeCursorVisibility(false);
             this.modeWheel.render(guiGraphics, this.font, mouseX, mouseY, this.controller.getMode());
@@ -2272,7 +2405,8 @@ public final class BuilderScreen extends Screen {
             this.cameraInput.cancelPointerGestures();
             this.funnelMouseHoldButton = -1;
             syncFunnelHoldState();
-            this.rotationWheel.close();
+            this.rotationHandles.clear();
+            closePlacementStateWheelImmediately();
             int uiWidth = this.lastRtsUiWidth > 0 ? this.lastRtsUiWidth : this.width;
             int uiHeight = this.lastRtsUiHeight > 0 ? this.lastRtsUiHeight : this.height;
             this.modeWheel.open(currentMouseX(), currentMouseY(), uiWidth, uiHeight);
@@ -2306,7 +2440,8 @@ public final class BuilderScreen extends Screen {
         this.funnelMouseHoldButton = -1;
         this.controller.setFunnelEnabled(false);
         this.controller.setMode(mode);
-        this.rotationWheel.close();
+        this.rotationHandles.clear();
+        closePlacementStateWheel();
     }
 
     private boolean handleRangeCullingSelectionClick(double mouseX, double mouseY, int button) {
@@ -2412,7 +2547,8 @@ public final class BuilderScreen extends Screen {
         this.funnelHotkeyHeld = false;
         this.funnelHotkeyTemporaryMode = false;
         this.funnelMouseHoldButton = -1;
-        this.rotationWheel.close();
+        this.rotationHandles.clear();
+        closePlacementStateWheel();
     }
 
     /**
@@ -2865,6 +3001,22 @@ public final class BuilderScreen extends Screen {
     /** Delegates to the cursor picker to compute the ray direction from the current cursor position. */
     public Vec3 computeCursorRayDirection() {
         return this.cursorPicker.computeCursorRayDirection();
+    }
+
+    public Vec3 currentRayOrigin() {
+        return this.cursorPicker.currentRayOrigin();
+    }
+
+    public Direction currentCameraHorizontalDirection() {
+        if (this.minecraft != null && this.minecraft.gameRenderer != null) {
+            return Direction.fromYRot(
+                    this.minecraft.gameRenderer.getMainCamera().getYRot());
+        }
+        return Direction.NORTH;
+    }
+
+    public PlacedBlockRotationHandles getRotationHandles() {
+        return this.rotationHandles;
     }
     /** Delegates to the cursor picker to perform a block raycast from the current cursor position. */
     public BlockHitResult pickBlockHit() {

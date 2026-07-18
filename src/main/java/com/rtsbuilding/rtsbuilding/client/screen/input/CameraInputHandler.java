@@ -507,6 +507,7 @@ public final class CameraInputHandler {
             if (selection.route() == RtsPickBlockPlacementSelector.Route.HOTBAR) {
                 inventory.selected = selection.slot();
                 this.controller.clearPlacementSelectionPreserveMode();
+                this.controller.copyPlacementState(state);
                 this.controller.setMode(BuilderMode.INTERACT);
                 return true;
             }
@@ -514,11 +515,13 @@ public final class CameraInputHandler {
                     && mc.gameMode != null) {
                 mc.gameMode.handlePickItem(selection.slot());
                 this.controller.clearPlacementSelectionPreserveMode();
+                this.controller.copyPlacementState(state);
                 this.controller.setMode(BuilderMode.INTERACT);
                 return true;
             }
         }
         this.controller.selectItemForPlacement(itemId.toString(), preview.getHoverName().getString(), preview);
+        this.controller.copyPlacementState(state);
         return true;
     }
 

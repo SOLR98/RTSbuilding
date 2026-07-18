@@ -5,6 +5,7 @@ import com.rtsbuilding.rtsbuilding.client.record.FluidEntry;
 import com.rtsbuilding.rtsbuilding.client.record.RecentEntry;
 import com.rtsbuilding.rtsbuilding.client.record.StorageEntry;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
+import com.rtsbuilding.rtsbuilding.common.placement.PlacementStatePreset;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsStoreFluidPayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -14,6 +15,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
@@ -34,6 +36,8 @@ public final class BuildPlacementService {
     private ItemStack selectedFluidPreview = ItemStack.EMPTY;
     private boolean emptyHandSelected = false;
     private int placeRotateSteps;
+    private String placementStatePreset = "";
+    private String placementStateItemId = "";
 
     // =========================================================================
     //  Build shape
@@ -55,6 +59,7 @@ public final class BuildPlacementService {
     public boolean hasSelectedFluid() { return !this.selectedFluidId.isBlank(); }
     public boolean isEmptyHandSelected() { return this.emptyHandSelected; }
     public int getPlaceRotateDegrees() { return this.placeRotateSteps * 90; }
+    public String getPlacementStatePreset() { return this.placementStatePreset; }
 
     // =========================================================================
     //  Build shape access
@@ -109,6 +114,8 @@ public final class BuildPlacementService {
         clearSelectedFluid();
         this.emptyHandSelected = false;
         this.placeRotateSteps = 0;
+        this.placementStatePreset = "";
+        this.placementStateItemId = "";
     }
 
     public void selectEmptyHand(Runnable setModeInteract) {
@@ -116,6 +123,8 @@ public final class BuildPlacementService {
         clearSelectedFluid();
         this.emptyHandSelected = true;
         this.placeRotateSteps = 0;
+        this.placementStatePreset = "";
+        this.placementStateItemId = "";
         setModeInteract.run();
     }
 
@@ -206,7 +215,9 @@ public final class BuildPlacementService {
         ItemStack itemPrototype = payloadItemId.isBlank() ? ItemStack.EMPTY : this.selectedItemPreview;
 
         RtsClientPacketGateway.sendPlace(hit, forcePlace, skipIfOccupied, payloadItemId, itemPrototype,
-                payloadItemId.isBlank() ? 0 : this.placeRotateSteps, rayOrigin, rayDir, quickBuild);
+                payloadItemId.isBlank() ? 0 : this.placeRotateSteps,
+                payloadItemId.isBlank() ? "" : this.placementStatePreset,
+                rayOrigin, rayDir, quickBuild);
         if (clearAfterPlace) {
             selectEmptyHandPreserveMode();
             requestStoragePage.run();
@@ -252,7 +263,9 @@ public final class BuildPlacementService {
         RtsClientPacketGateway.sendPlaceBatch(hits, templateHit, forcePlace, skipIfOccupied,
                 payloadItemId,
                 payloadItemId.isBlank() ? ItemStack.EMPTY : this.selectedItemPreview,
-                payloadItemId.isBlank() ? 0 : this.placeRotateSteps, rayOrigin, rayDir);
+                payloadItemId.isBlank() ? 0 : this.placeRotateSteps,
+                payloadItemId.isBlank() ? "" : this.placementStatePreset,
+                rayOrigin, rayDir);
         if (clearAfterPlace) {
             selectEmptyHandPreserveMode();
             requestStoragePage.run();
@@ -354,12 +367,14 @@ public final class BuildPlacementService {
         RtsClientPacketGateway.sendRotateBlock(pos);
     }
 
-    public void rotateBlock(BlockPos pos, String propertyName, String valueName) {
-        if (pos == null || propertyName == null || propertyName.isBlank()
-                || valueName == null || valueName.isBlank()) {
-            return;
+    public void rotateBlockStep(
+            BlockPos pos,
+            Direction axisDirection,
+            int quarterTurns) {
+        if (pos != null && axisDirection != null && quarterTurns != 0) {
+            RtsClientPacketGateway.sendRotateBlockStep(
+                    pos, axisDirection, quarterTurns);
         }
-        RtsClientPacketGateway.sendRotateBlock(pos, propertyName, valueName);
     }
 
     public void rotatePlacementClockwise() {
@@ -368,6 +383,19 @@ public final class BuildPlacementService {
 
     public void rotatePlacementCounterClockwise() {
         this.placeRotateSteps = (this.placeRotateSteps + 3) & 3;
+    }
+
+    public void setPlacementStateProperty(String propertyName, String valueName) {
+        this.placementStatePreset = PlacementStatePreset.withValue(
+                this.placementStatePreset, propertyName, valueName);
+        this.placementStateItemId = this.selectedItemId;
+    }
+
+    public void copyPlacementState(BlockState state) {
+        this.placeRotateSteps = 0;
+        this.placementStatePreset = PlacementStatePreset.fromBlockState(state);
+        ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(state.getBlock().asItem());
+        this.placementStateItemId = itemId == null ? "" : itemId.toString();
     }
 
     // =========================================================================
@@ -387,6 +415,8 @@ public final class BuildPlacementService {
         clearSelectedFluid();
         this.emptyHandSelected = true;
         this.placeRotateSteps = 0;
+        this.placementStatePreset = "";
+        this.placementStateItemId = "";
     }
 
     private long getSelectedItemCountForPlacement(String itemId, boolean isLocalPlayerCreative,
@@ -397,7 +427,17 @@ public final class BuildPlacementService {
     }
 
     private void setSelectedItem(String itemId, String label, ItemStack preview) {
-        this.selectedItemId = itemId == null ? "" : itemId;
+        String nextItemId = itemId == null ? "" : itemId;
+        if (!nextItemId.equals(this.selectedItemId)) {
+            this.placeRotateSteps = 0;
+            // R 轮盘可在“手持方块”状态下先预选，再从 RTS 列表选择同一种物品。
+            // 只有真正换成另一种物品时才清除预选，避免选好的上半砖在放置前悄悄丢失。
+            if (!nextItemId.equals(this.placementStateItemId)) {
+                this.placementStatePreset = "";
+                this.placementStateItemId = "";
+            }
+        }
+        this.selectedItemId = nextItemId;
         this.selectedItemLabel = label == null ? "" : label;
         this.selectedItemPreview = preview == null ? ItemStack.EMPTY : preview;
         if (!this.selectedItemId.isBlank()) {

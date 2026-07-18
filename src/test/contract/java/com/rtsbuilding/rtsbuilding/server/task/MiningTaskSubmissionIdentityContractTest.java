@@ -15,12 +15,23 @@ class MiningTaskSubmissionIdentityContractTest {
     void newMiningOperationDoesNotReuseHistoricalWorkflowIdAsTaskIdentity() throws IOException {
         String source = Files.readString(Path.of(
                 "src/main/java/com/rtsbuilding/rtsbuilding/server/task/RtsTaskEngine.java"));
-        String method = methodBody(source, "private boolean submitMiningState(");
+        assertFreshSubmission(methodBody(source, "private boolean submitMiningState("), "挖掘");
+    }
 
+    @Test
+    void newPlacementAndDestructionDoNotReuseHistoricalWorkflowIds() throws IOException {
+        String source = Files.readString(Path.of(
+                "src/main/java/com/rtsbuilding/rtsbuilding/server/task/RtsTaskEngine.java"));
+
+        assertFreshSubmission(methodBody(source, "public boolean submitPlacementJob("), "放置");
+        assertFreshSubmission(methodBody(source, "public boolean submitDestructionJob("), "破坏");
+    }
+
+    private static void assertFreshSubmission(String method, String operation) {
         assertTrue(method.contains("SubmissionId.create()"),
-                "玩家新发起的挖掘必须使用新 submission，避免撞上旧终态回执");
+                "玩家新发起的" + operation + "必须使用新 submission，避免撞上旧终态回执");
         assertFalse(method.contains("SubmissionId.fromLegacy("),
-                "活动 workflowEntryId 不能冒充跨存档稳定的挖掘 submission");
+                "活动 workflowEntryId 不能冒充跨存档稳定的" + operation + " submission");
     }
 
     private static String methodBody(String source, String signatureStart) {

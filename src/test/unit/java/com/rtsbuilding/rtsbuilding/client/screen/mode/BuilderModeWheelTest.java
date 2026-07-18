@@ -26,4 +26,18 @@ class BuilderModeWheelTest {
         assertNull(wheel.hoveredMode(200, 150));
         assertNull(wheel.hoveredMode(300, 150));
     }
+
+    @Test
+    void placementPreviewUsesMinecraftCameraYawSign() {
+        assertEquals(180.0F, PlacementStateWheel.placementPreviewYaw(0.0F));
+        assertEquals(90.0F, PlacementStateWheel.placementPreviewYaw(90.0F));
+        assertEquals(270.0F, PlacementStateWheel.placementPreviewYaw(-90.0F));
+    }
+
+    @Test
+    void narrowVirtualScreenKeepsWheelCenterInsideTheScreen() {
+        assertEquals(45, BuilderModeWheel.clampCenter(200.0D, 90));
+        assertEquals(106, BuilderModeWheel.clampCenter(-50.0D, 400));
+        assertEquals(294, BuilderModeWheel.clampCenter(500.0D, 400));
+    }
 }

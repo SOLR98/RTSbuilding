@@ -20,7 +20,7 @@ public final class RtsMiningDropBufferState {
     /** 连续一次真实储存写入零进度的起始 Tick；排队和正常写入时间不计入三秒回退。 */
     public long firstQueuedGameTime = -1L;
     public boolean fullNoticeSent;
-    private long lastFallbackNoticeGameTime = -1L;
+    private boolean fallbackNoticeSent;
     private long fullSinceGameTime = -1L;
     public int remainingCapacity() {
         return RtsMiningDropBufferPolicy.remainingCapacity(bufferedItems);
@@ -72,6 +72,7 @@ public final class RtsMiningDropBufferState {
 
     public void markStorageProgress() {
         firstQueuedGameTime = -1L;
+        fallbackNoticeSent = false;
     }
 
     public boolean fallbackEligible(long gameTime, long timeoutTicks) {
@@ -94,13 +95,10 @@ public final class RtsMiningDropBufferState {
                 && gameTime - fullSinceGameTime >= Math.max(0L, delayTicks);
     }
 
-    /** 多个 durable 缓存任务同时回退时，每位玩家只显示一条合并提示。 */
-    public boolean shouldSendFallbackNotice(long gameTime, long intervalTicks) {
-        if (lastFallbackNoticeGameTime >= 0L && gameTime >= lastFallbackNoticeGameTime
-                && gameTime - lastFallbackNoticeGameTime < intervalTicks) {
-            return false;
-        }
-        lastFallbackNoticeGameTime = gameTime;
+    /** 同一段持续写入失败只提示一次；只有储存真正恢复写入后才允许再次提示。 */
+    public boolean shouldNotifyFallback() {
+        if (fallbackNoticeSent) return false;
+        fallbackNoticeSent = true;
         return true;
     }
 

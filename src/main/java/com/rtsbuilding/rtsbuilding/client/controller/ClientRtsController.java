@@ -45,6 +45,7 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.CraftingMenu;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import org.lwjgl.glfw.GLFW;
@@ -343,6 +344,10 @@ public final class ClientRtsController {
 
     public int getPlaceRotateDegrees() {
         return this.buildPlacementService.getPlaceRotateDegrees();
+    }
+
+    public String getPlacementStatePreset() {
+        return this.buildPlacementService.getPlacementStatePreset();
     }
 
     public List<StorageEntry> getStorageEntries() {
@@ -1374,12 +1379,12 @@ public final class ClientRtsController {
         RtsClientPacketGateway.sendRotateBlock(pos);
     }
 
-    public void rotateBlock(BlockPos pos, String propertyName, String valueName) {
-        if (pos == null || propertyName == null || propertyName.isBlank()
-                || valueName == null || valueName.isBlank()) {
-            return;
-        }
-        this.buildPlacementService.rotateBlock(pos, propertyName, valueName);
+    public void rotateBlockStep(
+            BlockPos pos,
+            Direction axisDirection,
+            int quarterTurns) {
+        this.buildPlacementService.rotateBlockStep(
+                pos, axisDirection, quarterTurns);
     }
 
     public void storeHotbarSlotToLinked(int slot) {
@@ -1879,6 +1884,14 @@ public final class ClientRtsController {
 
     public void rotatePlacementCounterClockwise() {
         this.buildPlacementService.rotatePlacementCounterClockwise();
+    }
+
+    public void setPlacementStateProperty(String propertyName, String valueName) {
+        this.buildPlacementService.setPlacementStateProperty(propertyName, valueName);
+    }
+
+    public void copyPlacementState(BlockState state) {
+        this.buildPlacementService.copyPlacementState(state);
     }
 
     public void syncVisualCameraFrame() {

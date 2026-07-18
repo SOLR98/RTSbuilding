@@ -236,6 +236,7 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
             return Optional.empty();
         }
         RtsWorkflowSlotManager slots = getOrCreateSlots(player);
+        ResourceKey<Level> dimension = player.level().dimension();
         if (slots.isFull()) {
             RtsWorkflowEntry replaced = slots.removeOldestReplaceableEntry();
             if (replaced != null) {
@@ -244,7 +245,18 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
                         player.getGameProfile().getName(), replaced.id(), replaced.type());
             }
         }
-        RtsWorkflowEntry entry = slots.addEntry(priority);
+        RtsWorkflowEntry entry;
+        do {
+            entry = slots.addEntry(priority);
+            if (entry == null
+                    || !com.rtsbuilding.rtsbuilding.server.task.RtsTaskEngine.INSTANCE
+                            .hasDurableTaskForWorkflow(player, entry.id())) {
+                break;
+            }
+            // 两套存档的 nextId 可能在旧世界升级后短暂错位。这里尚未广播 STARTED，
+            // 可以无副作用地跳过被 durable task 占用的编号。
+            slots.removeEntryById(entry.id());
+        } while (true);
         if (entry == null) {
             String name = player.getGameProfile().getName();
             RtsbuildingMod.LOGGER.warn("[Workflow] {} 工作流已满且没有可覆盖条目 ({}), 拒绝新工作流 {}",
@@ -260,7 +272,6 @@ public final class RtsWorkflowEngine implements IWorkflowEngine {
         // 追踪玩家引用，供后续通知使用
         playerRefs.put(player.getUUID(), player);
 
-        ResourceKey<Level> dimension = player.level().dimension();
         RtsWorkflowToken token = new RtsWorkflowToken(player.getUUID(), entry.id(), dimension, this);
         fireEvent(WorkflowEventType.STARTED, player.getUUID(), entry.id(), entry);
         RtsEffectAccumulator.INSTANCE.markWorkflow(player.getUUID(), dimension);

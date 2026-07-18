@@ -2,6 +2,7 @@ package com.rtsbuilding.rtsbuilding.client.rendering.builder;
 
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
 import com.rtsbuilding.rtsbuilding.client.rendering.util.RaycastHelper;
+import com.rtsbuilding.rtsbuilding.common.placement.PlacementStatePreset;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -48,7 +49,9 @@ public final class BuildGhostBlockStateResolver {
             return null;
         }
         if (targetPos == null) {
-            return blockItem.getBlock().defaultBlockState();
+            return PlacementStatePreset.apply(
+                    blockItem.getBlock().defaultBlockState(),
+                    controller.getPlacementStatePreset());
         }
         BlockState state = resolveStateWithCamera(minecraft, blockItem, itemStack, targetPos);
         if (state == null) return null;
@@ -56,7 +59,7 @@ public final class BuildGhostBlockStateResolver {
         if (rotateDegrees != 0) {
             state = applyRotation(state, rotateDegrees, minecraft.level, targetPos);
         }
-        return state;
+        return PlacementStatePreset.apply(state, controller.getPlacementStatePreset());
     }
 
     /**
@@ -128,13 +131,11 @@ public final class BuildGhostBlockStateResolver {
         Camera camera = minecraft.gameRenderer.getMainCamera();
         Vec3 cameraPos = camera.getPosition();
         Vec3 targetCenter = Vec3.atCenterOf(targetPos);
-
-        double dx = targetCenter.x - cameraPos.x;
-        double dy = targetCenter.y - cameraPos.y;
-        double dz = targetCenter.z - cameraPos.z;
-        float yawDeg = (float) Math.toDegrees(Mth.atan2(-dx, dz));
-
         Vec3 viewDir = RaycastHelper.computeCursorRayDirection(minecraft);
+        // 服务端 TemporaryContextSwitcher 也由客户端光标射线恢复虚拟玩家朝向。
+        // 这里若改用“相机到方块中心”的连线，鼠标靠近方块边缘时可能跨过方向象限，
+        // 导致幽灵/R 轮盘显示的状态与最终 getStateForPlacement 不一致。
+        float yawDeg = placementYawFromRay(viewDir);
         Vec3 rayEnd = cameraPos.add(viewDir.scale(128.0D));
         BlockHitResult actualHit = RaycastHelper.raycastBlockFromCursor(minecraft, cameraPos, rayEnd, false);
 
@@ -160,11 +161,17 @@ public final class BuildGhostBlockStateResolver {
             @Override
             public @NotNull Direction getNearestLookingDirection() { return clickedFace; }
             @Override
-            public @NotNull Direction getNearestLookingVerticalDirection() { return Direction.getNearest(0.0, dy, 0.0); }
+            public @NotNull Direction getNearestLookingVerticalDirection() {
+                return Direction.getNearest(0.0, viewDir.y, 0.0);
+            }
             @Override
             public float getRotation() { return yawDeg; }
         };
         return blockItem.getBlock().getStateForPlacement(context);
+    }
+
+    static float placementYawFromRay(Vec3 viewDir) {
+        return (float) Math.toDegrees(Mth.atan2(-viewDir.x, viewDir.z));
     }
 
     /**

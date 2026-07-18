@@ -3,7 +3,9 @@ package com.rtsbuilding.rtsbuilding.client.screen.mode;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarIconRenderer;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarTypes;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
+import com.rtsbuilding.rtsbuilding.client.util.RtsGuiVectorRenderer;
 import com.rtsbuilding.rtsbuilding.common.build.BuilderMode;
+import net.minecraft.Util;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
@@ -13,36 +15,57 @@ import net.minecraft.util.Mth;
 /**
  * 长按 Alt 唤出的四向 RTS 鼠标模式轮盘。
  *
- * <p>本类只管理临时显示状态、命中检测和绘制，不负责真正切换模式。
- * 模式提交仍由 {@code BuilderScreen} 统一处理，因此相机、漏斗、蓝图锁定和
- * 服务端同步不会形成第二套状态。</p>
+ * <p>本类只管理临时显示状态、命中检测和绘制，不负责真正切换模式。模式提交仍由
+ * {@code BuilderScreen} 统一处理，因此顶部栏、相机、漏斗和服务端同步只读取一套状态。</p>
  */
 public final class BuilderModeWheel {
-    private static final int OPTION_DISTANCE = 48;
-    private static final int OPTION_SIZE = 28;
-    private static final int ICON_SIZE = 24;
+    private static final int OPTION_DISTANCE = 54;
+    private static final int OPTION_START_DISTANCE = 20;
+    private static final int OPTION_RADIUS = 17;
+    private static final int ICON_SIZE = 22;
     private static final int INNER_RADIUS = 16;
     private static final int OUTER_RADIUS = 82;
-    private static final int EDGE_PADDING = 94;
+    private static final int EDGE_PADDING = 106;
+    private static final long OPEN_DURATION_MS = 175L;
+    private static final float HOVER_SPEED_PER_SECOND = 15.0F;
 
     private boolean open;
     private int centerX;
     private int centerY;
+    private long transitionStartedAtMs;
+    private long lastRenderAtMs;
+    private final float[] hoverProgress = new float[4];
 
     public boolean isOpen() {
         return this.open;
     }
 
     public void open(double mouseX, double mouseY, int screenWidth, int screenHeight) {
-        int maxX = Math.max(EDGE_PADDING, screenWidth - EDGE_PADDING);
-        int maxY = Math.max(EDGE_PADDING, screenHeight - EDGE_PADDING);
-        this.centerX = Mth.clamp((int) Math.round(mouseX), EDGE_PADDING, maxX);
-        this.centerY = Mth.clamp((int) Math.round(mouseY), EDGE_PADDING, maxY);
+        this.centerX = clampCenter(mouseX, screenWidth);
+        this.centerY = clampCenter(mouseY, screenHeight);
         this.open = true;
+        this.transitionStartedAtMs = Util.getMillis();
+        this.lastRenderAtMs = this.transitionStartedAtMs;
+        for (int i = 0; i < this.hoverProgress.length; i++) {
+            this.hoverProgress[i] = 0.0F;
+        }
+    }
+
+    static int clampCenter(double mouseCoordinate, int screenSize) {
+        if (screenSize <= EDGE_PADDING * 2) {
+            return Math.max(0, screenSize / 2);
+        }
+        return Mth.clamp(
+                (int) Math.round(mouseCoordinate),
+                EDGE_PADDING,
+                screenSize - EDGE_PADDING);
     }
 
     public void close() {
         this.open = false;
+        for (int i = 0; i < this.hoverProgress.length; i++) {
+            this.hoverProgress[i] = 0.0F;
+        }
     }
 
     public BuilderMode hoveredMode(double mouseX, double mouseY) {
@@ -72,46 +95,65 @@ public final class BuilderModeWheel {
             return;
         }
 
+        long now = Util.getMillis();
+        float progress = animationProgress(now);
+        float deltaSeconds = Math.min(
+                0.05F,
+                Math.max(0L, now - this.lastRenderAtMs) / 1000.0F);
+        this.lastRenderAtMs = now;
         BuilderMode hovered = hoveredMode(mouseX, mouseY);
-        fillCircle(graphics, this.centerX, this.centerY, 72, 0xC0161B22);
-        fillCircle(graphics, this.centerX, this.centerY, 25, 0xE0242C36);
+        updateHoverAnimations(hovered, deltaSeconds);
+        float alpha = Mth.clamp(progress, 0.0F, 1.0F);
+        float distance = Mth.lerp(progress, OPTION_START_DISTANCE, OPTION_DISTANCE);
+        float ringRadius = Mth.lerp(progress, 15.0F, 41.0F);
 
-        drawConnector(graphics, 0, -1);
-        drawConnector(graphics, 1, 0);
-        drawConnector(graphics, 0, 1);
-        drawConnector(graphics, -1, 0);
+        // 中心保持透明，只留下轻量轨道和定位点，避免轮盘遮住玩家正在观察的世界。
+        RtsGuiVectorRenderer.drawRing(
+                graphics,
+                this.centerX,
+                this.centerY,
+                ringRadius,
+                8.0F,
+                multiplyAlpha(0x241A222B, alpha));
+        RtsGuiVectorRenderer.drawRing(
+                graphics,
+                this.centerX,
+                this.centerY,
+                ringRadius,
+                1.25F,
+                multiplyAlpha(0xA07E8C99, alpha));
+        RtsGuiVectorRenderer.fillDisc(
+                graphics,
+                this.centerX,
+                this.centerY,
+                2.0F + progress,
+                multiplyAlpha(0xFFD9E2EA, alpha * 0.78F));
 
-        drawOption(graphics, BuilderMode.INTERACT, 0, -1, currentMode, hovered);
-        drawOption(graphics, BuilderMode.LINK_STORAGE, 1, 0, currentMode, hovered);
-        drawOption(graphics, BuilderMode.FUNNEL, 0, 1, currentMode, hovered);
-        drawOption(graphics, BuilderMode.ROTATE, -1, 0, currentMode, hovered);
+        drawOption(graphics, BuilderMode.INTERACT, 0, -1, 0,
+                distance, currentMode, hovered, alpha, progress);
+        drawOption(graphics, BuilderMode.LINK_STORAGE, 1, 0, 1,
+                distance, currentMode, hovered, alpha, progress);
+        drawOption(graphics, BuilderMode.FUNNEL, 0, 1, 2,
+                distance, currentMode, hovered, alpha, progress);
+        drawOption(graphics, BuilderMode.ROTATE, -1, 0, 3,
+                distance, currentMode, hovered, alpha, progress);
 
-        Component centerLabel = Component.translatable(modeTranslationKey(
+        Component label = Component.translatable(modeTranslationKey(
                 hovered == null ? currentMode : hovered));
-        RtsClientUiUtil.drawCenteredStringNoShadow(
+        drawLabelPill(
                 graphics,
                 font,
-                centerLabel.getString(),
+                label.getString(),
                 this.centerX,
-                this.centerY - 4,
-                hovered == null ? 0xFFD6DFEA : 0xFFFFFFFF);
+                this.centerY + 80,
+                alpha);
         RtsClientUiUtil.drawCenteredStringNoShadow(
                 graphics,
                 font,
                 Component.translatable("screen.rtsbuilding.mode_wheel.hint").getString(),
                 this.centerX,
-                this.centerY + 78,
-                0xFFD6DFEA);
-    }
-
-    private void drawConnector(GuiGraphics graphics, int dx, int dy) {
-        int start = 23;
-        int end = OPTION_DISTANCE - OPTION_SIZE / 2;
-        int x1 = this.centerX + Math.min(dx * start, dx * end) - (dy == 0 ? 0 : 2);
-        int x2 = this.centerX + Math.max(dx * start, dx * end) + (dy == 0 ? 1 : 2);
-        int y1 = this.centerY + Math.min(dy * start, dy * end) - (dx == 0 ? 0 : 2);
-        int y2 = this.centerY + Math.max(dy * start, dy * end) + (dx == 0 ? 1 : 2);
-        graphics.fill(x1, y1, x2, y2, 0xFF4E5D6B);
+                this.centerY + 97,
+                multiplyAlpha(0xFFD6DFEA, alpha * 0.86F));
     }
 
     private void drawOption(
@@ -119,28 +161,88 @@ public final class BuilderModeWheel {
             BuilderMode mode,
             int dx,
             int dy,
+            int optionIndex,
+            float distance,
             BuilderMode currentMode,
-            BuilderMode hoveredMode) {
-        int cx = this.centerX + dx * OPTION_DISTANCE;
-        int cy = this.centerY + dy * OPTION_DISTANCE;
-        int x = cx - OPTION_SIZE / 2;
-        int y = cy - OPTION_SIZE / 2;
+            BuilderMode hoveredMode,
+            float alpha,
+            float openingProgress) {
+        int cx = this.centerX + Math.round(dx * distance);
+        int cy = this.centerY + Math.round(dy * distance);
         boolean current = mode == currentMode;
         boolean hovered = mode == hoveredMode;
-        int border = hovered ? 0xFFFFD878 : current ? 0xFF8FD4A8 : 0xFF657587;
-        int background = hovered ? 0xFF5A4720 : current ? 0xFF244E38 : 0xEE1D242C;
-        graphics.fill(x, y, x + OPTION_SIZE, y + OPTION_SIZE, border);
-        graphics.fill(x + 2, y + 2, x + OPTION_SIZE - 2, y + OPTION_SIZE - 2, background);
+        float hover = this.hoverProgress[optionIndex];
+        float scale = (0.72F + openingProgress * 0.28F) * (1.0F + hover * 0.12F);
+        float radius = OPTION_RADIUS * scale;
+        int border = hover > 0.01F
+                ? blendColor(0xFF82909D, 0xFFFFD878, hover)
+                : current ? 0xFF8FD4A8 : 0xFF82909D;
+        int background = hover > 0.01F
+                ? blendColor(0xD51A2026, 0xE6453820, hover)
+                : current ? 0xD522382D : 0xC91A2026;
+        RtsGuiVectorRenderer.fillDisc(
+                graphics, cx, cy, radius + 1.25F, multiplyAlpha(border, alpha));
+        RtsGuiVectorRenderer.fillDisc(
+                graphics, cx, cy, Math.max(4.0F, radius - 1.25F),
+                multiplyAlpha(background, alpha));
 
         TopBarTypes.TopBarButtonId iconId = modeButtonId(mode);
         ResourceLocation texture = TopBarIconRenderer.topbarModeTexture(
                 iconId, current, hovered, false);
         if (texture != null) {
-            int iconX = cx - ICON_SIZE / 2;
-            int iconY = cy - ICON_SIZE / 2;
+            int iconSize = Math.max(12, Math.round(ICON_SIZE * scale));
+            int iconX = cx - iconSize / 2;
+            int iconY = cy - iconSize / 2;
             graphics.blit(texture, iconX, iconY, 0, 0,
-                    ICON_SIZE, ICON_SIZE, ICON_SIZE, ICON_SIZE);
+                    iconSize, iconSize, iconSize, iconSize);
         }
+    }
+
+    private void updateHoverAnimations(BuilderMode hoveredMode, float deltaSeconds) {
+        float amount = Mth.clamp(deltaSeconds * HOVER_SPEED_PER_SECOND, 0.0F, 1.0F);
+        BuilderMode[] modes = {
+                BuilderMode.INTERACT,
+                BuilderMode.LINK_STORAGE,
+                BuilderMode.FUNNEL,
+                BuilderMode.ROTATE
+        };
+        for (int i = 0; i < this.hoverProgress.length; i++) {
+            float target = modes[i] == hoveredMode ? 1.0F : 0.0F;
+            this.hoverProgress[i] = Mth.lerp(amount, this.hoverProgress[i], target);
+        }
+    }
+
+    private float animationProgress(long now) {
+        float raw = Mth.clamp(
+                (now - this.transitionStartedAtMs) / (float) OPEN_DURATION_MS,
+                0.0F,
+                1.0F);
+        float remaining = 1.0F - raw;
+        return 1.0F - remaining * remaining * remaining;
+    }
+
+    private static void drawLabelPill(
+            GuiGraphics graphics,
+            Font font,
+            String text,
+            int centerX,
+            int centerY,
+            float alpha) {
+        int width = font.width(text) + 16;
+        RtsGuiVectorRenderer.fillCapsule(
+                graphics,
+                centerX - width / 2,
+                centerX + (width + 1) / 2,
+                centerY,
+                15.0F,
+                multiplyAlpha(0xD0161B22, alpha * 0.88F));
+        RtsClientUiUtil.drawCenteredStringNoShadow(
+                graphics,
+                font,
+                text,
+                centerX,
+                centerY - 4,
+                multiplyAlpha(0xFFF0F4F7, alpha));
     }
 
     private static TopBarTypes.TopBarButtonId modeButtonId(BuilderMode mode) {
@@ -161,16 +263,18 @@ public final class BuilderModeWheel {
         };
     }
 
-    private static void fillCircle(
-            GuiGraphics graphics,
-            int centerX,
-            int centerY,
-            int radius,
-            int color) {
-        for (int y = -radius; y <= radius; y++) {
-            int halfWidth = (int) Math.sqrt(radius * radius - y * y);
-            graphics.fill(centerX - halfWidth, centerY + y,
-                    centerX + halfWidth + 1, centerY + y + 1, color);
-        }
+    private static int multiplyAlpha(int color, float multiplier) {
+        int alpha = Math.round(
+                ((color >>> 24) & 0xFF) * Mth.clamp(multiplier, 0.0F, 1.0F));
+        return color & 0x00FFFFFF | alpha << 24;
+    }
+
+    private static int blendColor(int from, int to, float amount) {
+        float clamped = Mth.clamp(amount, 0.0F, 1.0F);
+        int a = Math.round(Mth.lerp(clamped, (from >>> 24) & 0xFF, (to >>> 24) & 0xFF));
+        int r = Math.round(Mth.lerp(clamped, (from >>> 16) & 0xFF, (to >>> 16) & 0xFF));
+        int g = Math.round(Mth.lerp(clamped, (from >>> 8) & 0xFF, (to >>> 8) & 0xFF));
+        int b = Math.round(Mth.lerp(clamped, from & 0xFF, to & 0xFF));
+        return a << 24 | r << 16 | g << 8 | b;
     }
 }

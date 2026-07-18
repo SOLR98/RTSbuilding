@@ -1,9 +1,11 @@
 package com.rtsbuilding.rtsbuilding.server.service.placement;
 
+import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.tags.TagKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BedBlock;
@@ -17,12 +19,10 @@ import net.minecraft.world.level.block.piston.PistonHeadBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.ChestType;
-import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.level.block.entity.BlockEntity;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.Optional;
 
 /**
  * Server-authoritative resolver for rotating an already placed block.
@@ -34,35 +34,16 @@ import java.util.Optional;
 public final class RtsPlacedBlockRotation {
     private static final String CREATE_KINETIC_BLOCK_ENTITY =
             "com.simibubi.create.content.kinetics.base.KineticBlockEntity";
+    /**
+     * 数据包可扩展黑名单。普通同方块机器默认允许旋转；只有明确的多方块结构和
+     * 被模组包作者列入本标签的控制器会被拒绝。
+     */
+    public static final TagKey<Block> ROTATION_BLACKLIST = TagKey.create(
+            Registries.BLOCK,
+            ResourceLocation.fromNamespaceAndPath(
+                    RtsbuildingMod.MODID, "rotation_blacklist"));
 
     private RtsPlacedBlockRotation() {
-    }
-
-    public static boolean setProperty(
-            ServerLevel level, BlockPos pos, String propertyName, String valueName) {
-        if (!canReadNeighborhood(level, pos)
-                || propertyName == null || propertyName.isBlank()
-                || valueName == null || valueName.isBlank()) {
-            return false;
-        }
-
-        BlockState current = level.getBlockState(pos);
-        if (current.isAir() || isUnsafeState(current)) {
-            return false;
-        }
-
-        Property<?> property = findProperty(current, propertyName);
-        if (property == null || !isAllowedProperty(property)) {
-            return false;
-        }
-
-        Optional<?> parsedValue = property.getValue(valueName);
-        if (parsedValue.isEmpty()) {
-            return false;
-        }
-
-        BlockState requested = setValue(current, property, parsedValue.get());
-        return applyResolvedState(level, pos, current, requested);
     }
 
     static boolean canReadNeighborhood(ServerLevel level, BlockPos pos) {
@@ -102,11 +83,9 @@ public final class RtsPlacedBlockRotation {
         if (blockEntity != null && isCreateKineticBlockEntity(blockEntity)) {
             changed = switchCreateKineticState(level, pos, adjusted);
         } else {
-            if (blockEntity != null && !isVanillaBlock(current)) {
-                // Unknown modded block entities can own capabilities or networks
-                // that a plain setBlock cannot safely rebuild.
-                return false;
-            }
+            // 同一个 Block 的状态切换通常会保留原 BlockEntity。执行后仍要求对象、
+            // 类型与有效性完全不变，因此普通模组机器可以工作，而会重建控制器的
+            // 多方块结构会被下面的后置检查拒绝。
             changed = level.setBlock(pos, adjusted, Block.UPDATE_ALL);
         }
         if (!changed
@@ -118,24 +97,45 @@ public final class RtsPlacedBlockRotation {
         return true;
     }
 
-    private static Property<?> findProperty(BlockState state, String propertyName) {
-        String normalized = propertyName.trim();
-        for (Property<?> property : state.getProperties()) {
-            if (property.getName().equals(normalized)) {
-                return property;
-            }
+    /**
+     * 刚放置完成的方块尚未进入后续玩法流程，可以尝试同方块状态切换；仍要求方块实体
+     * 对象原地保留，失败即关闭，不放宽世界中已有机器的通用旋转策略。
+     */
+    static boolean applyFreshPlacementState(
+            ServerLevel level, BlockPos pos, BlockState current, BlockState requested) {
+        if (level == null || pos == null || current == null || requested == null
+                || current.getBlock() != requested.getBlock()
+                || isUnsafeState(current) || isUnsafeState(requested)) {
+            return false;
         }
-        return null;
-    }
+        if (requested.equals(current)) {
+            return true;
+        }
 
-    private static boolean isAllowedProperty(Property<?> property) {
-        Class<?> valueClass = property.getValueClass();
-        return valueClass == Direction.class
-                || valueClass == Direction.Axis.class
-                || property == BlockStateProperties.ROTATION_16;
+        /*
+         * 这是刚刚成功放置的同一个方块，不是对世界中未知机器的任意编辑。
+         * 玩家在 R 面板已经明确选择了最终 BlockState，因此这里不再调用
+         * updateFromNeighbourShapes/canSurvive 让原始点击位置第二次推翻预设。
+         * 仍保留同方块、黑名单、方块实体类型和对象身份这几条窄安全边界。
+         */
+        BlockEntity blockEntity = level.getBlockEntity(pos);
+        if (blockEntity != null && !blockEntity.getType().isValid(requested)) {
+            return false;
+        }
+
+        boolean changed = blockEntity != null && isCreateKineticBlockEntity(blockEntity)
+                ? switchCreateKineticState(level, pos, requested)
+                : level.setBlock(pos, requested, Block.UPDATE_ALL);
+        return changed
+                && level.getBlockState(pos).equals(requested)
+                && (blockEntity == null
+                || (level.getBlockEntity(pos) == blockEntity && !blockEntity.isRemoved()));
     }
 
     private static boolean isUnsafeState(BlockState state) {
+        if (state.is(ROTATION_BLACKLIST)) {
+            return true;
+        }
         Block block = state.getBlock();
         if (block instanceof BedBlock
                 || block instanceof DoorBlock
@@ -156,11 +156,6 @@ public final class RtsPlacedBlockRotation {
         return block instanceof PistonBaseBlock
                 && state.hasProperty(BlockStateProperties.EXTENDED)
                 && state.getValue(BlockStateProperties.EXTENDED);
-    }
-
-    private static boolean isVanillaBlock(BlockState state) {
-        ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
-        return "minecraft".equals(id.getNamespace());
     }
 
     private static boolean isCreateKineticBlockEntity(BlockEntity blockEntity) {
@@ -198,8 +193,4 @@ public final class RtsPlacedBlockRotation {
         }
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private static BlockState setValue(BlockState state, Property property, Object value) {
-        return state.setValue(property, (Comparable) value);
-    }
 }

@@ -28,6 +28,11 @@ public final class RtsBuilderPackets {
                 RtsPlaceHandlers::handleRotateBlock);
 
         registrar.playToServer(
+                C2SRtsOrientBlockPayload.TYPE,
+                C2SRtsOrientBlockPayload.STREAM_CODEC,
+                RtsPlaceHandlers::handleOrientBlock);
+
+        registrar.playToServer(
                 C2SRtsPlacePayload.TYPE,
                 C2SRtsPlacePayload.STREAM_CODEC,
                 RtsPlaceHandlers::handlePlace);

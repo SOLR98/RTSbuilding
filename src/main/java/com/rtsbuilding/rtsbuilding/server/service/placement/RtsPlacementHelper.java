@@ -1,5 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.service.placement;
 
+import com.rtsbuilding.rtsbuilding.common.placement.PlacementStatePreset;
+import com.rtsbuilding.rtsbuilding.common.placement.PlacedBlockRotationStep;
 import com.rtsbuilding.rtsbuilding.server.service.ServiceRegistry;
 import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
 import net.minecraft.core.BlockPos;
@@ -78,14 +80,34 @@ public final class RtsPlacementHelper {
         RtsPlacedBlockRotation.applyResolvedState(level, pos, state, rotated);
     }
 
+    public static void rotatePlacedBlockStep(
+            ServerLevel level,
+            BlockPos pos,
+            Direction axisDirection,
+            int quarterTurns) {
+        if (!RtsPlacedBlockRotation.canReadNeighborhood(level, pos)
+                || axisDirection == null
+                || Math.abs(quarterTurns) != 1) {
+            return;
+        }
+        BlockState current = level.getBlockState(pos);
+        BlockState rotated = PlacedBlockRotationStep.rotate(
+                current, axisDirection, quarterTurns);
+        RtsPlacedBlockRotation.applyResolvedState(
+                level, pos, current, rotated);
+    }
+
     /**
-     * Resolves a named property/value pair against the current server state and
-     * applies it only when it is an approved direction, axis, or rotation
-     * property.
+     * 对刚刚成功放下的方块应用服务端白名单状态预设。
      */
-    public static void setPlacedBlockProperty(
-            ServerLevel level, BlockPos pos, String propertyName, String valueName) {
-        RtsPlacedBlockRotation.setProperty(level, pos, propertyName, valueName);
+    public static void applyPlacementStatePreset(ServerLevel level, BlockPos pos, String encodedPreset) {
+        if (encodedPreset == null || encodedPreset.isBlank()
+                || !RtsPlacedBlockRotation.canReadNeighborhood(level, pos)) {
+            return;
+        }
+        BlockState current = level.getBlockState(pos);
+        BlockState resolved = PlacementStatePreset.apply(current, encodedPreset);
+        RtsPlacedBlockRotation.applyFreshPlacementState(level, pos, current, resolved);
     }
 
     /**

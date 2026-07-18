@@ -3,6 +3,7 @@ package com.rtsbuilding.rtsbuilding.server.service.mining;
 import com.rtsbuilding.rtsbuilding.Config;
 import com.rtsbuilding.rtsbuilding.common.RtsUltimineCollector;
 import com.rtsbuilding.rtsbuilding.server.data.PlacedBlockTrackerData;
+import com.rtsbuilding.rtsbuilding.server.loadout.RtsMiningRules;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.protection.RtsClaimProtectionService;
@@ -133,6 +134,49 @@ public final class RtsMiningValidator {
         return state.getDestroySpeed(level, pos) >= 0.0F;
     }
 
+    /**
+     * 实际工具保护：需要正确工具掉落的方块，必须由当前真正参与挖掘的工具正确采集。
+     */
+    public static boolean canHarvestWithTool(BlockState state, ItemStack tool, boolean creative) {
+        return creative
+                || state == null
+                || !state.requiresCorrectToolForDrops()
+                || (tool != null && !tool.isEmpty() && tool.isCorrectToolForDrops(state));
+    }
+
+    /**
+     * 非连锁范围挖掘的生存平衡上限。关闭生存平衡时只保留实际工具保护。
+     */
+    public static boolean canRangeMineWithTool(BlockState state, ItemStack tool, boolean creative) {
+        if (!canHarvestWithTool(state, tool, creative)) {
+            return false;
+        }
+        if (creative || !Config.ENABLE_SURVIVAL_PROGRESSION.getAsBoolean()) {
+            return true;
+        }
+        RangeMiningHarvestTier tier;
+        try {
+            tier = Config.areaMineMaxHarvestTier();
+        } catch (IllegalStateException ignored) {
+            tier = RangeMiningHarvestTier.WOOD;
+        }
+        return RtsMiningRules.requiredLevel(state) <= tier.maxRequiredLevel();
+    }
+
+    public static ItemStack resolveMiningTool(
+            ServerPlayer player, int toolSlot, ItemStack linkedTool) {
+        if (linkedTool != null && !linkedTool.isEmpty()) {
+            return linkedTool;
+        }
+        if (player == null) {
+            return ItemStack.EMPTY;
+        }
+        int slot = clampHotbarSlot(toolSlot);
+        return slot < player.getInventory().getContainerSize()
+                ? player.getInventory().getItem(slot)
+                : ItemStack.EMPTY;
+    }
+
     // =========================================================================
     //  连锁挖掘候选检查
     // =========================================================================
@@ -176,6 +220,10 @@ public final class RtsMiningValidator {
             return true;
         }
         if (!hasValidDestroySpeed(state, player.serverLevel(), pos)) {
+            return false;
+        }
+        ItemStack actualTool = resolveMiningTool(player, toolSlot, linkedTool);
+        if (!canHarvestWithTool(state, actualTool, false)) {
             return false;
         }
         float seedDestroySpeed = seedState.getDestroySpeed(player.serverLevel(), pos);
@@ -299,6 +347,10 @@ public final class RtsMiningValidator {
             // 避免铺开一片候选时重复计算整批工具速度。
             if (MiningSpeedCalculator.computeRemoteDestroyStep(player, seedState, seed, toolSlot, linkedTool,
                     selectedToolRequested) <= 0.0F) {
+                return new java.util.ArrayDeque<>();
+            }
+            if (!canHarvestWithTool(
+                    seedState, resolveMiningTool(player, toolSlot, linkedTool), false)) {
                 return new java.util.ArrayDeque<>();
             }
         }

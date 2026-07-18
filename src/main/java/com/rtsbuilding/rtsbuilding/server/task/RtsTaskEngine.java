@@ -619,6 +619,26 @@ public final class RtsTaskEngine {
         return true;
     }
 
+    /**
+     * 检查 durable task 是否仍占用某个工作流编号。
+     *
+     * <p>工作流面板与 durable task 分别持久化，旧世界恢复时两边的 nextId
+     * 可能短暂不同步。新工作流创建前必须避开仍由任务根占用的编号，不能等到
+     * 任务提交时再以异常形式拒绝玩家操作。</p>
+     */
+    public boolean hasDurableTaskForWorkflow(
+            net.minecraft.server.level.ServerPlayer player, int workflowEntryId) {
+        if (player == null || workflowEntryId < 0) return false;
+        return com.rtsbuilding.rtsbuilding.server.task.persistence.TaskPersistenceRuntime.INSTANCE
+                .coordinator()
+                .query()
+                .findByWorkflow(
+                        player.getUUID(),
+                        player.serverLevel().dimension().location().toString(),
+                        workflowEntryId)
+                .isPresent();
+    }
+
     public boolean submitPlacementJob(net.minecraft.server.level.ServerPlayer player,
             RtsPlacementBatch.PlaceBatchJob job) {
         if (player == null || job == null) return false;
@@ -633,11 +653,11 @@ public final class RtsTaskEngine {
         PlacementTaskPayload payload = new PlacementTaskPayload(
                 player.getUUID(), player.serverLevel().dimension(), job.workflowEntryId(),
                 RtsPlacementBatch.snapshotDetachedState(job, player.registryAccess()));
-        var submission = job.workflowEntryId() >= 0
-                ? com.rtsbuilding.rtsbuilding.server.task.identity.SubmissionId.fromLegacy(
-                        player.getUUID(), "placement",
-                        player.serverLevel().dimension().location() + ":" + job.workflowEntryId())
-                : com.rtsbuilding.rtsbuilding.server.task.identity.SubmissionId.create();
+        /*
+         * workflowEntryId 只属于当前工作流存档代次。玩家每次新放置都必须获得新的
+         * submission，否则旧世界中相同编号的终态回执会把合法操作误判为任务重放。
+         */
+        var submission = com.rtsbuilding.rtsbuilding.server.task.identity.SubmissionId.create();
         var taskId = com.rtsbuilding.rtsbuilding.server.task.identity.TaskId
                 .fromSubmission(player.getUUID(), submission);
         long gameTime = player.serverLevel().getGameTime();
@@ -664,9 +684,8 @@ public final class RtsTaskEngine {
         DestructionTaskPayload payload = new DestructionTaskPayload(
                 player.getUUID(), player.serverLevel().dimension(), job.workflowEntryId(),
                 RtsDestructionBatch.snapshotDetachedState(job));
-        var submission = com.rtsbuilding.rtsbuilding.server.task.identity.SubmissionId.fromLegacy(
-                player.getUUID(), "destruction",
-                player.serverLevel().dimension().location() + ":" + job.workflowEntryId());
+        // 与放置、挖掘一致：新操作不能复用历史 workflow 编号作为 durable submission。
+        var submission = com.rtsbuilding.rtsbuilding.server.task.identity.SubmissionId.create();
         var taskId = com.rtsbuilding.rtsbuilding.server.task.identity.TaskId
                 .fromSubmission(player.getUUID(), submission);
         long gameTime = player.serverLevel().getGameTime();

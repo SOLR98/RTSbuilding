@@ -2,6 +2,7 @@ package com.rtsbuilding.rtsbuilding.client.screen.standalone;
 
 import com.rtsbuilding.rtsbuilding.Config;
 import com.rtsbuilding.rtsbuilding.client.controller.ClientRtsController;
+import com.rtsbuilding.rtsbuilding.server.service.mining.RangeMiningHarvestTier;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -30,6 +31,7 @@ public final class RtsModConfigScreen extends Screen {
     private String draftAreaMineMaxDepth = Integer.toString(Config.areaMineMaxDepth());
     private String draftAreaMineMaxVolume = Integer.toString(Config.areaMineMaxVolume());
     private String draftAreaDestroyMaxTargets = Integer.toString(Config.areaDestroyMaxTargets());
+    private RangeMiningHarvestTier areaMineMaxHarvestTier = Config.areaMineMaxHarvestTier();
     private EditBox maxRadiusBox;
     private EditBox maxBlueprintBlocksBox;
     private EditBox areaMineMaxWidthBox;
@@ -181,6 +183,17 @@ public final class RtsModConfigScreen extends Screen {
                     Component.translatable("config.rtsbuilding.area_destroy_max_targets"),
                     this.draftAreaDestroyMaxTargets, 6);
         }
+        y += OPTION_ROW_H;
+
+        if (fullyVisible(y, OPTION_ROW_H)) {
+            addRenderableWidget(Button.builder(
+                    Component.translatable("config.rtsbuilding.harvest_tier."
+                            + this.areaMineMaxHarvestTier.name().toLowerCase()),
+                    btn -> {
+                        this.areaMineMaxHarvestTier = this.areaMineMaxHarvestTier.next();
+                        rebuildConfigWidgets();
+                    }).bounds(controlX, y + 9, controlW, 20).build());
+        }
         y += OPTION_ROW_H + 6 + SECTION_H;
 
         if (fullyVisible(y, OPTION_ROW_H)) {
@@ -228,7 +241,8 @@ public final class RtsModConfigScreen extends Screen {
                     parseAreaMineMaxHeight(),
                     parseAreaMineMaxDepth(),
                     parseAreaMineMaxVolume(),
-                    parseAreaDestroyMaxTargets());
+                    parseAreaDestroyMaxTargets(),
+                    this.areaMineMaxHarvestTier);
             Config.setDeveloperModeEnabled(this.developerMode);
         } catch (RuntimeException ex) {
             if (this.minecraft != null && this.minecraft.player != null) {
@@ -342,6 +356,9 @@ public final class RtsModConfigScreen extends Screen {
         y += OPTION_ROW_H;
         drawOptionRow(g, x, y, width, Component.translatable("config.rtsbuilding.area_destroy_max_targets"),
                 Component.translatable("config.rtsbuilding.area_destroy_max_targets.hint"));
+        y += OPTION_ROW_H;
+        drawOptionRow(g, x, y, width, Component.translatable("config.rtsbuilding.area_mine_max_harvest_tier"),
+                Component.translatable("config.rtsbuilding.area_mine_max_harvest_tier.hint"));
         y += OPTION_ROW_H + 6;
 
         drawSection(g, x, y, Component.translatable("config.rtsbuilding.section.developer"));
@@ -352,7 +369,7 @@ public final class RtsModConfigScreen extends Screen {
     }
 
     private int contentHeight() {
-        return SECTION_H * 4 + OPTION_ROW_H * 11 + 18;
+        return SECTION_H * 4 + OPTION_ROW_H * 12 + 18;
     }
 
     private int maxScroll() {

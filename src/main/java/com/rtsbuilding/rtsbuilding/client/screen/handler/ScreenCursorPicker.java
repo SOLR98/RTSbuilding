@@ -7,6 +7,7 @@ import com.rtsbuilding.rtsbuilding.client.screen.culling.RtsCullingWorldInput;
 import com.rtsbuilding.rtsbuilding.client.screen.interaction.InteractionTypes;
 import com.rtsbuilding.rtsbuilding.client.screen.quickbuild.BuildShape;
 import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
+import com.rtsbuilding.rtsbuilding.client.rendering.util.RtsPlacementRayFreeze;
 import com.rtsbuilding.rtsbuilding.common.blueprint.rule.BlueprintReplaceRules;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsInteractPayload;
 import net.minecraft.client.Minecraft;
@@ -152,6 +153,9 @@ public final class ScreenCursorPicker implements RtsCullingWorldInput.Cursor {
         if (mc == null) {
             return new Vec3(0, 0, -1);
         }
+        if (RtsPlacementRayFreeze.isFrozen()) {
+            return RtsPlacementRayFreeze.directionOr(new Vec3(0.0D, 0.0D, 1.0D));
+        }
         double mouseX = mc.mouseHandler.xpos();
         double mouseY = mc.mouseHandler.ypos();
         double width = Math.max(1.0D, mc.getWindow().getScreenWidth());
@@ -179,7 +183,8 @@ public final class ScreenCursorPicker implements RtsCullingWorldInput.Cursor {
         if (mc == null || mc.gameRenderer == null) {
             return Vec3.ZERO;
         }
-        return mc.gameRenderer.getMainCamera().getPosition();
+        return RtsPlacementRayFreeze.originOr(
+                mc.gameRenderer.getMainCamera().getPosition());
     }
 
     // ===== Private helpers =====

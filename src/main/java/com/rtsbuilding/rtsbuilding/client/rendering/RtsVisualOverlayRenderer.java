@@ -11,6 +11,7 @@ import com.rtsbuilding.rtsbuilding.client.rendering.builder.AdvancedShapeSelecti
 import com.rtsbuilding.rtsbuilding.client.rendering.builder.ShapeGhostRenderer;
 import com.rtsbuilding.rtsbuilding.client.rendering.culling.RtsCullingRenderer;
 import com.rtsbuilding.rtsbuilding.client.rendering.overlay.*;
+import com.rtsbuilding.rtsbuilding.client.rendering.selection.PlacedBlockRotationHandleRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.RenderType;
@@ -166,6 +167,11 @@ public final class RtsVisualOverlayRenderer {
             InteractionTargetRenderer.renderHoveredInteractionTarget(minecraft, controller, poseStack, bracketBuffer, targetNoDepthBuffer);
             PlayerMoveTargetRenderer.render(minecraft, poseStack, bracketBuffer, targetNoDepthBuffer);
             ShapeGhostRenderer.renderShapeGhostPreview(minecraft, poseStack, lineBuffer, fillBuffer);
+            PlacedBlockRotationHandleRenderer.render(
+                    minecraft,
+                    poseStack,
+                    cullingHandleLineBuffer,
+                    cullingHandleFillBuffer);
             AdvancedShapeSelectionBoxRenderer.render(minecraft, poseStack, cullingHandleLineBuffer, cullingHandleFillBuffer);
             RtsCullingRenderer.render(poseStack, lineBuffer, fillBuffer, cullingHandleLineBuffer, cullingHandleFillBuffer);
             BlueprintCaptureRenderer.renderBlueprintCaptureBox(

@@ -17,21 +17,40 @@ class RtsModeWheelRoutingContractTest {
                 "src/main/java/com/rtsbuilding/rtsbuilding/client/screen/topbar/TopBarPanel.java");
 
         String selection = methodBody(screen, "private void selectModeFromWheel(BuilderMode mode)");
-        String opening = methodBody(screen, "private void updateModeWheelAltState()");
         assertTrue(selection.contains("this.controller.setMode(mode)"),
                 "轮盘必须提交到统一 BuilderMode，不能维护独立显示状态");
-        assertTrue(opening.contains("this.cameraInput.cancelPointerGestures()"),
-                "轮盘打开时必须取消此前未完成的鼠标手势");
         assertTrue(topBar.contains("topActionForMode() == TopAction.INTERACT"));
         assertTrue(topBar.contains("topActionForMode() == TopAction.LINK"));
         assertTrue(topBar.contains("topActionForMode() == TopAction.FUNNEL"));
         assertTrue(topBar.contains("topActionForMode() == TopAction.ROTATE"));
         assertTrue(topBar.contains("switch (this.controller.getMode())"),
-                "顶部栏已选中样式必须直接读取统一 BuilderMode");
+                "顶部栏选中样式必须直接读取统一 BuilderMode");
     }
 
     @Test
-    void linkAndRotateActionsWaitForNoDragMouseRelease() throws IOException {
+    void altWheelUsesOneStableTickEdgeInsteadOfThreeCompetingInputPaths() throws IOException {
+        String screen = source(
+                "src/main/java/com/rtsbuilding/rtsbuilding/client/screen/standalone/BuilderScreen.java");
+        String altState = methodBody(screen, "private void updateModeWheelAltState()");
+        String tick = methodBody(screen, "public void tick()");
+        String keyPressed = methodBody(
+                screen, "public boolean keyPressed(int keyCode, int scanCode, int modifiers)");
+        String render = methodBody(
+                screen, "public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick)");
+
+        assertTrue(altState.contains("this.cameraInput.cancelPointerGestures()"),
+                "轮盘打开时必须取消此前未完成的鼠标手势");
+        assertTrue(tick.contains("updateModeWheelAltState()"),
+                "Alt 轮盘只从客户端 tick 读取稳定的物理按键边沿");
+        assertTrue(!keyPressed.contains("openModeWheelAtCursor")
+                        && !keyPressed.contains("isAltKey(keyCode)"),
+                "不能在 keyPressed 抢先打开，否则下一帧 GLFW 状态可能立即把轮盘关闭");
+        assertTrue(!render.contains("updateModeWheelAltState()"),
+                "渲染帧不得再次轮询 Alt，避免输入状态被一帧处理多次");
+    }
+
+    @Test
+    void linkAndRotateActionsKeepTheRightDragCameraArbitration() throws IOException {
         String screen = source(
                 "src/main/java/com/rtsbuilding/rtsbuilding/client/screen/standalone/BuilderScreen.java");
         String cameraInput = source(
@@ -44,15 +63,13 @@ class RtsModeWheelRoutingContractTest {
                 "public boolean handleRightDrag(double mouseX, double mouseY, int button, double dragX, double dragY)");
 
         assertTrue(mouseDown.contains("this.cameraInput.beginRightPress("),
-                "世界右键必须先进入点击/拖动分流");
-        assertTrue(!mouseDown.contains("this.controller.rotateBlock("),
-                "旋转模式不能在鼠标按下时抢走相机拖动");
+                "世界右键必须先进入点击/拖动仲裁");
+        assertTrue(!mouseDown.contains("this.controller.rotateBlockStep("),
+                "旋转箭头只响应左键，不能在鼠标按下时抢走右键拖动");
         assertTrue(!mouseDown.contains("this.controller.linkStorage("),
-                "关联模式不能在鼠标按下时抢走相机拖动");
-        assertTrue(rightDrag.contains("if (this.rightDragDistance <= 1.5D)"),
-                "跨过阈值前必须缓存右键微拖，不能同时转镜头并执行模式点击");
-        assertTrue(rightDrag.contains("queueRotateDrag(this.pendingRightDragX, this.pendingRightDragY)"),
-                "跨过阈值后必须补交累计位移，避免镜头跳过第一段拖动");
+                "关联模式不能在鼠标按下时抢走右键拖动");
+        assertTrue(rightDrag.contains("if (this.rightDragDistance <= 1.5D)"));
+        assertTrue(rightDrag.contains("queueRotateDrag(this.pendingRightDragX, this.pendingRightDragY)"));
     }
 
     @Test
@@ -81,35 +98,93 @@ class RtsModeWheelRoutingContractTest {
 
         assertTrue(mouseDown.contains("beginFunnelMouseHold(button)"));
         assertTrue(mouseDown.indexOf("beginFunnelMouseHold(button)")
-                        < mouseDown.indexOf("this.cameraInput.beginRightPress("),
-                "Funnel hold must not bypass the existing click/drag camera arbitration");
+                        < mouseDown.indexOf("this.cameraInput.beginRightPress("));
         assertTrue(mouseUp.contains("endFunnelMouseHold(button)"));
         assertTrue(sync.contains("this.funnelHotkeyHeld || this.funnelMouseHoldButton >= 0"));
-        assertTrue(!screen.contains("funnelClickPulseTicks"),
-                "Funnel mode must stop on release instead of running a delayed click pulse");
+        assertTrue(!screen.contains("funnelClickPulseTicks"));
     }
 
     @Test
-    void placedBlockRotationOpensAStateWheelAndSubmitsOnlyTheSelectedProperty() throws IOException {
+    void placedBlockRotationUsesWorldArcsAndSubmitsOneStepIntent() throws IOException {
         String screen = source(
                 "src/main/java/com/rtsbuilding/rtsbuilding/client/screen/standalone/BuilderScreen.java");
-        String wheel = source(
-                "src/main/java/com/rtsbuilding/rtsbuilding/client/screen/mode/PlacedBlockRotationWheel.java");
-        String primary = methodBody(
+        String handles = source(
+                "src/main/java/com/rtsbuilding/rtsbuilding/client/screen/mode/PlacedBlockRotationHandles.java");
+        String leftClick = methodBody(
                 screen,
-                "private boolean runPrimaryActionAt(double mouseX, double mouseY, int mouseButton)");
+                "private boolean handleLeftClickInteractions(double mouseX, double mouseY, int button)");
 
-        assertTrue(primary.contains("openPlacedBlockRotationWheel("));
-        assertTrue(!primary.contains("this.controller.rotateBlock(target.blockHit().getBlockPos())"));
-        assertTrue(screen.contains(
-                "choice.pos(), choice.propertyName(), choice.valueName()"));
-        assertTrue(wheel.contains("BlockStateProperties.FACING"));
-        assertTrue(wheel.contains("BlockStateProperties.FACING_HOPPER"));
-        assertTrue(wheel.contains("BlockStateProperties.HORIZONTAL_FACING"));
-        assertTrue(wheel.contains("BlockStateProperties.AXIS"));
-        assertTrue(wheel.contains("BlockStateProperties.HORIZONTAL_AXIS"));
-        assertTrue(wheel.contains("renderSingleBlock("),
-                "Each candidate should be previewed from the RTS camera rather than shown as a text-only opcode");
+        assertTrue(screen.contains("private final PlacedBlockRotationHandles rotationHandles"));
+        assertTrue(leftClick.contains("this.rotationHandles.hitGesture("));
+        assertTrue(leftClick.contains("this.controller.rotateBlockStep("));
+        assertTrue(leftClick.contains("this.rotationHandles.select("));
+        assertTrue(handles.contains("availableArcs(state, pos, cameraForward)"));
+        assertTrue(handles.contains("PlacedBlockRotationStep.supports("),
+                "客户端只显示共享增量旋转器真正支持的小圆弧");
+        assertTrue(!screen.contains("openPlacedBlockRotationWheel("),
+                "世界中已有方块的旋转不再打开屏幕空间轮盘");
+    }
+
+    @Test
+    void placedBlockRotationHandlesRenderInWorldWithoutBlockingCameraDrag() throws IOException {
+        String renderer = source(
+                "src/main/java/com/rtsbuilding/rtsbuilding/client/rendering/selection/PlacedBlockRotationHandleRenderer.java");
+        String cameraInput = source(
+                "src/main/java/com/rtsbuilding/rtsbuilding/client/screen/input/CameraInputHandler.java");
+
+        assertTrue(renderer.contains("RenderingUtil.quad("));
+        assertTrue(renderer.contains("renderArc("));
+        assertTrue(renderer.contains("screen.computeCursorRayDirection()"));
+        assertTrue(cameraInput.contains("queueRotateDrag("),
+                "旋转模式中的箭头不能抢走原有右键拖动镜头");
+    }
+
+    @Test
+    void rotationKeyboardTrackRunsAfterCameraAndSelectionPriority() throws IOException {
+        String screen = source(
+                "src/main/java/com/rtsbuilding/rtsbuilding/client/screen/standalone/BuilderScreen.java");
+        String worldKeys = methodBody(
+                screen,
+                "private boolean handleWorldInteractionKeys(int keyCode, int scanCode, int modifiers)");
+        String keyPressed = methodBody(
+                screen, "public boolean keyPressed(int keyCode, int scanCode, int modifiers)");
+
+        assertTrue(worldKeys.indexOf("this.cameraInput.updateCameraVerticalHeldState(")
+                        < worldKeys.indexOf("handlePlacedBlockRotationKey(keyCode)"),
+                "相机升降绑定必须先于旋转方向键");
+        assertTrue(keyPressed.indexOf("handleSelectionBoxKeys(")
+                        < keyPressed.indexOf("handleWorldInteractionKeys("),
+                "已有选择框微调必须先于世界方块旋转");
+        assertTrue(screen.contains("PlacedBlockRotationGesture.fromKey(keyCode)"));
+    }
+
+    @Test
+    void hoveredPinBindingGetsPriorityOverWorldKeyConflicts() throws IOException {
+        String screen = source(
+                "src/main/java/com/rtsbuilding/rtsbuilding/client/screen/standalone/BuilderScreen.java");
+        String keyPressed = methodBody(
+                screen, "public boolean keyPressed(int keyCode, int scanCode, int modifiers)");
+
+        assertTrue(keyPressed.indexOf("handleToolSlotKeys(")
+                        < keyPressed.indexOf("handleWorldInteractionKeys("),
+                "悬浮 Pin 格时的自定义绑定键必须先于相机/世界按键，避免改绑成 A 后被移动输入吞掉");
+    }
+
+    @Test
+    void altModeWheelUsesModernVectorNodesAndProgressiveOpening() throws IOException {
+        String wheel = source(
+                "src/main/java/com/rtsbuilding/rtsbuilding/client/screen/mode/BuilderModeWheel.java");
+        String vectorRenderer = source(
+                "src/main/java/com/rtsbuilding/rtsbuilding/client/util/RtsGuiVectorRenderer.java");
+
+        assertTrue(wheel.contains("OPEN_DURATION_MS = 175L"));
+        assertTrue(wheel.contains("animationProgress("));
+        assertTrue(wheel.contains("hoverProgress"));
+        assertTrue(wheel.contains("RtsGuiVectorRenderer.drawRing("));
+        assertTrue(wheel.contains("RtsGuiVectorRenderer.fillDisc("));
+        assertTrue(!wheel.contains("private static void fillCircle("));
+        assertTrue(vectorRenderer.contains("SUBPIXEL_SCALE = 2"));
+        assertTrue(vectorRenderer.contains("multiplyAlpha(color, 0.24F)"));
     }
 
     private static String source(String path) throws IOException {

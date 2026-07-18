@@ -909,8 +909,32 @@
   "screen.rtsbuilding.tooltip.shape_box": "體",
   "screen.rtsbuilding.tooltip.shape_chain": "連鎖",
   "message.rtsbuilding.drop_buffer.full": "自動存入快取已滿，挖掘暫時停止。",
-  "message.rtsbuilding.drop_buffer.fallback": "儲存持續 3 秒無法寫入，物品已移至背囊或合併掉落在附近。",
+  "message.rtsbuilding.drop_buffer.fallback": "疑似儲存已滿，無法自動入庫。",
   "rtsbuilding.configuration.taskEngineMaxUnitsPerTick": "RTS 每 Tick 全域工作量",
   "rtsbuilding.configuration.taskEngineMaxUnitsPerSlice": "RTS 每玩家排程片工作量",
-  "rtsbuilding.configuration.taskEngineMaxNanosPerTick": "RTS 每 Tick 伺服器時間預算"
+  "rtsbuilding.configuration.taskEngineMaxNanosPerTick": "RTS 每 Tick 伺服器時間預算",
+  "rtsbuilding.configuration.areaMineMaxHarvestTier": "範圍挖掘最高採集等級",
+  "config.rtsbuilding.area_mine_max_harvest_tier": "最高採集等級",
+  "config.rtsbuilding.area_mine_max_harvest_tier.hint": "僅在生存平衡開啟時限制非連鎖範圍挖掘；實際工具仍必須能正確採集",
+  "config.rtsbuilding.harvest_tier.wood": "木",
+  "config.rtsbuilding.harvest_tier.iron": "鐵",
+  "config.rtsbuilding.harvest_tier.diamond": "鑽石",
+  "config.rtsbuilding.harvest_tier.unlimited": "無限制"
+  ,"screen.rtsbuilding.placement_state_wheel.unsupported": "目前待放置方塊沒有可預選的狀態"
+  ,"screen.rtsbuilding.rotation_wheel.half": "上下"
+  ,"screen.rtsbuilding.rotation_wheel.slab": "半磚"
+  ,"screen.rtsbuilding.rotation_wheel.attach_face": "附著面"
+  ,"screen.rtsbuilding.rotation_wheel.rotation": "角度"
+  ,"screen.rtsbuilding.rotation_wheel.value.top": "上"
+  ,"screen.rtsbuilding.rotation_wheel.value.bottom": "下"
+  ,"screen.rtsbuilding.rotation_wheel.value.floor": "地面"
+  ,"screen.rtsbuilding.rotation_wheel.value.wall": "牆面"
+  ,"screen.rtsbuilding.rotation_wheel.value.ceiling": "頂面"
+  ,"screen.rtsbuilding.placement_state_wheel.all_properties": "全部放置狀態"
+  ,"screen.rtsbuilding.placement_state_wheel.hint_paged": "←/→ 翻頁 · 左鍵套用 · 右鍵/Esc 取消"
+  ,"screen.rtsbuilding.rotation_gizmo.hint": "選擇水平或垂直旋轉"
+  ,"screen.rtsbuilding.rotation_gizmo.horizontal_ccw": "水平軸 · 逆時針"
+  ,"screen.rtsbuilding.rotation_gizmo.horizontal_cw": "水平軸 · 順時針"
+  ,"screen.rtsbuilding.rotation_gizmo.vertical_ccw": "垂直軸 · 逆時針"
+  ,"screen.rtsbuilding.rotation_gizmo.vertical_cw": "垂直軸 · 順時針"
 }

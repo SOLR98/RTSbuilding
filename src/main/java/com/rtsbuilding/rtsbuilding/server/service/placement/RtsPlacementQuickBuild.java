@@ -1,5 +1,6 @@
 package com.rtsbuilding.rtsbuilding.server.service.placement;
 
+import com.rtsbuilding.rtsbuilding.common.placement.PlacementStatePreset;
 import com.rtsbuilding.rtsbuilding.network.storage.S2CRtsStoragePagePayload;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
@@ -114,7 +115,9 @@ public final class RtsPlacementQuickBuild {
         return new StatePlacementPlan(
                 item,
                 templateStack,
-                RtsPlacementHelper.rotateState(state, job.rotateSteps()),
+                PlacementStatePreset.apply(
+                        RtsPlacementHelper.rotateState(state, job.rotateSteps()),
+                        job.statePreset()),
                 true,
                 sourceId.toString());
     }

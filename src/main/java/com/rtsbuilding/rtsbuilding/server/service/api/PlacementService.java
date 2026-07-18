@@ -36,7 +36,7 @@ public interface PlacementService {
      * @param forceEmptyHand 是否强制使用空手交互
      */
     void placeSelected(ServerPlayer player, BlockPos clickedPos, Direction face,
-                       double hitX, double hitY, double hitZ, byte rotateSteps,
+                       double hitX, double hitY, double hitZ, byte rotateSteps, String statePreset,
                        boolean forcePlace, boolean skipIfOccupied, String itemId,
                        ItemStack itemPrototype, double rayOriginX, double rayOriginY, double rayOriginZ,
                        double rayDirX, double rayDirY, double rayDirZ,
@@ -59,7 +59,7 @@ public interface PlacementService {
      * @param rayDirX,rayDirY,rayDirZ 射线方向
      */
     void enqueuePlaceBatch(ServerPlayer player, List<BlockPos> clickedPositions, Direction face,
-                           double hitOffsetX, double hitOffsetY, double hitOffsetZ, byte rotateSteps,
+                           double hitOffsetX, double hitOffsetY, double hitOffsetZ, byte rotateSteps, String statePreset,
                            boolean forcePlace, boolean skipIfOccupied, String itemId,
                            ItemStack itemPrototype, double rayOriginX, double rayOriginY, double rayOriginZ,
                            double rayDirX, double rayDirY, double rayDirZ);
@@ -82,13 +82,13 @@ public interface PlacementService {
     void rotateBlock(ServerPlayer player, BlockPos pos);
 
     /**
-     * Sets one server-approved directional property on an already placed block.
-     *
-     * <p>The implementation must resolve both the property and value from the
-     * current server-side block state. Callers cannot supply a replacement
-     * {@code BlockState}.
+     * 根据世界圆弧提交的轴和 ±90° 步数旋转目标方块。
      */
-    void rotateBlock(ServerPlayer player, BlockPos pos, String propertyName, String valueName);
+    void rotateBlockStep(
+            ServerPlayer player,
+            BlockPos pos,
+            Direction axisDirection,
+            int quarterTurns);
 
     /**
      * 获取当前批量放置作业中的总方块数。

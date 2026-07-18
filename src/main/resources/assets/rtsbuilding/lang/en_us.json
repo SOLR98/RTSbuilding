@@ -909,8 +909,32 @@
   "screen.rtsbuilding.tooltip.shape_box": "Cube",
   "screen.rtsbuilding.tooltip.shape_chain": "Chain",
   "message.rtsbuilding.drop_buffer.full": "Mining paused: the auto-store buffer is full.",
-  "message.rtsbuilding.drop_buffer.fallback": "Storage remained full for 3 seconds. Items were moved to your inventory or dropped nearby.",
+  "message.rtsbuilding.drop_buffer.fallback": "Storage may be full; auto-store failed.",
   "rtsbuilding.configuration.taskEngineMaxUnitsPerTick": "RTS global work units per tick",
   "rtsbuilding.configuration.taskEngineMaxUnitsPerSlice": "RTS work units per player slice",
-  "rtsbuilding.configuration.taskEngineMaxNanosPerTick": "RTS server time budget per tick"
+  "rtsbuilding.configuration.taskEngineMaxNanosPerTick": "RTS server time budget per tick",
+  "rtsbuilding.configuration.areaMineMaxHarvestTier": "Range mining maximum harvest tier",
+  "config.rtsbuilding.area_mine_max_harvest_tier": "Maximum harvest tier",
+  "config.rtsbuilding.area_mine_max_harvest_tier.hint": "Limits non-chain range mining only while Survival balance is enabled; the actual tool must still harvest correctly",
+  "config.rtsbuilding.harvest_tier.wood": "Wood",
+  "config.rtsbuilding.harvest_tier.iron": "Iron",
+  "config.rtsbuilding.harvest_tier.diamond": "Diamond",
+  "config.rtsbuilding.harvest_tier.unlimited": "Unlimited"
+  ,"screen.rtsbuilding.placement_state_wheel.unsupported": "The prepared block has no selectable placement states"
+  ,"screen.rtsbuilding.rotation_wheel.half": "Half"
+  ,"screen.rtsbuilding.rotation_wheel.slab": "Slab"
+  ,"screen.rtsbuilding.rotation_wheel.attach_face": "Attach face"
+  ,"screen.rtsbuilding.rotation_wheel.rotation": "Rotation"
+  ,"screen.rtsbuilding.rotation_wheel.value.top": "Top"
+  ,"screen.rtsbuilding.rotation_wheel.value.bottom": "Bottom"
+  ,"screen.rtsbuilding.rotation_wheel.value.floor": "Floor"
+  ,"screen.rtsbuilding.rotation_wheel.value.wall": "Wall"
+  ,"screen.rtsbuilding.rotation_wheel.value.ceiling": "Ceiling"
+  ,"screen.rtsbuilding.placement_state_wheel.all_properties": "All placement states"
+  ,"screen.rtsbuilding.placement_state_wheel.hint_paged": "←/→ Page · Left-click apply · Right-click/Esc cancel"
+  ,"screen.rtsbuilding.rotation_gizmo.hint": "Choose a horizontal or vertical rotation"
+  ,"screen.rtsbuilding.rotation_gizmo.horizontal_ccw": "Horizontal · counter-clockwise"
+  ,"screen.rtsbuilding.rotation_gizmo.horizontal_cw": "Horizontal · clockwise"
+  ,"screen.rtsbuilding.rotation_gizmo.vertical_ccw": "Vertical · counter-clockwise"
+  ,"screen.rtsbuilding.rotation_gizmo.vertical_cw": "Vertical · clockwise"
 }

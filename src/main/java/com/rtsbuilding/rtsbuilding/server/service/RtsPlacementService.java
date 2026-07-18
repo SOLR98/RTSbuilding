@@ -61,6 +61,7 @@ public final class RtsPlacementService {
                             .hitOffsetY(hitOffsetY)
                             .hitOffsetZ(hitOffsetZ)
                             .rotateSteps(rotateSteps)
+                            .statePreset("")
                             .forcePlace(forcePlace)
                             .skipIfOccupied(skipIfOccupied)
                             .itemId(itemId)
@@ -88,6 +89,7 @@ public final class RtsPlacementService {
                 hitOffsetY,
                 hitOffsetZ,
                 rotateSteps,
+                "",
                 forcePlace,
                 skipIfOccupied,
                 itemId,
@@ -133,6 +135,7 @@ public final class RtsPlacementService {
                             .hitOffsetY(hitOffsetY)
                             .hitOffsetZ(hitOffsetZ)
                             .rotateSteps(rotateSteps)
+                            .statePreset("")
                             .forcePlace(forcePlace)
                             .skipIfOccupied(skipIfOccupied)
                             .itemId(itemId == null ? "" : itemId)
@@ -161,6 +164,7 @@ public final class RtsPlacementService {
                 hitOffsetY,
                 hitOffsetZ,
                 rotateSteps,
+                "",
                 forcePlace,
                 skipIfOccupied,
                 itemId == null ? "" : itemId,
@@ -210,12 +214,21 @@ public final class RtsPlacementService {
         RtsPlacementHelper.rotatePlacedBlock(player.serverLevel(), pos, (byte) 1);
     }
 
-    public static void rotateBlock(ServerPlayer player, BlockPos pos, String propertyName, String valueName) {
-        if (!canRotateBlock(player, pos)) {
+    public static void rotateBlockStep(
+            ServerPlayer player,
+            BlockPos pos,
+            Direction axisDirection,
+            int quarterTurns) {
+        if (!canRotateBlock(player, pos)
+                || axisDirection == null
+                || Math.abs(quarterTurns) != 1) {
             return;
         }
-        RtsPlacementHelper.setPlacedBlockProperty(
-                player.serverLevel(), pos, propertyName, valueName);
+        RtsPlacementHelper.rotatePlacedBlockStep(
+                player.serverLevel(),
+                pos,
+                axisDirection,
+                quarterTurns);
     }
 
     private static boolean canRotateBlock(ServerPlayer player, BlockPos pos) {

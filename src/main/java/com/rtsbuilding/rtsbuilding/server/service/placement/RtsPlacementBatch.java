@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.service.placement;
 
 import com.rtsbuilding.rtsbuilding.Config;
+import com.rtsbuilding.rtsbuilding.common.placement.PlacementStatePreset;
 import com.rtsbuilding.rtsbuilding.network.builder.C2SRtsPlaceBatchPayload;
 import com.rtsbuilding.rtsbuilding.server.history.ServerHistoryManager;
 import com.rtsbuilding.rtsbuilding.server.protection.RtsClaimProtectionService;
@@ -67,7 +68,7 @@ public final class RtsPlacementBatch {
      *         to decide whether to complete the associated workflow entry.
      */
     public static boolean enqueuePlaceBatch(ServerPlayer player, RtsStorageSession session, List<BlockPos> clickedPositions,
-            Direction face, double hitOffsetX, double hitOffsetY, double hitOffsetZ, byte rotateSteps,
+            Direction face, double hitOffsetX, double hitOffsetY, double hitOffsetZ, byte rotateSteps, String statePreset,
             boolean forcePlace, boolean skipIfOccupied, String itemId, ItemStack itemPrototype,
             double rayOriginX, double rayOriginY, double rayOriginZ, double rayDirX, double rayDirY,
             double rayDirZ, boolean quickBuild, boolean forceEmptyHand, boolean sendRemoteHint,
@@ -105,6 +106,7 @@ public final class RtsPlacementBatch {
                 RtsPlacementHelper.sanitizeHitOffset(hitOffsetY, face, Direction.Axis.Y),
                 RtsPlacementHelper.sanitizeHitOffset(hitOffsetZ, face, Direction.Axis.Z),
                 rotateSteps,
+                PlacementStatePreset.sanitize(statePreset),
                 forcePlace,
                 skipIfOccupied,
                 itemId == null ? "" : itemId,
@@ -340,6 +342,7 @@ public final class RtsPlacementBatch {
                 hitLocation.y,
                 hitLocation.z,
                 job.rotateSteps(),
+                job.statePreset(),
                 job.forcePlace(),
                 job.skipIfOccupied(),
                 job.itemId(),
@@ -373,6 +376,7 @@ public final class RtsPlacementBatch {
         private final double hitOffsetY;
         private final double hitOffsetZ;
         private final byte rotateSteps;
+        private final String statePreset;
         private final boolean forcePlace;
         private final boolean skipIfOccupied;
         private final String itemId;
@@ -400,7 +404,7 @@ public final class RtsPlacementBatch {
         int skippedWhileProcessing;
 
         private PlaceBatchJob(List<BlockPos> clickedPositions, Direction face, double hitOffsetX, double hitOffsetY,
-                double hitOffsetZ, byte rotateSteps, boolean forcePlace, boolean skipIfOccupied, String itemId,
+                double hitOffsetZ, byte rotateSteps, String statePreset, boolean forcePlace, boolean skipIfOccupied, String itemId,
                 ItemStack itemPrototype, double rayOriginX, double rayOriginY, double rayOriginZ, double rayDirX,
                 double rayDirY, double rayDirZ, boolean quickBuild, boolean forceEmptyHand, boolean sendRemoteHint,
                 int workflowEntryId) {
@@ -410,6 +414,7 @@ public final class RtsPlacementBatch {
             this.hitOffsetY = hitOffsetY;
             this.hitOffsetZ = hitOffsetZ;
             this.rotateSteps = rotateSteps;
+            this.statePreset = PlacementStatePreset.sanitize(statePreset);
             this.forcePlace = forcePlace;
             this.skipIfOccupied = skipIfOccupied;
             this.itemId = itemId;
@@ -503,6 +508,7 @@ public final class RtsPlacementBatch {
         private static final String NBT_HIT_OFFSET_Y = "hitOffsetY";
         private static final String NBT_HIT_OFFSET_Z = "hitOffsetZ";
         private static final String NBT_ROTATE_STEPS = "rotateSteps";
+        private static final String NBT_STATE_PRESET = "statePreset";
         private static final String NBT_FORCE_PLACE = "forcePlace";
         private static final String NBT_SKIP_IF_OCCUPIED = "skipIfOccupied";
         private static final String NBT_ITEM_ID = "itemId";
@@ -534,6 +540,7 @@ public final class RtsPlacementBatch {
             tag.putDouble(NBT_HIT_OFFSET_Y, hitOffsetY);
             tag.putDouble(NBT_HIT_OFFSET_Z, hitOffsetZ);
             tag.putByte(NBT_ROTATE_STEPS, rotateSteps);
+            tag.putString(NBT_STATE_PRESET, statePreset);
             tag.putBoolean(NBT_FORCE_PLACE, forcePlace);
             tag.putBoolean(NBT_SKIP_IF_OCCUPIED, skipIfOccupied);
             tag.putString(NBT_ITEM_ID, itemId);
@@ -568,6 +575,7 @@ public final class RtsPlacementBatch {
             double hitOffsetY = tag.getDouble(NBT_HIT_OFFSET_Y);
             double hitOffsetZ = tag.getDouble(NBT_HIT_OFFSET_Z);
             byte rotateSteps = tag.getByte(NBT_ROTATE_STEPS);
+            String statePreset = tag.getString(NBT_STATE_PRESET);
             boolean forcePlace = tag.getBoolean(NBT_FORCE_PLACE);
             boolean skipIfOccupied = tag.getBoolean(NBT_SKIP_IF_OCCUPIED);
             String itemId = tag.getString(NBT_ITEM_ID);
@@ -589,7 +597,7 @@ public final class RtsPlacementBatch {
 
             PlaceBatchJob job = new PlaceBatchJob(
                     positions, face, hitOffsetX, hitOffsetY, hitOffsetZ,
-                    rotateSteps, forcePlace, skipIfOccupied, itemId, itemPrototype,
+                    rotateSteps, statePreset, forcePlace, skipIfOccupied, itemId, itemPrototype,
                     rayOriginX, rayOriginY, rayOriginZ, rayDirX, rayDirY, rayDirZ,
                     quickBuild, forceEmptyHand, sendRemoteHint, workflowEntryId);
             job.index = index;
@@ -637,6 +645,10 @@ public final class RtsPlacementBatch {
 
         public byte rotateSteps() {
             return this.rotateSteps;
+        }
+
+        public String statePreset() {
+            return this.statePreset;
         }
 
         public boolean forcePlace() {

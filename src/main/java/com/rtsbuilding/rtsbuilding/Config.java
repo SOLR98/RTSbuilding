@@ -1,5 +1,6 @@
 package com.rtsbuilding.rtsbuilding;
 
+import com.rtsbuilding.rtsbuilding.server.service.mining.RangeMiningHarvestTier;
 import net.neoforged.neoforge.common.ModConfigSpec;
 import net.neoforged.neoforge.fluids.FluidType;
 
@@ -113,6 +114,11 @@ public class Config {
             .comment("Maximum Z-axis depth accepted by one RTS area mining selection.")
             .translation("rtsbuilding.configuration.areaMineMaxDepth")
             .defineInRange("mining.areaMineMaxDepth", 36, 1, 256);
+
+    public static final ModConfigSpec.EnumValue<RangeMiningHarvestTier> AREA_MINE_MAX_HARVEST_TIER = SERVER_BUILDER
+            .comment("Maximum harvest tier for non-chain RTS range mining while survival progression is enabled.")
+            .translation("rtsbuilding.configuration.areaMineMaxHarvestTier")
+            .defineEnum("mining.areaMineMaxHarvestTier", RangeMiningHarvestTier.WOOD);
 
     public static final ModConfigSpec.IntValue AE2_NETWORK_REFRESH_THROTTLE = SERVER_BUILDER
             .comment("Number of storage cache refresh cycles between expensive AE2 network snapshots.")
@@ -231,7 +237,7 @@ public class Config {
     }
 
     public static void saveAreaMineLimitSettings(int maxWidth, int maxHeight, int maxDepth,
-            int maxVolume, int maxTargets) {
+            int maxVolume, int maxTargets, RangeMiningHarvestTier maxHarvestTier) {
         int width = clampInt(maxWidth, 1, 256);
         int height = clampInt(maxHeight, 1, 256);
         int depth = clampInt(maxDepth, 1, 256);
@@ -240,6 +246,8 @@ public class Config {
         AREA_MINE_MAX_DEPTH.set(depth);
         AREA_MINE_MAX_VOLUME.set(clampInt(maxVolume, 1, 262144));
         AREA_DESTROY_MAX_TARGETS.set(clampInt(maxTargets, 1, 262144));
+        AREA_MINE_MAX_HARVEST_TIER.set(
+                maxHarvestTier == null ? RangeMiningHarvestTier.WOOD : maxHarvestTier);
         AREA_MINE_MAX_SIZE.set(clampInt(Math.max(width, Math.max(height, depth)), 1, 64));
         SERVER_SPEC.save();
     }
@@ -338,6 +346,10 @@ public class Config {
 
     public static int areaMineMaxDepth() {
         return AREA_MINE_MAX_DEPTH.getAsInt();
+    }
+
+    public static RangeMiningHarvestTier areaMineMaxHarvestTier() {
+        return AREA_MINE_MAX_HARVEST_TIER.get();
     }
 
     public static int ae2NetworkRefreshThrottle() {

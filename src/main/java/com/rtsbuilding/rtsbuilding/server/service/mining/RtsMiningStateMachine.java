@@ -717,6 +717,10 @@ public final class RtsMiningStateMachine {
             return new MiningBreakResult(false, ItemStack.EMPTY);
         }
         BlockState beforeState = player.serverLevel().getBlockState(pos);
+        if (!RtsMiningValidator.canHarvestWithTool(
+                beforeState, RtsMiningValidator.activeMiningTool(player, session), player.isCreative())) {
+            return new MiningBreakResult(false, ItemStack.EMPTY);
+        }
         return RtsMiningDropCapture.capture(player, session, () -> {
             boolean broken;
             ItemStack remainder;

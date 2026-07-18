@@ -144,7 +144,11 @@ public final class RtsUltimineProcessor {
                 clampedMinZ, clampedMaxZ,
                 player,
                 shapeType, fillType);
-        Deque<BlockPos> targets = new ArrayDeque<>(candidatePositions);
+        ItemStack actualTool = RtsMiningValidator.resolveMiningTool(player, slot, toolLease.stack());
+        Deque<BlockPos> targets = candidatePositions.stream()
+                .filter(pos -> RtsMiningValidator.canRangeMineWithTool(
+                        player.serverLevel().getBlockState(pos), actualTool, player.isCreative()))
+                .collect(java.util.stream.Collectors.toCollection(ArrayDeque::new));
 
         if (targets.isEmpty()) {
             return false;
@@ -400,7 +404,11 @@ public final class RtsUltimineProcessor {
                 clampedMinZ, clampedMaxZ,
                 player,
                 shapeType, fillType);
-        Deque<BlockPos> targets = new ArrayDeque<>(candidatePositions);
+        ItemStack actualTool = RtsMiningValidator.resolveMiningTool(player, slot, toolLease.stack());
+        Deque<BlockPos> targets = candidatePositions.stream()
+                .filter(pos -> RtsMiningValidator.canRangeMineWithTool(
+                        player.serverLevel().getBlockState(pos), actualTool, false))
+                .collect(java.util.stream.Collectors.toCollection(ArrayDeque::new));
         if (targets.isEmpty()) {
             return 0;
         }
@@ -495,6 +503,10 @@ public final class RtsUltimineProcessor {
             }
             if (!creative && MiningSpeedCalculator.computeRemoteDestroyStep(player, state, pos, toolSlot, linkedTool,
                     selectedToolRequested) <= 0.0F) {
+                continue;
+            }
+            ItemStack actualTool = RtsMiningValidator.resolveMiningTool(player, toolSlot, linkedTool);
+            if (!RtsMiningValidator.canRangeMineWithTool(state, actualTool, creative)) {
                 continue;
             }
             unique.add(pos);

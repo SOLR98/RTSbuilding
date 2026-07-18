@@ -357,9 +357,9 @@ public final class RtsDropAbsorber {
         if (storageChanged) {
             QuestService.runQuestDetect(player, session, false);
         }
-        if (fellBack && buffer.shouldSendFallbackNotice(gameTime, 60L)) {
+        if (fellBack && buffer.shouldNotifyFallback()) {
             RtsDeveloperMetrics.recordBufferFallback(player);
-            player.displayClientMessage(Component.translatable("message.rtsbuilding.drop_buffer.fallback"), false);
+            player.displayClientMessage(Component.translatable("message.rtsbuilding.drop_buffer.fallback"), true);
         }
         buffer.updateFullState(gameTime);
         if (buffer.shouldNotifyFull(gameTime, 20L)) {

@@ -21,6 +21,7 @@ import com.rtsbuilding.rtsbuilding.server.service.RtsServiceConstants;
 import com.rtsbuilding.rtsbuilding.server.service.RtsStorageTickService;
 import com.rtsbuilding.rtsbuilding.server.service.ServiceRegistry;
 import com.rtsbuilding.rtsbuilding.server.service.page.PageResult;
+import com.rtsbuilding.rtsbuilding.server.service.placement.RtsPlacementBatch;
 import com.rtsbuilding.rtsbuilding.server.service.resolver.RtsLinkedHandlerResolutionService;
 import com.rtsbuilding.rtsbuilding.server.storage.RtsStoragePageBuilder;
 import com.rtsbuilding.rtsbuilding.server.storage.model.LinkedFluidHandler;
@@ -66,6 +67,8 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.gametest.GameTestHolder;
@@ -337,6 +340,316 @@ public final class RtsServerGameTests {
                     "Auto-store should put range-destroy drops into the linked chest");
             helper.assertTrue(!hasActiveTask(player, TaskType.DESTRUCTION),
                     "Auto-store area destroy should finish without an active durable task");
+            stopPlayers(player);
+        });
+    }
+
+    /**
+     * 对照组：同一命中点不携带 R preset 时，必须保留原版楼梯朝向。
+     * 这样下面的 preset 测试不是碰巧命中了本来就朝西的输入。
+     */
+    @GameTest(template = EMPTY_TEMPLATE, timeoutTicks = 120)
+    public static void singlePlacementWithoutPresetKeepsVanillaStairFacing(GameTestHelper helper) {
+        BlockPos supportRel = new BlockPos(2, 1, 2);
+        helper.setBlock(supportRel, Blocks.DIRT);
+        ServerPlayer player = startRtsPlayer(helper, GameType.CREATIVE);
+        BlockPos supportAbs = helper.absolutePos(supportRel);
+        Vec3 hitLocation = Vec3.atBottomCenterOf(supportAbs.above());
+        Vec3 rayOrigin = player.getEyePosition();
+        Vec3 rayDir = hitLocation.subtract(rayOrigin).normalize();
+
+        ServiceRegistry.getInstance().placement().placeSelected(
+                player,
+                supportAbs,
+                Direction.UP,
+                hitLocation.x,
+                hitLocation.y,
+                hitLocation.z,
+                (byte) 0,
+                "",
+                false,
+                false,
+                "minecraft:oak_stairs",
+                new ItemStack(Items.OAK_STAIRS),
+                rayOrigin.x,
+                rayOrigin.y,
+                rayOrigin.z,
+                rayDir.x,
+                rayDir.y,
+                rayDir.z,
+                false,
+                false);
+
+        helper.succeedWhen(() -> {
+            BlockPos placedRel = supportRel.above();
+            helper.assertBlockPresent(Blocks.OAK_STAIRS, placedRel);
+            Direction facing = helper.getBlockState(placedRel)
+                    .getValue(BlockStateProperties.HORIZONTAL_FACING);
+            helper.assertTrue(facing != Direction.WEST,
+                    "Control fixture must not naturally produce the requested west-facing stair");
+            stopPlayers(player);
+        });
+    }
+
+    @GameTest(template = EMPTY_TEMPLATE, timeoutTicks = 120)
+    public static void singlePlacementAppliesSelectedBlockStatePreset(GameTestHelper helper) {
+        BlockPos supportRel = new BlockPos(2, 1, 2);
+        helper.setBlock(supportRel, Blocks.DIRT);
+        ServerPlayer player = startRtsPlayer(helper, GameType.CREATIVE);
+        BlockPos supportAbs = helper.absolutePos(supportRel);
+        Vec3 hitLocation = Vec3.atBottomCenterOf(supportAbs.above());
+        Vec3 rayOrigin = player.getEyePosition();
+        Vec3 rayDir = hitLocation.subtract(rayOrigin).normalize();
+
+        ServiceRegistry.getInstance().placement().placeSelected(
+                player,
+                supportAbs,
+                Direction.UP,
+                hitLocation.x,
+                hitLocation.y,
+                hitLocation.z,
+                (byte) 0,
+                "facing=west;half=top",
+                false,
+                false,
+                "minecraft:oak_stairs",
+                new ItemStack(Items.OAK_STAIRS),
+                rayOrigin.x,
+                rayOrigin.y,
+                rayOrigin.z,
+                rayDir.x,
+                rayDir.y,
+                rayDir.z,
+                false,
+                false);
+
+        helper.succeedWhen(() -> {
+            BlockPos placedRel = supportRel.above();
+            helper.assertBlockPresent(Blocks.OAK_STAIRS, placedRel);
+            helper.assertBlockProperty(
+                    placedRel,
+                    BlockStateProperties.HORIZONTAL_FACING,
+                    Direction.WEST);
+            helper.assertBlockProperty(
+                    placedRel,
+                    BlockStateProperties.HALF,
+                    net.minecraft.world.level.block.state.properties.Half.TOP);
+            stopPlayers(player);
+        });
+    }
+
+    /**
+     * 对照组：点击支撑方块顶面且没有 R preset 时，原版结果确实是下半砖。
+     * 若这个测试不成立，上半砖覆盖测试就没有证明它真正推翻了命中位置。
+     */
+    @GameTest(template = EMPTY_TEMPLATE, timeoutTicks = 120)
+    public static void singlePlacementWithoutPresetUsesVanillaBottomSlab(GameTestHelper helper) {
+        BlockPos supportRel = new BlockPos(2, 1, 2);
+        helper.setBlock(supportRel, Blocks.DIRT);
+        ServerPlayer player = startRtsPlayer(helper, GameType.CREATIVE);
+        BlockPos supportAbs = helper.absolutePos(supportRel);
+        Vec3 hitLocation = Vec3.atBottomCenterOf(supportAbs.above());
+        Vec3 rayOrigin = player.getEyePosition();
+        Vec3 rayDir = hitLocation.subtract(rayOrigin).normalize();
+
+        ServiceRegistry.getInstance().placement().placeSelected(
+                player,
+                supportAbs,
+                Direction.UP,
+                hitLocation.x,
+                hitLocation.y,
+                hitLocation.z,
+                (byte) 0,
+                "",
+                false,
+                false,
+                "minecraft:oak_slab",
+                new ItemStack(Items.OAK_SLAB),
+                rayOrigin.x,
+                rayOrigin.y,
+                rayOrigin.z,
+                rayDir.x,
+                rayDir.y,
+                rayDir.z,
+                false,
+                false);
+
+        helper.succeedWhen(() -> {
+            BlockPos placedRel = supportRel.above();
+            helper.assertBlockPresent(Blocks.OAK_SLAB, placedRel);
+            helper.assertBlockProperty(
+                    placedRel,
+                    BlockStateProperties.SLAB_TYPE,
+                    SlabType.BOTTOM);
+            stopPlayers(player);
+        });
+    }
+
+    /**
+     * 真实复现玩家反馈：点击支撑方块顶面时，原版一定倾向放下半砖；
+     * R 预设必须在完整单方块放置链末端把它覆盖成上半砖。
+     */
+    @GameTest(template = EMPTY_TEMPLATE, timeoutTicks = 120)
+    public static void singlePlacementOverridesVanillaSlabHitHalf(GameTestHelper helper) {
+        BlockPos supportRel = new BlockPos(2, 1, 2);
+        helper.setBlock(supportRel, Blocks.DIRT);
+        ServerPlayer player = startRtsPlayer(helper, GameType.CREATIVE);
+        BlockPos supportAbs = helper.absolutePos(supportRel);
+        Vec3 hitLocation = Vec3.atBottomCenterOf(supportAbs.above());
+        Vec3 rayOrigin = player.getEyePosition();
+        Vec3 rayDir = hitLocation.subtract(rayOrigin).normalize();
+
+        ServiceRegistry.getInstance().placement().placeSelected(
+                player,
+                supportAbs,
+                Direction.UP,
+                hitLocation.x,
+                hitLocation.y,
+                hitLocation.z,
+                (byte) 0,
+                "type=top",
+                false,
+                false,
+                "minecraft:oak_slab",
+                new ItemStack(Items.OAK_SLAB),
+                rayOrigin.x,
+                rayOrigin.y,
+                rayOrigin.z,
+                rayDir.x,
+                rayDir.y,
+                rayDir.z,
+                false,
+                false);
+
+        helper.succeedWhen(() -> {
+            BlockPos placedRel = supportRel.above();
+            helper.assertBlockPresent(Blocks.OAK_SLAB, placedRel);
+            helper.assertBlockProperty(
+                    placedRel,
+                    BlockStateProperties.SLAB_TYPE,
+                    SlabType.TOP);
+            stopPlayers(player);
+        });
+    }
+
+    /**
+     * 方块形状的 Quick Build 使用预解析状态路径；它也必须覆盖点击顶面产生的
+     * 原版下半砖，而不是只让单放置路径正确。
+     */
+    @GameTest(template = EMPTY_TEMPLATE, timeoutTicks = 120)
+    public static void quickBuildPlacementOverridesVanillaSlabHitHalf(GameTestHelper helper) {
+        BlockPos supportRel = new BlockPos(2, 1, 2);
+        helper.setBlock(supportRel, Blocks.DIRT);
+        ServerPlayer player = startRtsPlayer(helper, GameType.CREATIVE);
+        BlockPos supportAbs = helper.absolutePos(supportRel);
+        Vec3 rayOrigin = player.getEyePosition();
+        Vec3 hitLocation = Vec3.atBottomCenterOf(supportAbs.above());
+        Vec3 rayDir = hitLocation.subtract(rayOrigin).normalize();
+
+        ServiceRegistry.getInstance().placement().enqueuePlaceBatch(
+                player,
+                // Quick Build 的位置列表是最终目标格，不是交互式放置所点击的支撑格。
+                List.of(supportAbs.above()),
+                Direction.UP,
+                0.5D,
+                1.0D,
+                0.5D,
+                (byte) 0,
+                "type=top",
+                false,
+                false,
+                "minecraft:oak_slab",
+                new ItemStack(Items.OAK_SLAB),
+                rayOrigin.x,
+                rayOrigin.y,
+                rayOrigin.z,
+                rayDir.x,
+                rayDir.y,
+                rayDir.z);
+
+        helper.succeedWhen(() -> {
+            BlockPos placedRel = supportRel.above();
+            helper.assertBlockPresent(Blocks.OAK_SLAB, placedRel);
+            helper.assertBlockProperty(
+                    placedRel,
+                    BlockStateProperties.SLAB_TYPE,
+                    SlabType.TOP);
+            stopPlayers(player);
+        });
+    }
+
+    @GameTest(template = EMPTY_TEMPLATE, timeoutTicks = 120)
+    public static void restoredTaskWorkflowIdDoesNotSwallowStatefulPlacement(GameTestHelper helper) {
+        BlockPos oldSupportRel = new BlockPos(1, 1, 2);
+        BlockPos newSupportRel = new BlockPos(3, 1, 2);
+        helper.setBlock(oldSupportRel, Blocks.DIRT);
+        helper.setBlock(newSupportRel, Blocks.DIRT);
+        ServerPlayer player = startRtsPlayer(helper, GameType.CREATIVE);
+        RtsStorageSession session = requireSession(helper, player);
+        Vec3 rayOrigin = player.getEyePosition();
+        BlockPos oldSupportAbs = helper.absolutePos(oldSupportRel);
+        Vec3 oldHit = Vec3.atBottomCenterOf(oldSupportAbs.above());
+        Vec3 oldRayDir = oldHit.subtract(rayOrigin).normalize();
+
+        boolean restoredTaskQueued = RtsPlacementBatch.enqueuePlaceBatch(
+                player,
+                session,
+                List.of(oldSupportAbs),
+                Direction.UP,
+                0.5D,
+                1.0D,
+                0.5D,
+                (byte) 0,
+                "",
+                false,
+                false,
+                "minecraft:oak_stairs",
+                new ItemStack(Items.OAK_STAIRS),
+                rayOrigin.x,
+                rayOrigin.y,
+                rayOrigin.z,
+                oldRayDir.x,
+                oldRayDir.y,
+                oldRayDir.z,
+                false,
+                false,
+                false,
+                0);
+        helper.assertTrue(restoredTaskQueued,
+                "Fixture must reserve workflow id 0 before the new operation starts");
+
+        BlockPos newSupportAbs = helper.absolutePos(newSupportRel);
+        Vec3 newHit = Vec3.atBottomCenterOf(newSupportAbs.above());
+        Vec3 newRayDir = newHit.subtract(rayOrigin).normalize();
+        ServiceRegistry.getInstance().placement().placeSelected(
+                player,
+                newSupportAbs,
+                Direction.UP,
+                newHit.x,
+                newHit.y,
+                newHit.z,
+                (byte) 0,
+                "facing=west",
+                false,
+                false,
+                "minecraft:oak_stairs",
+                new ItemStack(Items.OAK_STAIRS),
+                rayOrigin.x,
+                rayOrigin.y,
+                rayOrigin.z,
+                newRayDir.x,
+                newRayDir.y,
+                newRayDir.z,
+                false,
+                false);
+
+        helper.succeedWhen(() -> {
+            BlockPos placedRel = newSupportRel.above();
+            helper.assertBlockPresent(Blocks.OAK_STAIRS, placedRel);
+            helper.assertBlockProperty(
+                    placedRel,
+                    BlockStateProperties.HORIZONTAL_FACING,
+                    Direction.WEST);
             stopPlayers(player);
         });
     }

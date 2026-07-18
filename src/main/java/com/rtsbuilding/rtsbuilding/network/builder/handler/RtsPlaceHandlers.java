@@ -1,5 +1,6 @@
 package com.rtsbuilding.rtsbuilding.network.builder.handler;
 
+import com.rtsbuilding.rtsbuilding.RtsbuildingMod;
 import com.rtsbuilding.rtsbuilding.common.build.BuilderMode;
 import com.rtsbuilding.rtsbuilding.network.builder.*;
 import com.rtsbuilding.rtsbuilding.server.service.ServiceRegistry;
@@ -34,12 +35,22 @@ public final class RtsPlaceHandlers {
     public static void handleRotateBlock(C2SRtsRotateBlockPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer serverPlayer) {
-                if (payload.propertyName().isBlank() && payload.valueName().isBlank()) {
-                    ServiceRegistry.getInstance().placement().rotateBlock(serverPlayer, payload.pos());
-                } else {
-                    ServiceRegistry.getInstance().placement().rotateBlock(
-                            serverPlayer, payload.pos(), payload.propertyName(), payload.valueName());
-                }
+                ServiceRegistry.getInstance().placement().rotateBlock(serverPlayer, payload.pos());
+            }
+        });
+    }
+
+    public static void handleOrientBlock(C2SRtsOrientBlockPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer serverPlayer
+                    && payload.axisDirection() >= 0
+                    && payload.axisDirection() < Direction.values().length
+                    && Math.abs(payload.quarterTurns()) == 1) {
+                ServiceRegistry.getInstance().placement().rotateBlockStep(
+                        serverPlayer,
+                        payload.pos(),
+                        Direction.from3DDataValue(payload.axisDirection()),
+                        payload.quarterTurns());
             }
         });
     }
@@ -48,6 +59,15 @@ public final class RtsPlaceHandlers {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer serverPlayer) {
                 Direction face = Direction.from3DDataValue(payload.face());
+                if (!payload.statePreset().isBlank()) {
+                    RtsbuildingMod.LOGGER.debug(
+                            "R placement preset receive: player={}, item={}, preset={}, quickBuild={}, clicked={}",
+                            serverPlayer.getGameProfile().getName(),
+                            payload.itemId(),
+                            payload.statePreset(),
+                            payload.quickBuild(),
+                            payload.clickedPos());
+                }
                 ServiceRegistry.getInstance().placement().placeSelected(
                         serverPlayer,
                         payload.clickedPos(),
@@ -56,6 +76,7 @@ public final class RtsPlaceHandlers {
                         payload.hitY(),
                         payload.hitZ(),
                         payload.rotateSteps(),
+                        payload.statePreset(),
                         payload.forcePlace(),
                         payload.skipIfOccupied(),
                         payload.itemId(),
@@ -84,6 +105,7 @@ public final class RtsPlaceHandlers {
                         payload.hitOffsetY(),
                         payload.hitOffsetZ(),
                         payload.rotateSteps(),
+                        payload.statePreset(),
                         payload.forcePlace(),
                         payload.skipIfOccupied(),
                         payload.itemId(),

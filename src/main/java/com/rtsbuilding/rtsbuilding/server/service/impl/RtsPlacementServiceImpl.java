@@ -44,7 +44,7 @@ public final class RtsPlacementServiceImpl implements PlacementService {
 
     @Override
     public void placeSelected(ServerPlayer player, BlockPos clickedPos, Direction face,
-                              double hitX, double hitY, double hitZ, byte rotateSteps,
+                              double hitX, double hitY, double hitZ, byte rotateSteps, String statePreset,
                               boolean forcePlace, boolean skipIfOccupied, String itemId,
                               ItemStack itemPrototype, double rayOriginX, double rayOriginY, double rayOriginZ,
                               double rayDirX, double rayDirY, double rayDirZ,
@@ -63,6 +63,7 @@ public final class RtsPlacementServiceImpl implements PlacementService {
                             .hitOffsetY(hitOffsetY)
                             .hitOffsetZ(hitOffsetZ)
                             .rotateSteps(rotateSteps)
+                            .statePreset(statePreset)
                             .forcePlace(forcePlace)
                             .skipIfOccupied(skipIfOccupied)
                             .itemId(itemId)
@@ -90,6 +91,7 @@ public final class RtsPlacementServiceImpl implements PlacementService {
                 hitOffsetY,
                 hitOffsetZ,
                 rotateSteps,
+                statePreset,
                 forcePlace,
                 skipIfOccupied,
                 itemId,
@@ -108,7 +110,7 @@ public final class RtsPlacementServiceImpl implements PlacementService {
 
     @Override
     public void enqueuePlaceBatch(ServerPlayer player, List<BlockPos> clickedPositions, Direction face,
-                                  double hitOffsetX, double hitOffsetY, double hitOffsetZ, byte rotateSteps,
+                                  double hitOffsetX, double hitOffsetY, double hitOffsetZ, byte rotateSteps, String statePreset,
                                   boolean forcePlace, boolean skipIfOccupied, String itemId,
                                   ItemStack itemPrototype, double rayOriginX, double rayOriginY, double rayOriginZ,
                                   double rayDirX, double rayDirY, double rayDirZ) {
@@ -133,6 +135,7 @@ public final class RtsPlacementServiceImpl implements PlacementService {
                             .hitOffsetY(hitOffsetY)
                             .hitOffsetZ(hitOffsetZ)
                             .rotateSteps(rotateSteps)
+                            .statePreset(statePreset)
                             .forcePlace(forcePlace)
                             .skipIfOccupied(skipIfOccupied)
                             .itemId(itemId == null ? "" : itemId)
@@ -161,6 +164,7 @@ public final class RtsPlacementServiceImpl implements PlacementService {
                 hitOffsetY,
                 hitOffsetZ,
                 rotateSteps,
+                statePreset,
                 forcePlace,
                 skipIfOccupied,
                 itemId == null ? "" : itemId,
@@ -206,12 +210,21 @@ public final class RtsPlacementServiceImpl implements PlacementService {
     }
 
     @Override
-    public void rotateBlock(ServerPlayer player, BlockPos pos, String propertyName, String valueName) {
-        if (!canRotateBlock(player, pos)) {
+    public void rotateBlockStep(
+            ServerPlayer player,
+            BlockPos pos,
+            Direction axisDirection,
+            int quarterTurns) {
+        if (!canRotateBlock(player, pos)
+                || axisDirection == null
+                || Math.abs(quarterTurns) != 1) {
             return;
         }
-        RtsPlacementHelper.setPlacedBlockProperty(
-                player.serverLevel(), pos, propertyName, valueName);
+        RtsPlacementHelper.rotatePlacedBlockStep(
+                player.serverLevel(),
+                pos,
+                axisDirection,
+                quarterTurns);
     }
 
     private boolean canRotateBlock(ServerPlayer player, BlockPos pos) {
