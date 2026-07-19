@@ -65,6 +65,15 @@ public final class RtsItems {
     public static final DeferredHolder<Item, Item> RANGE_EXTENSION_III = pluginItem("range_extension_iii", true);
     /** 范围扩展 Max —— 极限扩大操作半径 */
     public static final DeferredHolder<Item, Item> RANGE_EXTENSION_MAX = pluginItem("range_extension_max", true);
+    /** 允许非连锁范围挖掘木级方块。 */
+    public static final DeferredHolder<Item, Item> HARVEST_TIER_WOOD = pluginItem("harvest_tier_wood", true);
+    /** 允许非连锁范围挖掘铁级方块。 */
+    public static final DeferredHolder<Item, Item> HARVEST_TIER_IRON = pluginItem("harvest_tier_iron", true);
+    /** 允许非连锁范围挖掘钻石级方块。 */
+    public static final DeferredHolder<Item, Item> HARVEST_TIER_DIAMOND = pluginItem("harvest_tier_diamond", true);
+    /** 解除非连锁范围挖掘的插件等级上限，但不绕过真实工具检查。 */
+    public static final DeferredHolder<Item, Item> HARVEST_TIER_UNLIMITED =
+            pluginItem("harvest_tier_unlimited", true);
 
     // ============================================================
     //  工厂方法

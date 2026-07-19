@@ -34,12 +34,12 @@ class ScreenShapeControllerRangeDestroyClampTest {
         List<BlockPos> capped = ScreenShapeController.clampRoundRangeDestroyPositionsForCaps(
                 clamped, positions, 12, 12, 12, 1728);
 
-        assertTrue(capped.contains(new BlockPos(6, 64, 0)));
-        assertTrue(capped.contains(new BlockPos(-6, 64, 0)));
-        assertTrue(capped.contains(new BlockPos(0, 64, 6)));
-        assertTrue(capped.contains(new BlockPos(0, 64, -6)));
-        assertFalse(capped.contains(new BlockPos(7, 64, 0)));
-        assertFalse(capped.contains(new BlockPos(6, 64, 6)));
+        assertTrue(capped.contains(new BlockPos(5, 64, 0)));
+        assertTrue(capped.contains(new BlockPos(-5, 64, 0)));
+        assertTrue(capped.contains(new BlockPos(0, 64, 5)));
+        assertTrue(capped.contains(new BlockPos(0, 64, -5)));
+        assertFalse(capped.contains(new BlockPos(6, 64, 0)));
+        assertFalse(capped.contains(new BlockPos(5, 64, 5)));
     }
 
     @Test
@@ -59,10 +59,10 @@ class ScreenShapeControllerRangeDestroyClampTest {
         List<BlockPos> capped = ScreenShapeController.clampRoundRangeDestroyPositionsForCaps(
                 clamped, positions, 12, 12, 12, 1728);
 
-        assertTrue(capped.contains(new BlockPos(6, 64, 0)));
-        assertTrue(capped.contains(new BlockPos(-6, 64, 0)));
+        assertTrue(capped.contains(new BlockPos(5, 64, 0)));
+        assertTrue(capped.contains(new BlockPos(-5, 64, 0)));
         assertTrue(capped.contains(new BlockPos(0, 75, 0)));
-        assertFalse(capped.contains(new BlockPos(7, 64, 0)));
+        assertFalse(capped.contains(new BlockPos(6, 64, 0)));
         assertFalse(capped.contains(new BlockPos(0, 76, 0)));
     }
 

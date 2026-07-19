@@ -1,5 +1,6 @@
 package com.rtsbuilding.rtsbuilding.server.service.placement;
 
+import com.rtsbuilding.rtsbuilding.compat.create.BlueprintCreatePlacementCompat;
 import com.rtsbuilding.rtsbuilding.server.data.PlacedBlockTrackerData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -38,6 +39,13 @@ public final class BlockPlacer {
     }
 
     /**
+     * 蓝图专用放置入口；允许可选兼容插头收紧第三方方块的更新标志。
+     */
+    public static boolean setBlueprintBlock(ServerLevel level, BlockPos pos, BlockState state) {
+        return level.setBlock(pos, state, BlueprintCreatePlacementCompat.placementFlags(state));
+    }
+
+    /**
      * 标记已放置方块到追踪器。
      */
     public static void trackPlaced(ServerLevel level, BlockPos pos) {
@@ -70,6 +78,12 @@ public final class BlockPlacer {
             level.sendBlockUpdated(pos, state, state, 3);
         } catch (RuntimeException ignored) {
         }
+    }
+
+    /** 在方块实体 NBT 应用完成后补齐第三方蓝图所需的标准放置回调。 */
+    public static void finishBlueprintPlacement(
+            ServerLevel level, BlockPos pos, BlockState state, @Nullable ItemStack stack) {
+        BlueprintCreatePlacementCompat.finishPlacement(level, pos, state, stack);
     }
 
     /**

@@ -19,6 +19,8 @@ repositories {
     maven { url = 'https://maven.ithundxr.dev/snapshots' }
     maven { url = 'https://api.modrinth.com/maven' }
     maven { url = 'https://jitpack.io' }
+    maven { url = 'https://maven.izzel.io/releases' }
+    maven { url = 'https://www.cursemaven.com' }
 }
 
 base {
@@ -68,7 +70,8 @@ neoForge {
             type = "gameTestServer"
             // 基础 GameTest 使用干净目录，避免本地 run/mods 中的科技/客户端模组干扰服务器烟测。
             gameDirectory = project.file('run-gametest')
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            systemProperty 'neoforge.enabledGameTestNamespaces',
+                    providers.gradleProperty('rts_gametest_namespaces').getOrElse(project.mod_id)
         }
 
         serverSmokeGameTestServer {
@@ -138,6 +141,12 @@ dependencies {
     compileOnly "mezz.jei:jei-${jei_minecraft_version}-neoforge-api:${jei_version}"
     compileOnly "dev.engine-room.flywheel:flywheel-neoforge-api-${minecraft_version}:${flywheel_version}"
     compileOnly "maven.modrinth:beyonddimensions:${beyonddimensions_version}"
+    // Jade HUD 兼容仅在玩家安装 Jade 时加载。
+    compileOnly "curse.maven:jade-${jade_curseforge_project_id}:${jade_curseforge_file_id}"
+    if (providers.gradleProperty('rts_create_gametest_jar').isPresent()) {
+        // 可选 Create 回归环境：普通构建/发布不携带第三方运行时。
+        runtimeOnly files(providers.gradleProperty('rts_create_gametest_jar').get())
+    }
 
     // 鈹€鈹€ Test dependencies 鈹€鈹€
     testImplementation "org.junit.jupiter:junit-jupiter:5.11.0"

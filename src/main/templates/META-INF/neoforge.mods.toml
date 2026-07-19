@@ -17,6 +17,9 @@ Build, manage storage, and interact with your base from an overhead RTS-style bu
 [[mixins]]
 config="${mod_id}.mixins.json"
 
+[[mixins]]
+config="${mod_id}.jade_mixins.json"
+
 [[dependencies.${mod_id}]]
     modId="neoforge"
     type="required"
@@ -30,4 +33,11 @@ config="${mod_id}.mixins.json"
     versionRange="${minecraft_version_range}"
     ordering="NONE"
     side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="jade"
+    type="optional"
+    versionRange="[15.10.5,)"
+    ordering="AFTER"
+    side="CLIENT"
 

@@ -169,8 +169,7 @@ final class RtsPluginTeamService {
             if (existing.id().equals(definition.id())) {
                 return false;
             }
-            if (definition.family() == RtsPluginFamily.RANGE_EXTENSION
-                    && existing.family() == RtsPluginFamily.RANGE_EXTENSION) {
+            if (definition.family() == existing.family() && definition.family().mutuallyExclusive()) {
                 return false;
             }
         }

@@ -116,9 +116,9 @@ public class Config {
             .defineInRange("mining.areaMineMaxDepth", 36, 1, 256);
 
     public static final ModConfigSpec.EnumValue<RangeMiningHarvestTier> AREA_MINE_MAX_HARVEST_TIER = SERVER_BUILDER
-            .comment("Maximum harvest tier for non-chain RTS range mining while survival progression is enabled.")
+            .comment("Server ceiling for harvest-tier plugins used by non-chain RTS range mining.")
             .translation("rtsbuilding.configuration.areaMineMaxHarvestTier")
-            .defineEnum("mining.areaMineMaxHarvestTier", RangeMiningHarvestTier.WOOD);
+            .defineEnum("mining.areaMineMaxHarvestTier", RangeMiningHarvestTier.UNLIMITED);
 
     public static final ModConfigSpec.IntValue AE2_NETWORK_REFRESH_THROTTLE = SERVER_BUILDER
             .comment("Number of storage cache refresh cycles between expensive AE2 network snapshots.")
@@ -247,7 +247,7 @@ public class Config {
         AREA_MINE_MAX_VOLUME.set(clampInt(maxVolume, 1, 262144));
         AREA_DESTROY_MAX_TARGETS.set(clampInt(maxTargets, 1, 262144));
         AREA_MINE_MAX_HARVEST_TIER.set(
-                maxHarvestTier == null ? RangeMiningHarvestTier.WOOD : maxHarvestTier);
+                maxHarvestTier == null ? RangeMiningHarvestTier.UNLIMITED : maxHarvestTier);
         AREA_MINE_MAX_SIZE.set(clampInt(Math.max(width, Math.max(height, depth)), 1, 64));
         SERVER_SPEC.save();
     }

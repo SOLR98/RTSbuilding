@@ -390,10 +390,10 @@ public final class RtsMiningStateMachine {
                     }
                 }
             }
-            if (processed > 0 && !remaining.isEmpty()) {
-                // 当前渐进目标已经消费；同一任务的其余连锁目标进入批处理模式。
-                mode = MiningTaskState.Mode.BATCH;
-            }
+            /*
+             * 只有真正完成首块蓄力后才能进入批处理。
+             * 若首块已被另一项重叠任务挖掉，这里只跳过它；下一块仍要从本任务自己的进度 0 开始。
+             */
         }
 
         while (waitHint == null && mode == MiningTaskState.Mode.BATCH

@@ -16,6 +16,25 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ShapeGeometryUtilTest {
     @Test
+    void rangeDestroyUsesConfiguredSpanWithoutExpandingNormalBuildCap() {
+        ShapeBuildTypes.Input input = new ShapeBuildTypes.Input(
+                BuildShape.LINE,
+                Direction.UP,
+                Direction.UP,
+                BlockPos.ZERO,
+                new BlockPos(35, 0, 0),
+                0,
+                false);
+
+        List<BlockPos> normalBuild = ShapeGeometryUtil.buildShapePositions(input, ShapeFillMode.FILL);
+        List<BlockPos> rangeDestroy = ShapeGeometryUtil.buildRangeDestroyShapePositions(input, ShapeFillMode.FILL);
+
+        assertEquals(32, normalBuild.size(), "普通范围建造仍应保持原有 32 格上限");
+        assertEquals(36, rangeDestroy.size(), "范围破坏应使用服务端允许的 36 格跨度");
+        assertTrue(rangeDestroy.contains(new BlockPos(35, 0, 0)));
+    }
+
+    @Test
     void cylinderPreviewUsesCircleFootprintAndScrollHeight() {
         BlockPos start = new BlockPos(0, 64, 0);
         ShapeBuildTypes.Input input = new ShapeBuildTypes.Input(

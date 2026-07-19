@@ -6,6 +6,7 @@ import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreen;
 import com.rtsbuilding.rtsbuilding.client.screen.standalone.BuilderScreenConstants;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarIconRenderer;
 import com.rtsbuilding.rtsbuilding.client.screen.topbar.TopBarTypes;
+import com.rtsbuilding.rtsbuilding.client.screen.layout.JadeOverlayLayout;
 import com.rtsbuilding.rtsbuilding.client.util.RtsClientUiUtil;
 import com.rtsbuilding.rtsbuilding.common.persist.PersistableProperty;
 import net.minecraft.client.gui.GuiGraphics;
@@ -223,6 +224,10 @@ public final class GuidePanel extends RtsWindowPanel {
             if (guide != null && button.x() > guide.x()) {
                 nextX = Math.min(nextX, button.x());
             }
+        }
+        int jadeLeftX = JadeOverlayLayout.currentReservedLeftVirtualX();
+        if (jadeLeftX >= 0) {
+            nextX = Math.min(nextX, jadeLeftX);
         }
         if (guide == null) {
             return;

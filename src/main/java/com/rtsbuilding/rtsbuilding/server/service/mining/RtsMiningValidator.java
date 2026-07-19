@@ -7,6 +7,7 @@ import com.rtsbuilding.rtsbuilding.server.loadout.RtsMiningRules;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsFeature;
 import com.rtsbuilding.rtsbuilding.server.progression.RtsProgressionManager;
 import com.rtsbuilding.rtsbuilding.server.protection.RtsClaimProtectionService;
+import com.rtsbuilding.rtsbuilding.server.plugin.RtsPluginService;
 import com.rtsbuilding.rtsbuilding.server.service.RtsPlacedRecoveryService;
 import com.rtsbuilding.rtsbuilding.server.storage.resolver.RtsLinkedStorageResolver;
 import com.rtsbuilding.rtsbuilding.server.storage.session.RtsStorageSession;
@@ -147,20 +148,49 @@ public final class RtsMiningValidator {
     /**
      * 非连锁范围挖掘的生存平衡上限。关闭生存平衡时只保留实际工具保护。
      */
-    public static boolean canRangeMineWithTool(BlockState state, ItemStack tool, boolean creative) {
+    public static int rangeMiningMaxRequiredLevel(ServerPlayer player, boolean creative) {
+        if (creative || !Config.ENABLE_SURVIVAL_PROGRESSION.getAsBoolean()) {
+            return Integer.MAX_VALUE;
+        }
+        RangeMiningHarvestTier pluginTier = RtsPluginService.rangeMiningHarvestTier(player);
+        if (pluginTier == null) {
+            return -1;
+        }
+        RangeMiningHarvestTier serverTier;
+        try {
+            serverTier = Config.areaMineMaxHarvestTier();
+        } catch (IllegalStateException ignored) {
+            serverTier = RangeMiningHarvestTier.UNLIMITED;
+        }
+        return Math.min(pluginTier.maxRequiredLevel(), serverTier.maxRequiredLevel());
+    }
+
+    public static boolean canRangeMineWithTool(
+            BlockState state, ItemStack tool, boolean creative, int maxRequiredLevel) {
         if (!canHarvestWithTool(state, tool, creative)) {
             return false;
         }
-        if (creative || !Config.ENABLE_SURVIVAL_PROGRESSION.getAsBoolean()) {
+        if (creative) {
             return true;
         }
-        RangeMiningHarvestTier tier;
-        try {
-            tier = Config.areaMineMaxHarvestTier();
-        } catch (IllegalStateException ignored) {
-            tier = RangeMiningHarvestTier.WOOD;
+        if (maxRequiredLevel < 0) {
+            return false;
         }
-        return RtsMiningRules.requiredLevel(state) <= tier.maxRequiredLevel();
+        return RtsMiningRules.requiredLevel(state) <= maxRequiredLevel;
+    }
+
+    /**
+     * 判断目标是否仅因为范围挖掘插件的采掘等级上限而被拒绝。
+     *
+     * <p>真实工具不正确、创造模式以及完全未安装等级插件都不在这里提示；
+     * 它们分别由工具检查、创造绕过和功能门提示负责。</p>
+     */
+    public static boolean isBlockedByRangeMiningHarvestTier(
+            BlockState state, ItemStack tool, boolean creative, int maxRequiredLevel) {
+        return !creative
+                && maxRequiredLevel >= 0
+                && canHarvestWithTool(state, tool, false)
+                && RtsMiningRules.requiredLevel(state) > maxRequiredLevel;
     }
 
     public static ItemStack resolveMiningTool(

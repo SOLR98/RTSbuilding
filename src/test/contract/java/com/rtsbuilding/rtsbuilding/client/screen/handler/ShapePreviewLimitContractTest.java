@@ -19,8 +19,13 @@ class ShapePreviewLimitContractTest {
         int cacheLookup = method.indexOf("key.equals(this.generatedShapeKey)");
         int advancedBuild = method.indexOf("ShapeGeometryUtil.buildAdvancedShapePositions");
         int normalBuild = method.indexOf("ShapeGeometryUtil.buildShapePositions");
+        int rangeDestroyBuild = method.indexOf("ShapeGeometryUtil.buildRangeDestroyShapePositions");
         assertTrue(clamp >= 0 && clamp < advancedBuild && clamp < normalBuild,
                 "长宽高必须在高级/普通几何列表生成前限幅");
+        assertTrue(rangeDestroyBuild > clamp,
+                "范围破坏必须走不含建造 32 格硬上限的独立几何入口");
+        assertTrue(method.contains("ShapeSelectionLimiter.clampDimensionsAndVolume"),
+                "范围破坏必须在几何生成前同时限制 XYZ 和覆盖体积");
         assertTrue(cacheLookup >= 0 && cacheLookup < advancedBuild && cacheLookup < normalBuild,
                 "同一预览状态应复用形状计划，避免尺寸、计数和渲染重复生成大列表");
         assertTrue(method.contains(": SHAPE_MAX_DIMENSION"),

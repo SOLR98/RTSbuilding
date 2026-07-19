@@ -905,16 +905,15 @@ public final class ScreenShapeController {
         int dz = point.getZ() - center.getZ();
         int a = ShapeGeometryUtil.dotDelta(dx, dy, dz, axes[0]);
         int b = ShapeGeometryUtil.dotDelta(dx, dy, dz, axes[1]);
-        return Mth.clamp((int) Math.round(Math.sqrt(a * (double) a + b * (double) b)),
-                0, SHAPE_MAX_DIMENSION / 2);
+        return Math.max(0, (int) Math.round(Math.sqrt(a * (double) a + b * (double) b)));
     }
 
     private static int spatialRadius(BlockPos center, BlockPos point) {
         int dx = point.getX() - center.getX();
         int dy = point.getY() - center.getY();
         int dz = point.getZ() - center.getZ();
-        return Mth.clamp((int) Math.round(Math.sqrt(dx * (double) dx + dy * (double) dy + dz * (double) dz)),
-                0, SHAPE_MAX_DIMENSION / 2);
+        return Math.max(0, (int) Math.round(Math.sqrt(
+                dx * (double) dx + dy * (double) dy + dz * (double) dz)));
     }
 
     private BlockPos resolveAdvancedBoxSecondPoint(ShapeBuildTypes.Session session, BlockHitResult hit) {
@@ -1902,8 +1901,11 @@ public final class ScreenShapeController {
         int maxVolume = rangeDestroy
                 ? configInt(Config::areaMineMaxVolume, DEFAULT_AREA_MINE_MAX_VOLUME)
                 : SHAPE_MAX_DIMENSION * SHAPE_MAX_DIMENSION * SHAPE_MAX_DIMENSION;
-        ShapeBuildTypes.Input effectiveInput = ShapeSelectionLimiter.clampDimensions(
-                input, maxWidth, maxHeight, maxDepth);
+        ShapeBuildTypes.Input effectiveInput = rangeDestroy
+                ? ShapeSelectionLimiter.clampDimensionsAndVolume(
+                        input, maxWidth, maxHeight, maxDepth, maxVolume)
+                : ShapeSelectionLimiter.clampDimensions(
+                        input, maxWidth, maxHeight, maxDepth);
         RtsCullingBox advancedBox = isAdvancedShapeSelectionSession() ? advancedRangeDestroyBox() : null;
         ShapeGenerationKey key = new ShapeGenerationKey(
                 effectiveInput, this.shapeFillMode, advancedBox, rangeDestroy,
@@ -1912,10 +1914,15 @@ public final class ScreenShapeController {
             return this.generatedShapePositions;
         }
 
-        List<BlockPos> positions = advancedBox != null
-                ? ShapeGeometryUtil.buildAdvancedShapePositions(
-                        effectiveInput.shape(), advancedBox, this.shapeFillMode, effectiveInput.planeFace())
-                : ShapeGeometryUtil.buildShapePositions(effectiveInput, this.shapeFillMode);
+        List<BlockPos> positions;
+        if (advancedBox != null) {
+            positions = ShapeGeometryUtil.buildAdvancedShapePositions(
+                    effectiveInput.shape(), advancedBox, this.shapeFillMode, effectiveInput.planeFace());
+        } else if (rangeDestroy) {
+            positions = ShapeGeometryUtil.buildRangeDestroyShapePositions(effectiveInput, this.shapeFillMode);
+        } else {
+            positions = ShapeGeometryUtil.buildShapePositions(effectiveInput, this.shapeFillMode);
+        }
         if (rangeDestroy) {
             positions = isRoundRangeDestroyShape(effectiveInput)
                     ? clampRoundRangeDestroyPositionsForCaps(
@@ -1984,9 +1991,9 @@ public final class ScreenShapeController {
         if (count == 0) {
             return true;
         }
-        int allowedWidth = Math.max(1, maxWidth) + 1;
-        int allowedHeight = Math.max(1, maxHeight) + 1;
-        int allowedDepth = Math.max(1, maxDepth) + 1;
+        int allowedWidth = Math.max(1, maxWidth);
+        int allowedHeight = Math.max(1, maxHeight);
+        int allowedDepth = Math.max(1, maxDepth);
         return count <= Math.max(1, maxVolume)
                 && (maxX - minX + 1) <= allowedWidth
                 && (maxY - minY + 1) <= allowedHeight

@@ -34,6 +34,8 @@ import com.rtsbuilding.rtsbuilding.server.task.RtsTaskEngine;
 import com.rtsbuilding.rtsbuilding.server.task.TaskType;
 import com.rtsbuilding.rtsbuilding.server.task.identity.SubmissionId;
 import com.rtsbuilding.rtsbuilding.server.task.identity.TaskId;
+import com.rtsbuilding.rtsbuilding.server.task.mining.MiningTaskCodec;
+import com.rtsbuilding.rtsbuilding.server.task.mining.MiningTaskState;
 import com.rtsbuilding.rtsbuilding.server.task.persistence.TaskPersistenceRuntime;
 import com.rtsbuilding.rtsbuilding.server.workflow.core.RtsWorkflowEngine;
 import com.rtsbuilding.rtsbuilding.server.workflow.model.RtsWorkflowType;
@@ -41,8 +43,10 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.core.BlockPos;
@@ -340,6 +344,39 @@ public final class RtsServerGameTests {
                     "Auto-store should put range-destroy drops into the linked chest");
             helper.assertTrue(!hasActiveTask(player, TaskType.DESTRUCTION),
                     "Auto-store area destroy should finish without an active durable task");
+            stopPlayers(player);
+        });
+    }
+
+    /**
+     * 回归 #132：水下方块被远程破坏后，掉落必须在水流推动实体前进入自动入库缓存。
+     */
+    @GameTest(template = EMPTY_TEMPLATE, timeoutTicks = 160)
+    public static void underwaterAreaDestroyAutoStoresDropsIntoLinkedChest(GameTestHelper helper) {
+        BlockPos chestRel = new BlockPos(1, 1, 1);
+        BlockPos targetRel = new BlockPos(4, 1, 4);
+        helper.setBlock(chestRel, Blocks.CHEST);
+        helper.setBlock(targetRel, Blocks.DIRT);
+        helper.setBlock(targetRel.above(), Blocks.WATER);
+        helper.setBlock(targetRel.above(2), Blocks.WATER);
+
+        ServerPlayer player = startRtsPlayer(helper, GameType.SURVIVAL);
+        RtsAPI.get().bindings().linkStorage(player, helper.absolutePos(chestRel),
+                RtsLinkedStorageResolver.LINK_MODE_BIDIRECTIONAL);
+        RtsAPI.get().bindings().setAutoStoreMinedDrops(player, true);
+        RtsAPI.get().mining().areaDestroy(player, asApiPositions(helper, List.of(targetRel)),
+                (byte) 0, "", ItemStack.EMPTY, false);
+
+        helper.succeedWhen(() -> {
+            helper.assertBlockPresent(Blocks.WATER, targetRel);
+            helper.assertValueEqual(1, countChestItem(helper, chestRel, Items.DIRT),
+                    "Underwater range-destroy drops should enter linked storage");
+            helper.assertValueEqual(0, countPlayerItem(player, Items.DIRT),
+                    "Underwater drops should not fall back to the player inventory");
+            helper.assertValueEqual(0, countWorldItem(helper, List.of(targetRel), Items.DIRT),
+                    "Underwater drops should not remain in or drift through the world");
+            helper.assertTrue(!hasActiveTask(player, TaskType.DESTRUCTION),
+                    "Underwater auto-store destruction should finish without an active task");
             stopPlayers(player);
         });
     }
@@ -699,6 +736,124 @@ public final class RtsServerGameTests {
             helper.assertTrue(!active,
                     "Completed chain mining should not leave an active durable task");
             stopPlayers(player);
+        });
+    }
+
+    /**
+     * 回归：上一轮连锁挖掘进入批处理后，新提交的另一轮连锁挖掘仍必须从独立的首块蓄力开始。
+     */
+    @GameTest(template = EMPTY_TEMPLATE, timeoutTicks = 100)
+    public static void queuedChainMiningStartsWithIndependentProgress(GameTestHelper helper) {
+        BlockPos firstRel = new BlockPos(3, 1, 3);
+        BlockPos secondRel = new BlockPos(8, 1, 8);
+        helper.setBlock(firstRel, Blocks.DIRT);
+        helper.setBlock(secondRel, Blocks.DIRT);
+
+        ServerPlayer player = startRtsPlayer(helper, GameType.SURVIVAL);
+        ItemStack firstShovel = new ItemStack(Items.DIAMOND_SHOVEL);
+        ItemStack secondShovel = new ItemStack(Items.DIAMOND_SHOVEL);
+        player.getInventory().setItem(0, firstShovel.copy());
+        player.getInventory().setItem(1, secondShovel.copy());
+
+        RtsAPI.get().mining().startUltimine(
+                player, helper.absolutePos(firstRel), Direction.UP,
+                (byte) 0, "", firstShovel, 1, (byte) 0, false);
+        RtsAPI.get().mining().startUltimine(
+                player, helper.absolutePos(secondRel), Direction.UP,
+                (byte) 1, "", secondShovel, 1, (byte) 0, false);
+
+        var activeMiningStates = TaskPersistenceRuntime.INSTANCE.coordinator().query()
+                .ownedBy(player.getUUID()).stream()
+                .filter(snapshot -> snapshot.type() == TaskType.MINING && !snapshot.state().terminal())
+                .map(snapshot -> MiningTaskCodec.decode(snapshot.payload()).state())
+                .toList();
+        helper.assertValueEqual(2, activeMiningStates.size(),
+                "Two separate chain-mining inputs should create two independent tasks");
+        for (MiningTaskState state : activeMiningStates) {
+            helper.assertTrue(state.mode() == MiningTaskState.Mode.PROGRESSIVE_SINGLE,
+                    "Every queued chain-mining task must charge its own first block");
+            helper.assertTrue(state.blockProgress() == 0.0F && state.visibleStage() == -1,
+                    "A new chain-mining task must not inherit progress from another task");
+        }
+
+        stopPlayers(player);
+        helper.succeed();
+    }
+
+    /**
+     * 两个连锁任务的目标允许部分重叠，但同一世界方块只能产生一次掉落；
+     * 已被另一个任务挖掉的目标应安全跳过，两个任务最终都必须结束。
+     */
+    @GameTest(template = EMPTY_TEMPLATE, timeoutTicks = 220)
+    public static void overlappingChainMiningCompletesWithoutDuplicateDrops(GameTestHelper helper) {
+        BlockPos chestRel = new BlockPos(1, 1, 1);
+        List<BlockPos> chainRel = new ArrayList<>();
+        for (int x = 3; x < 11; x++) {
+            BlockPos targetRel = new BlockPos(x, 1, 4);
+            chainRel.add(targetRel);
+            helper.setBlock(targetRel, Blocks.DIRT);
+        }
+        helper.setBlock(chestRel, Blocks.CHEST);
+
+        ServerPlayer player = startRtsPlayer(helper, GameType.SURVIVAL);
+        ItemStack firstShovel = new ItemStack(Items.DIAMOND_SHOVEL);
+        ItemStack secondShovel = new ItemStack(Items.DIAMOND_SHOVEL);
+        player.getInventory().setItem(0, firstShovel.copy());
+        player.getInventory().setItem(1, secondShovel.copy());
+        RtsAPI.get().bindings().linkStorage(player, helper.absolutePos(chestRel),
+                RtsLinkedStorageResolver.LINK_MODE_BIDIRECTIONAL);
+        RtsAPI.get().bindings().setAutoStoreMinedDrops(player, true);
+        RtsStorageSession session = requireSession(helper, player);
+
+        RtsAPI.get().mining().startUltimine(
+                player, helper.absolutePos(chainRel.getFirst()), Direction.UP,
+                (byte) 0, "", firstShovel, 5, (byte) 0, false);
+        RtsAPI.get().mining().startUltimine(
+                player, helper.absolutePos(chainRel.get(2)), Direction.UP,
+                (byte) 1, "", secondShovel, 5, (byte) 0, false);
+
+        var states = TaskPersistenceRuntime.INSTANCE.coordinator().query()
+                .ownedBy(player.getUUID()).stream()
+                .filter(snapshot -> snapshot.type() == TaskType.MINING && !snapshot.state().terminal())
+                .map(snapshot -> MiningTaskCodec.decode(snapshot.payload()).state())
+                .toList();
+        helper.assertValueEqual(2, states.size(),
+                "Overlapping chain inputs should remain two independent tasks");
+        Set<BlockPos> firstTargets = new LinkedHashSet<>(states.get(0).remainingTargets());
+        Set<BlockPos> secondTargets = new LinkedHashSet<>(states.get(1).remainingTargets());
+        Set<BlockPos> overlap = new LinkedHashSet<>(firstTargets);
+        overlap.retainAll(secondTargets);
+        helper.assertTrue(!overlap.isEmpty(),
+                "The regression fixture must contain overlapping chain-mining targets");
+        helper.assertTrue(firstTargets.contains(helper.absolutePos(chainRel.get(2))),
+                "The first task must be able to remove the second task's charged target");
+        Set<BlockPos> uniqueTargets = new LinkedHashSet<>(firstTargets);
+        uniqueTargets.addAll(secondTargets);
+        List<BlockPos> uniqueTargetsRel = uniqueTargets.stream().map(helper::relativePos).toList();
+
+        /*
+         * 给终态写入、工具归还和掉落入库留出稳定窗口，再移除假玩家。
+         * 这同时避免 GameTest 在任务刚转终态的同一 tick 关闭玩家连接。
+         */
+        helper.runAfterDelay(40, () -> {
+            for (BlockPos targetRel : uniqueTargetsRel) {
+                helper.assertBlockPresent(Blocks.AIR, targetRel);
+            }
+            int chestItems = countChestItem(helper, chestRel, Items.DIRT);
+            int bufferItems = countBufferedItem(session, Items.DIRT);
+            int inventoryItems = countPlayerItem(player, Items.DIRT);
+            int worldItems = countWorldItem(helper, chainRel, Items.DIRT);
+            helper.assertValueEqual(uniqueTargets.size(),
+                    chestItems + bufferItems + inventoryItems + worldItems,
+                    "Overlapping chain tasks must conserve exactly one drop per unique world block");
+            helper.assertValueEqual(0, bufferItems + inventoryItems + worldItems,
+                    "Completed overlapping chain drops should settle in linked storage");
+            helper.assertTrue(!hasActiveTask(player, TaskType.MINING),
+                    "Both overlapping chain-mining tasks must reach a terminal state");
+            helper.assertValueEqual(2, countPlayerItem(player, Items.DIAMOND_SHOVEL),
+                    "Overlapping chain tasks must return the borrowed tool exactly once");
+            stopPlayers(player);
+            helper.succeed();
         });
     }
 

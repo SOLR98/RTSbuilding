@@ -221,6 +221,28 @@ public final class RtsClientUiStateStore {
         CACHE.markDirty();
     }
 
+    /** Jade 面板是否在 RTS 模式下跟随鼠标。 */
+    public static synchronized boolean isJadePanelTrackMouseEnabled() {
+        return CACHE.get().overlay.jadePanelTrackMouse;
+    }
+
+    /** 设置 Jade 面板跟随鼠标；仅影响 RTS 模式。 */
+    public static synchronized void setJadePanelTrackMouseEnabled(boolean enabled) {
+        CACHE.get().overlay.jadePanelTrackMouse = enabled;
+        CACHE.markDirty();
+    }
+
+    /** Jade 面板是否在 RTS 模式下完全隐藏。 */
+    public static synchronized boolean isJadePanelHidden() {
+        return CACHE.get().overlay.jadePanelHidden;
+    }
+
+    /** 设置 Jade 面板隐藏状态；普通第一人称游戏中的 Jade 不受影响。 */
+    public static synchronized void setJadePanelHidden(boolean hidden) {
+        CACHE.get().overlay.jadePanelHidden = hidden;
+        CACHE.markDirty();
+    }
+
     public static synchronized boolean isStorageRefreshQuietEnabled() {
         return CACHE.get().storage.storageRefreshQuietEnabled;
     }
@@ -408,6 +430,8 @@ public final class RtsClientUiStateStore {
             public boolean overlayShiftImportEnabled = false;
             public boolean chunkCurtainVisible = false;
             public boolean playerStatusOverlayEnabled = true;
+            public boolean jadePanelTrackMouse = false;
+            public boolean jadePanelHidden = false;
         }
 
         /** 存储面板状态。 */
@@ -521,6 +545,8 @@ public final class RtsClientUiStateStore {
             clean.overlay.overlayShiftImportEnabled = this.overlay.overlayShiftImportEnabled;
             clean.overlay.chunkCurtainVisible = this.overlay.chunkCurtainVisible;
             clean.overlay.playerStatusOverlayEnabled = this.overlay.playerStatusOverlayEnabled;
+            clean.overlay.jadePanelTrackMouse = this.overlay.jadePanelTrackMouse;
+            clean.overlay.jadePanelHidden = this.overlay.jadePanelHidden;
             // storage
             clean.storage.storageRefreshQuietEnabled = this.storage.storageRefreshQuietEnabled;
             clean.storage.storageAutoRefreshEnabled = this.storage.storageAutoRefreshEnabled;

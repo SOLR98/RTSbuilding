@@ -2,6 +2,7 @@ package com.rtsbuilding.rtsbuilding.server.pipeline.blueprint;
 
 import com.rtsbuilding.rtsbuilding.common.blueprint.rule.BlueprintReplaceRules;
 import com.rtsbuilding.rtsbuilding.common.blueprint.sanitize.BlueprintBlockEntitySanitizer;
+import com.rtsbuilding.rtsbuilding.compat.create.BlueprintCreatePlacementCompat;
 import com.rtsbuilding.rtsbuilding.network.blueprint.BlueprintNetworkHandlers;
 import com.rtsbuilding.rtsbuilding.network.blueprint.S2CBlueprintStatusPayload;
 import com.rtsbuilding.rtsbuilding.server.pipeline.blueprint.BlockPlacementPlanner.PlacementPlan;
@@ -208,7 +209,7 @@ public final class BlueprintTickPipe {
             }
         }
 
-        if (!BlockPlacer.setBlock(level, plan.target(), plan.state())) {
+        if (!BlockPlacer.setBlueprintBlock(level, plan.target(), plan.state())) {
             if (!player.isCreative()) refund(player, extracted);
             return PlaceResult.BLOCKED;
         }
@@ -218,7 +219,10 @@ public final class BlueprintTickPipe {
             refund(player, extracted);
             return PlaceResult.UNSUPPORTED;
         }
-        BlockPlacer.applyBlueprintBlockEntity(level, plan.target(), blockEntityTag(player, plan));
+        BlockPlacer.applyBlueprintBlockEntity(level, plan.target(), blockEntityTag(player, level, plan));
+        BlockPlacer.finishBlueprintPlacement(
+                level, plan.target(), plan.state(),
+                extracted.isEmpty() ? ItemStack.EMPTY : extracted.getFirst());
         BlockPlacer.trackPlaced(level, plan.target());
         for (Item item : plan.items()) {
             ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
@@ -227,10 +231,14 @@ public final class BlueprintTickPipe {
         return PlaceResult.PLACED;
     }
 
-    private static CompoundTag blockEntityTag(ServerPlayer player, PlacementPlan plan) {
+    private static CompoundTag blockEntityTag(
+            ServerPlayer player, ServerLevel level, PlacementPlan plan) {
         if (plan.blockEntityTag() == null || plan.blockEntityTag().isEmpty()) return null;
-        if (player.isCreative() && player.canUseGameMasterBlocks()) return plan.blockEntityTag();
-        return BlueprintBlockEntitySanitizer.sanitizeForSurvivalPlacement(plan.blockEntityTag());
+        CompoundTag tag = player.isCreative() && player.canUseGameMasterBlocks()
+                ? plan.blockEntityTag()
+                : BlueprintBlockEntitySanitizer.sanitizeForSurvivalPlacement(plan.blockEntityTag());
+        return BlueprintCreatePlacementCompat.prepareBlockEntityTag(
+                level, plan.target(), plan.state(), tag);
     }
 
     private static boolean canStillPlace(

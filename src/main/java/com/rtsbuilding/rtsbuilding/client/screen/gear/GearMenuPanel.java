@@ -11,6 +11,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
+import net.neoforged.fml.ModList;
 
 import java.util.HashSet;
 import java.util.List;
@@ -222,6 +223,18 @@ public final class GearMenuPanel extends RtsWindowPanel {
                     "screen.rtsbuilding.settings.show_workflow_panel.hint",
                     RtsClientUiStateStore.isShowWorkflowPanelEnabled());
             rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.show_workflow_panel.hint");
+            if (isJadeLoaded()) {
+                drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                        "screen.rtsbuilding.settings.jade_panel_track_mouse",
+                        "screen.rtsbuilding.settings.jade_panel_track_mouse.hint",
+                        RtsClientUiStateStore.isJadePanelTrackMouseEnabled());
+                rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.jade_panel_track_mouse.hint");
+                drawSettingsToggleWithHint(g, mouseX, mouseY, x, w, rowY,
+                        "screen.rtsbuilding.settings.jade_panel_hidden",
+                        "screen.rtsbuilding.settings.jade_panel_hidden.hint",
+                        RtsClientUiStateStore.isJadePanelHidden());
+                rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.jade_panel_hidden.hint");
+            }
         }
         rowY += SECTION_GAP;
 
@@ -557,6 +570,28 @@ public final class GearMenuPanel extends RtsWindowPanel {
                 return;
             }
             rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.show_workflow_panel.hint");
+            if (isJadeLoaded()) {
+                if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                        "screen.rtsbuilding.settings.jade_panel_track_mouse.hint")) {
+                    return;
+                }
+                if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                        hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.jade_panel_track_mouse.hint"))) {
+                    screen.toggleJadePanelTrackMouse();
+                    return;
+                }
+                rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.jade_panel_track_mouse.hint");
+                if (handleHintExpandClick(mouseX, contentMouseY, x, w, rowY,
+                        "screen.rtsbuilding.settings.jade_panel_hidden.hint")) {
+                    return;
+                }
+                if (inside(mouseX, contentMouseY, x + 12, rowY, w - 24,
+                        hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.jade_panel_hidden.hint"))) {
+                    screen.toggleJadePanelHidden();
+                    return;
+                }
+                rowY += hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.jade_panel_hidden.hint");
+            }
         }
         rowY += SECTION_GAP;
 
@@ -891,13 +926,18 @@ public final class GearMenuPanel extends RtsWindowPanel {
                         + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.pan_drag_y_invert.hint")
                         + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.keyboard_batch_confirm.hint"));
         height += SECTION_GAP;
+        int jadeSettingsHeight = isJadeLoaded()
+                ? hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.jade_panel_track_mouse.hint")
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.jade_panel_hidden.hint")
+                : 0;
         height += sectionHeight(this.displayExpanded,
                 SCALE_ROW_H
                         + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.player_status_overlay.hint")
                         + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.container_overlay.hint")
                         + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.shift_import.hint")
                         + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.show_storage_ready_popup.hint")
-                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.show_workflow_panel.hint"));
+                        + hintToggleRowHeight(x, w, "screen.rtsbuilding.settings.show_workflow_panel.hint")
+                        + jadeSettingsHeight);
         height += SECTION_GAP;
         height += sectionHeight(this.helpersExpanded,
                 SIMPLE_TOGGLE_ROW_H
@@ -946,6 +986,10 @@ public final class GearMenuPanel extends RtsWindowPanel {
 
     private static boolean inside(double mouseX, double mouseY, int x, int y, int w, int h) {
         return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+    }
+
+    private static boolean isJadeLoaded() {
+        return ModList.get().isLoaded("jade");
     }
 
     private void drawToggleButton(GuiGraphics g, int mouseX, int mouseY, int x, int y, int w, int h,

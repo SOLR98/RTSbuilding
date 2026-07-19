@@ -1,6 +1,7 @@
 package com.rtsbuilding.rtsbuilding.server.plugin;
 
 import com.rtsbuilding.rtsbuilding.server.progression.RtsFeature;
+import com.rtsbuilding.rtsbuilding.server.service.mining.RangeMiningHarvestTier;
 import net.minecraft.resources.ResourceLocation;
 import org.junit.jupiter.api.Test;
 
@@ -58,6 +59,20 @@ class BuiltInRtsPluginCatalogTest {
         assertRange(byId, BuiltInRtsPluginCatalog.RANGE_EXTENSION_MAX, Integer.MAX_VALUE);
     }
 
+    @Test
+    void harvestTierPluginsMapToTheFourPlayerFacingLimits() {
+        Map<ResourceLocation, RtsPluginDefinition> byId = definitionsById();
+
+        assertHarvestTier(byId, BuiltInRtsPluginCatalog.HARVEST_TIER_WOOD,
+                RangeMiningHarvestTier.WOOD);
+        assertHarvestTier(byId, BuiltInRtsPluginCatalog.HARVEST_TIER_IRON,
+                RangeMiningHarvestTier.IRON);
+        assertHarvestTier(byId, BuiltInRtsPluginCatalog.HARVEST_TIER_DIAMOND,
+                RangeMiningHarvestTier.DIAMOND);
+        assertHarvestTier(byId, BuiltInRtsPluginCatalog.HARVEST_TIER_UNLIMITED,
+                RangeMiningHarvestTier.UNLIMITED);
+    }
+
     private static Map<ResourceLocation, RtsPluginDefinition> definitionsById() {
         return BuiltInRtsPluginCatalog.definitions().stream()
                 .collect(Collectors.toMap(RtsPluginDefinition::id, Function.identity()));
@@ -78,5 +93,13 @@ class BuiltInRtsPluginCatalogTest {
         assertTrue(definition != null, "缺少范围插件定义: " + pluginId);
         assertEquals(RtsPluginFamily.RANGE_EXTENSION, definition.family());
         assertEquals(radius, definition.radiusBlocks());
+    }
+
+    private static void assertHarvestTier(Map<ResourceLocation, RtsPluginDefinition> byId,
+            ResourceLocation pluginId, RangeMiningHarvestTier tier) {
+        RtsPluginDefinition definition = byId.get(pluginId);
+        assertTrue(definition != null, "缺少采掘等级插件定义: " + pluginId);
+        assertEquals(RtsPluginFamily.HARVEST_TIER, definition.family());
+        assertEquals(tier, definition.harvestTier());
     }
 }
